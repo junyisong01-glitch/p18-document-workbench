@@ -1,0 +1,25 @@
+# Local credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# User documents, derived files, databases and logs
+runtime/
+uploads/
+data/
+*.sqlite*
+*.db
+*.log
+
+# Dependencies and build caches
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+test-results/
+playwright-report/
+dist/
