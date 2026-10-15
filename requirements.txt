@@ -1,0 +1,7 @@
+fastapi==0.143.1
+uvicorn==0.54.0
+python-multipart==0.0.32
+PyMuPDF==1.28.2
+python-docx==1.2.0
+olefile==0.47
+
