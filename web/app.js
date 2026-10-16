@@ -3,7 +3,7 @@ if (window.location.protocol === 'file:') {
 } else {
 const $ = (selector) => document.querySelector(selector);
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const states = {queued:'等待处理',converting:'转换与解析中',parsing:'解析与检查中',review:'等待复核',held:'暂不入库',ready:'待接入知识库',failed:'处理失败',deleting:'删除中',delete_failed:'删除未完成'};
+const states = {queued:'等待处理',converting:'转换与解析中',parsing:'解析与检查中',review:'等待复核',held:'暂不入库',ready:'待构建',failed:'处理失败',deleting:'删除中',delete_failed:'删除未完成'};
 const qualities = {pending:'等待检查',clear:'未发现明显异常',review:'需要复核',failed:'处理失败'};
 const busyStates = new Set(['queued','converting','parsing']);
 let records = [], selected = [], current = null, page = 1, previewPages = 0, onlyReview = false, uploadBusy = false;
@@ -18,14 +18,14 @@ async function api(path, options={}) {
   return data;
 }
 function badge(doc) {return `<span class="badge ${doc.state==='failed'||doc.state==='delete_failed'?'failed':doc.state==='review'||doc.state==='held'?'review':busyStates.has(doc.state)?'processing':'ready'}">${esc(states[doc.state]||doc.state)}</span>`;}
-function qualityBadge(doc) {return `<span class="badge ${esc(doc.quality)}">${esc(qualities[doc.quality]||'待检查')}${doc.issues_count ? ` · ${doc.issues_count} 项` : ''}</span>`;}
+function qualityBadge(doc) {if(doc.review_completed)return `<span class="badge ${doc.admission?.incomplete?'review':'ready'}">已复核${doc.admission?.incomplete?' · 内容不完整':''}</span>`;return `<span class="badge ${esc(doc.quality)}">${esc(qualities[doc.quality]||'待检查')}${doc.issues_count ? ` · ${doc.issues_count} 项` : ''}</span>`;}
 
 function renderList() {
   const q = $('#search').value.trim().toLocaleLowerCase(), state = $('#state-filter').value, quality = $('#quality-filter').value;
-  const filtered = records.filter(d => d.name.toLocaleLowerCase().includes(q) && (!state || (state==='processing'?busyStates.has(d.state):d.state===state)) && (!quality || d.quality===quality) && (!onlyReview || d.quality==='review'));
+  const filtered = records.filter(d => d.name.toLocaleLowerCase().includes(q) && (!state || (state==='processing'?busyStates.has(d.state):d.state===state)) && (!quality || d.quality===quality) && (!onlyReview || d.review_pending));
   $('#nav-count').textContent=records.length; $('#stat-total').textContent=records.length;
   $('#stat-processing').textContent=records.filter(d=>busyStates.has(d.state)).length;
-  $('#stat-review').textContent=records.filter(d=>['review','held'].includes(d.state)).length;
+  $('#stat-review').textContent=records.filter(d=>d.review_pending).length;
   $('#stat-ready').textContent=records.filter(d=>d.state==='ready').length;
   $('#file-count').textContent=`${records.length} 份`;
   $('#documents').innerHTML=filtered.map(d=>`<tr><td><div class="file-cell"><span class="file-icon ${d.ext!=='.pdf'?'word':''}">${esc(d.ext.slice(1).toUpperCase())}</span><div><button class="file-title" data-open="${d.id}">${esc(d.name)}</button><div class="file-sub">${size(d.size)}${d.characters?` · ${d.characters.toLocaleString()} 字符`:''}${d.replaces?' · 替换文件':''}</div></div></div></td><td class="timestamp">${date(d.created_at)}</td><td>${badge(d)}</td><td>${qualityBadge(d)}</td><td><div class="row-actions">${d.state!=='delete_failed'?`<button data-open="${d.id}">${d.state==='review'?'去复核':'查看'}</button>`:''}${d.state==='failed'?`<button data-retry="${d.id}">重试</button>`:''}<button class="danger" data-delete="${d.id}">${d.state==='delete_failed'?'重试删除':'删除'}</button></div></td></tr>`).join('');
@@ -55,21 +55,31 @@ async function openDetail(id, preserve=false) {
   try {
     const doc=await api(`/api/documents/${id}`);
     if(request!==detailRequest) return;
+    const resetReview=!preserve || current?.revision!==doc.revision;
     current=doc;if(!preserve)page=1;
+    if(resetReview){$('#reviewer').value='';$('#review-note').value='';}
     $('#list-view').hidden=true;$('#detail-view').hidden=false;
     $('#detail-name').textContent=doc.name;
     $('#detail-meta').textContent=`${doc.ext.slice(1).toUpperCase()} · ${size(doc.size)} · 上传于 ${date(doc.created_at)} · 第 ${doc.revision} 次解析`;
-    let statusText=doc.error || (doc.state==='ready'?'解析资料已备好；知识库尚未接通，当前不可检索。':doc.state==='review'?'检测到需复核内容。请查看问题位置，再决定是否使用已提取内容。':doc.state==='held'?'你选择了暂不入库。原文件与提取内容已保留，可继续核对。':'正在本机处理，请稍候；无需保持上传窗口打开。');
-    $('#detail-status').innerHTML=`<div>${badge(doc)} ${qualityBadge(doc)}<strong>${esc(statusText)}</strong>${doc.quality==='review'?'<span>部分内容未解析或结构待核对；确认使用不会消除风险标识。</span>':''}${doc.state==='failed'?`<button class="text-button" data-retry="${doc.id}">重新处理</button>`:''}</div>`;
+    let statusText=doc.error || (doc.state==='ready'?(doc.build?.message || '符合条件，待构建；知识库尚未接通，当前不可检索。'):doc.state==='review'?'检测到需复核内容。请查看问题位置，再决定是否使用已提取内容。':doc.state==='held'?'你选择了暂不入库。原文件与提取内容已保留，可继续核对。':'正在本机处理，请稍候；无需保持上传窗口打开。');
+    $('#detail-status').innerHTML=`<div>${badge(doc)} ${qualityBadge(doc)}<strong>${esc(statusText)}</strong>${doc.admission?.incomplete?'<span>部分内容未解析，复核后仍保留内容不完整风险。</span>':doc.review_completed?'<span>已完成复核，原检查提示和审核记录保留供查阅。</span>':doc.quality==='review'?'<span>请核对检查提示后记录复核结论。</span>':''}${doc.state==='failed'?`<button class="text-button" data-retry="${doc.id}">重新处理</button>`:''}</div>`;
     $('#preview-warnings').innerHTML=(doc.result?.preview_warnings||[]).map(t=>`<div class="preview-warning">${esc(t)}</div>`).join('');
     const issues=doc.result?.issues||[];
     $('#issue-count').textContent=`${issues.length} 项`;
     $('#issues').innerHTML=issues.length?issues.map((it,i)=>`<button class="issue-item" data-issue="${i}"><strong>${it.page?`第 ${it.page} 页`:it.block?'正文 / 表格位置':'文档级提示'}</strong>${esc(it.message)}<span class="link-label">${it.page?'查看对应原文页 →':it.block?'定位提取内容 →':'核对整份文档'}</span></button>`).join(''):`<p class="subtitle">${doc.quality==='clear'?'自动检查未发现明显异常，仍建议抽查内容。':'尚无可定位的问题，请查看处理提示。'}</p>`;
+    $('#admission-summary').innerHTML=`<strong>入库条件检查</strong><p>${esc(doc.build?.message || '等待检查')}</p>${(doc.admission?.categories||[]).map(c=>`<p class="badge review">${esc(c.label)}</p>`).join('')}${doc.admission?.incomplete?'<p>部分内容未解析；后续检索与问答仍须保留风险提示。</p>':''}${doc.review_decision?`<p>最近复核：${esc({accepted:'确认内容可用',incorrect:'确认有误，暂不入库',uncertain:'无法判断，暂不入库'}[doc.review_decision.outcome])}</p>`:''}`;
+    $('#review-checks').innerHTML=(doc.admission?.requirements||[]).map(r=>`<label style="display:block;margin:12px 0"><input type="checkbox" data-review-check="${esc(r.key)}"> ${esc(r.label)}</label>`).join('');
+    $('#accept').textContent=doc.admission?.incomplete?'确认使用已提取内容':'确认内容可用';
+    $('#accept').disabled=(doc.admission?.categories||[]).some(c=>c.code==='unusable');
     $('#review-actions').hidden=!['review','held'].includes(doc.state);
     $('#text-count').textContent=`${(doc.characters||0).toLocaleString()} 字符`;
-    const labels={uploaded:'文件已上传',extraction_finished:'解析检查完成',review_accept:'已确认使用当前提取内容',review_hold:'选择暂不入库',retry:'重新处理',replacement_prepared:'替换资料已备好'};
-    $('#review-history').innerHTML='<strong>处理记录</strong>'+(doc.events||[]).map(e=>`<div class="history-item">${esc(labels[e.action]||e.action)}<br>${date(e.at)} · 解析 ${e.revision}</div>`).join('');
+    const labels={uploaded:'文件已上传',extraction_finished:'解析检查完成',review_accept:'已确认使用当前提取内容',review_hold:'选择暂不入库',retry:'重新处理',replacement_prepared:'替换资料已备好',admission_review_required:'入库规则更新，需按异常类别补充复核'};
+    $('#review-history').innerHTML=`<strong>处理与审核记录 · ${(doc.events||[]).filter(e=>e.action.startsWith('review_')).length} 次审核</strong>`+(doc.events||[]).map(e=>{
+      const r=e.payload, isReview=e.action.startsWith('review_');
+      return `<div class="history-item">${esc(labels[e.action]||e.action)}<br>${date(e.at)} · 解析 ${e.revision}${isReview?`<br>审核人：${esc(r?.reviewer||'未记录')}${r?.reviewer?'（人工填写，身份未验证）':''}<br>结论：${esc(r?{accepted:'确认内容可用',incorrect:'确认有误，暂不入库',uncertain:'无法判断，暂不入库'}[r.outcome]:e.action==='review_accept'?'确认使用':'暂不入库')}<br>文件：${esc(r?.document_name||doc.name)}${r?`<br>核对项：${(r.requirements||[]).map(q=>`${r.checks?.[q.key]?'已确认':'未确认'}：${esc(q.label)}`).join('；')||'无'}<br>问题：${[...(r.issues||[]).map(i=>`${i.page?'第 '+i.page+' 页':i.block||'文档级'}：${i.message||i.kind}`),...(r.preview_warnings||[])].map(esc).join('；')||'无'}<br>备注：${esc(r.note||'未填写')}`:'<br>旧记录未保存详细审核信息'}`:''}</div>`;
+    }).join('');
     for (const select of [$('#left-kind'),$('#right-kind')]) {
+      select.querySelector('[value="original"]').textContent=doc.ext==='.pdf'?'原文件预览':'Word 转换预览';
       const option=select.querySelector('[value="converted"]');option.disabled=!doc.result?.converted;
       if(!preserve)select.value=select.id==='left-kind'?'original':'extracted';
       else if(select.value==='converted'&&!doc.result?.converted)select.value='original';
@@ -91,7 +101,7 @@ async function renderPanes() {
       if(request!==previewRequest)return;
       maxPages=Math.max(maxPages,meta.pages);
       const p=Math.min(page,meta.pages);
-      container.innerHTML=`<img src="/api/documents/${doc.id}/preview/${kind}/${p}?revision=${doc.revision}" alt="${esc(doc.name)} ${kind==='converted'?'转换副本':'原文件'}预览，第 ${p} 页">`;
+      container.innerHTML=`<img src="/api/documents/${doc.id}/preview/${kind}/${p}?revision=${doc.revision}" alt="${esc(doc.name)} ${kind==='converted'?'转换副本预览':doc.ext==='.pdf'?'原文件预览':'Word 转换预览'}，第 ${p} 页">`;
     } catch(error) {if(request===previewRequest)container.innerHTML=`<p class="pane-empty">${esc(error.message)}</p>`;}
   }));
   if(request!==previewRequest)return;
@@ -100,6 +110,7 @@ async function renderPanes() {
   $('#page-prev').disabled=page<=1;$('#page-next').disabled=page>=maxPages;
   $('#preview-note').textContent=doc.ext==='.pdf'?'页码按原 PDF 物理页序计算，可能与印刷页码不同。':'Word 预览由转换生成，排版可能变化；不能据此保证原始排版一致。问题按段落或表格定位。';
   const download=$('#left-download');download.hidden=left==='extracted';download.href=`/api/documents/${doc.id}/file/${left}`;
+  download.textContent=left==='converted'?'下载转换副本 ↗':'下载原文件 ↗';
 }
 function focusIssue(index) {
   const it=current?.result?.issues[index];if(!it)return;
@@ -122,10 +133,16 @@ async function removeDoc(id) {
   try{await api(`/api/documents/${id}`,{method:'DELETE'});if(current?.id===id)back();await refresh();toast('文档及处理副本已删除。');}catch(e){toast(e.message);await refresh();}
 }
 async function retryDoc(id){try{await api(`/api/documents/${id}/retry`,{method:'POST'});await refresh();toast('已加入处理队列。');}catch(e){toast(e.message);}}
-async function reviewDoc(action){
+async function reviewDoc(action,outcome='uncertain'){
   if(!current)return;
-  if(action==='accept'&&!await ask('确认使用已提取内容？','当前结果可能存在遗漏或结构问题。确认后资料将备好，等待后续知识库接入；风险标识仍会保留。','确认使用'))return;
-  try{await api(`/api/documents/${current.id}/review`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,revision:current.revision})});await refresh();toast(action==='accept'?'已记录复核确认；风险提示仍保留。':'已暂缓入库。');}catch(e){toast(e.message);}
+  const reviewer=$('#reviewer').value.trim(),note=$('#review-note').value.trim();
+  if(!reviewer){$('#reviewer').focus();return toast('请先填写审核人姓名或工号。');}
+  const checks=Object.fromEntries([...document.querySelectorAll('[data-review-check]')].map(el=>[el.dataset.reviewCheck,el.checked]));
+  if(action==='accept'){
+    if((current.admission?.requirements||[]).some(r=>checks[r.key]!==true))return toast('请先逐项核对并勾选确认。有错误或无法判断时，请选择暂不入库。');
+    if(!await ask('确认当前内容可用？','确认后自动进入待构建；已有风险和复核记录仍保留。已知错误不能仅通过接受风险放行。知识库服务尚未接通，当前不可检索。','确认使用'))return;
+  }
+  try{await api(`/api/documents/${current.id}/review`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,outcome,checks,reviewer,note,revision:current.revision})});await refresh();toast(action==='accept'?'已确认，自动进入待构建；风险提示仍保留。':'已暂缓入库，请修正或更换文件后重新检查。');}catch(e){toast(e.message);}
 }
 function openUpload(){if(!uploadBusy){selected=[];$('#file-input').value='';$('#upload-results').innerHTML='';renderSelected();}$('#upload-dialog').showModal();}
 function chooseFiles(files){if(uploadBusy)return;selected=Array.from(files);$('#upload-results').innerHTML='';renderSelected();}
@@ -167,7 +184,7 @@ $('#refresh').onclick=refresh;$('#back').onclick=back;$('#nav-documents').onclic
 $('#upload-open').onclick=openUpload;$('#empty-upload').onclick=openUpload;$('#file-input').onchange=e=>chooseFiles(e.target.files);$('#upload-submit').onclick=submitUpload;
 $('#dropzone').ondragover=e=>{e.preventDefault();$('#dropzone').classList.add('dragover');};$('#dropzone').ondragleave=()=>$('#dropzone').classList.remove('dragover');$('#dropzone').ondrop=e=>{e.preventDefault();$('#dropzone').classList.remove('dragover');chooseFiles(e.dataTransfer.files);};
 $('#upload-dialog').addEventListener('cancel',e=>{if(uploadBusy)e.preventDefault();});
-$('#detail-delete').onclick=()=>current&&removeDoc(current.id);$('#accept').onclick=()=>reviewDoc('accept');$('#hold').onclick=()=>reviewDoc('hold');
+$('#detail-delete').onclick=()=>current&&removeDoc(current.id);$('#accept').onclick=()=>reviewDoc('accept');$('#hold').onclick=()=>reviewDoc('hold','uncertain');$('#incorrect').onclick=()=>reviewDoc('hold','incorrect');
 $('#left-kind').onchange=renderPanes;$('#right-kind').onchange=renderPanes;$('#page-prev').onclick=()=>{if(page>1){page--;renderPanes();}};$('#page-next').onclick=()=>{if(page<previewPages){page++;renderPanes();}};
 document.addEventListener('click',e=>{const button=e.target.closest('[data-open],[data-delete],[data-retry],[data-issue]');if(!button)return;if(button.dataset.open)openDetail(button.dataset.open);else if(button.dataset.delete)removeDoc(button.dataset.delete);else if(button.dataset.retry)retryDoc(button.dataset.retry);else focusIssue(Number(button.dataset.issue));});
 refresh();setInterval(refresh,2500);

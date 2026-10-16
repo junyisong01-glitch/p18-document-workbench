@@ -85,9 +85,9 @@ def test_mixed_pdf_review_and_revision_guard(client):
     item=upload(client,data=pdf.tobytes());pdf.close();doc=wait(client,item['id'])
     assert doc['state']=='review' and doc['result']['issues'][0]['page']==2
     route=f"/api/documents/{item['id']}/review"
-    assert client.post(route,headers=HEADERS,json={'action':'accept','revision':99}).status_code==409
-    assert client.post(route,headers=HEADERS,json={'action':'hold','revision':1}).json()['state']=='held'
-    result=client.post(route,headers=HEADERS,json={'action':'accept','revision':1}).json()
+    assert client.post(route,headers=HEADERS,json={'reviewer':'测试审核员','action':'accept','revision':99}).status_code==409
+    assert client.post(route,headers=HEADERS,json={'reviewer':'测试审核员','action':'hold','revision':1}).json()['state']=='held'
+    result=client.post(route,headers=HEADERS,json={'reviewer':'测试审核员','action':'accept','revision':1,'checks':{'accept_incomplete':True}}).json()
     assert result['state']=='ready' and result['quality']=='review' and result['issues_count']==1
     assert client.get(f"/api/documents/{item['id']}").json()['events'][-1]['action']=='review_accept'
 
@@ -171,10 +171,13 @@ def test_doc_conversion_missing_dependency(tmp_path,monkeypatch):
 
 
 def test_entry_assets_resolve_from_http_and_file_paths(client):
+    import re
+    from urllib.parse import urlsplit
     html = client.get('/').text
-    assert 'href="style.css"' in html and 'src="app.js"' in html
+    script_src = re.search(r'<script src="([^"]+)"', html).group(1)
+    assert 'href="style.css"' in html and urlsplit(script_src).path == 'app.js'
     assert client.get('/style.css').status_code == 200
-    script = client.get('/app.js')
+    script = client.get('/' + script_src)
     assert script.status_code == 200 and 'text/javascript' in script.headers['content-type']
     assert "window.location.protocol === 'file:'" in script.text
 
@@ -184,3 +187,129 @@ def test_launcher_reuses_healthy_server():
     with patch.object(launch, 'healthy', return_value=True), patch.object(launch.subprocess, 'Popen') as spawn:
         launch.launch(False)
         spawn.assert_not_called()
+
+
+def test_word_preview_preserves_chinese(tmp_path):
+    """Exercise the actual converter: successful PDF creation alone is insufficient."""
+    from app.parser import convert, soffice_path
+    if not soffice_path():
+        pytest.skip('LibreOffice is not installed')
+    source = tmp_path / 'chinese.docx'
+    document = Document()
+    document.add_heading('虚构设备预约接口说明', 0)
+    document.add_paragraph('预约时长不得超过 120 分钟。')
+    table = document.add_table(rows=2, cols=2)
+    for row, values in zip(table.rows, [('参数', '说明'), ('device_id', '设备编号')]):
+        for cell, value in zip(row.cells, values):
+            cell.text = value
+    document.save(source)
+    with fitz.open(convert(source, tmp_path / 'preview', 'pdf')) as pdf:
+        text = ''.join(page.get_text() for page in pdf)
+        for expected in ['虚构设备预约接口说明', '预约时长不得超过', '参数', '设备编号', 'device_id']:
+            assert expected in text
+
+
+def test_clear_auto_build_intent_and_failed_blocked(client):
+    item=upload(client);doc=wait(client,item['id'])
+    assert doc['admission']['eligible'] and doc['build']['status']=='waiting'
+    assert doc['build']['reason']=='pipeline_not_connected' and not doc['build']['searchable']
+    intent=doc['build']['request_id']
+    main.save(main.get(item['id']))
+    assert main.get(item['id'])['build']['request_id']==intent
+    bad=upload(client,name='invalid.pdf',data=b'invalid');failed=wait(client,bad['id'])
+    assert not failed['admission']['eligible'] and failed['build']['request_id'] is None
+    assert failed['admission']['categories'][0]['code']=='unusable'
+
+
+@pytest.mark.parametrize('kind,key', [('image','accept_incomplete'),('table','structure_correct'),('characters','text_correct'),('future_issue','structure_correct'),('preview','preview_checked')])
+def test_category_review_guard(client,kind,key):
+    item=upload(client);doc=wait(client,item['id'])
+    doc.update(state='review',quality='review')
+    if kind=='preview':doc['result']['preview_warnings']=['预览生成失败']
+    else:doc['result']['issues']=[{'kind':kind,'message':'核对','page':1}]
+    main.save(doc)
+    route=f"/api/documents/{item['id']}/review"
+    assert client.post(route,headers=HEADERS,json={'reviewer':'测试审核员','action':'accept','revision':1}).status_code==400
+    held=client.post(route,headers=HEADERS,json={'reviewer':'测试审核员','action':'hold','revision':1,'outcome':'incorrect'}).json()
+    assert held['state']=='held' and held['build']['status']=='blocked'
+    assert held['review_decision']['outcome']=='incorrect'
+    accepted=client.post(route,headers=HEADERS,json={'reviewer':'测试审核员','action':'accept','revision':1,'checks':{key:True}}).json()
+    assert accepted['admission']['eligible'] and accepted['build']['status']=='waiting'
+    assert accepted['quality']=='review' and accepted['review_decision']['revision']==1
+    assert client.post(route,headers=HEADERS,json={'reviewer':'测试审核员','action':'accept','revision':1,'checks':{key:True}}).status_code==409
+
+
+def test_multiple_categories_require_all_checks_and_current_revision(client):
+    item=upload(client);doc=wait(client,item['id']);doc.update(state='review',quality='review')
+    doc['result']['issues']=[{'kind':'image'}, {'kind':'table'}, {'kind':'characters'}]
+    main.save(doc);route=f"/api/documents/{item['id']}/review"
+    assert client.post(route,headers=HEADERS,json={'reviewer':'测试审核员','action':'accept','revision':1,'checks':{'accept_incomplete':True}}).status_code==400
+    checks={'accept_incomplete':True,'structure_correct':True,'text_correct':True}
+    assert client.post(route,headers=HEADERS,json={'reviewer':'测试审核员','action':'accept','revision':1,'checks':checks}).json()['build']['status']=='waiting'
+    doc=main.get(item['id']);doc['revision']=2;main.save(doc)
+    assert not main.get(item['id'])['admission']['eligible']
+
+
+def test_legacy_acceptance_requires_category_review_on_restart(client):
+    item=upload(client);doc=wait(client,item['id']);doc['result']['issues']=[{'kind':'image'}]
+    doc['quality']='review';main.save(doc)
+    import asyncio
+    async def restart():
+        async with main.lifespan(main.app):pass
+    asyncio.run(restart())
+    current=main.get(item['id'])
+    assert current['state']=='review' and current['build']['status']=='blocked'
+
+
+def test_preview_failure_goes_to_review_without_losing_text(client):
+    result={'blocks':[], 'issues':[], 'characters':10,'preview_warnings':['预览失败']}
+    # Run through the actual worker-completion path while simulating converter output.
+    with patch.object(main.POOL,'submit'):item=upload(client)
+    class Worker:
+        returncode=0
+        def wait(self,timeout=None):
+            import json
+            (main.folder_for(item['id'])/'result.json').write_text(json.dumps(result))
+    with patch.object(main.subprocess,'Popen',return_value=Worker()):main.run_job(item['id'],1)
+    doc=main.get(item['id'])
+    assert doc['state']=='review' and doc['characters']==10
+    assert doc['admission']['categories']==[{'code':'preview','label':'仅预览异常'}]
+
+
+def test_reviewer_required_and_history_append_only(client):
+    item=upload(client);doc=wait(client,item['id'])
+    doc.update(state='review',quality='review')
+    doc['result']['issues']=[{'kind':'image','message':'图片未识别','page':1}]
+    main.save(doc);route=f"/api/documents/{item['id']}/review"
+    for reviewer in [None, '', '  ', 123, 'x'*81]:
+        assert client.post(route,headers=HEADERS,json={'action':'hold','revision':1,'reviewer':reviewer}).status_code==400
+    assert main.get(item['id'])['state']=='review'
+    assert client.get(f"/api/documents/{item['id']}").json()['review_pending']
+    held=client.post(route,headers=HEADERS,json={'action':'hold','revision':1,'reviewer':'  甲  ','outcome':'uncertain','note':'需再次确认'}).json()
+    assert not held['review_pending'] and held['review_completed'] and held['state']=='held'
+    accepted=client.post(route,headers=HEADERS,json={'action':'accept','revision':1,'reviewer':'乙','checks':{'accept_incomplete':True},'note':'接受遗漏'}).json()
+    assert not accepted['review_pending'] and accepted['review_completed']
+    assert accepted['admission']['incomplete'] and accepted['quality']=='review'
+    events=client.get(f"/api/documents/{item['id']}").json()['events']
+    reviews=[e['payload'] for e in events if e['action'].startswith('review_')]
+    assert [r['reviewer'] for r in reviews]==['甲','乙']
+    assert reviews[0]['note']=='需再次确认' and reviews[1]['issues'][0]['page']==1
+    assert reviews[1]['requirements'][0]['key']=='accept_incomplete'
+    doc=main.get(item['id']);doc.update(state='review',revision=2);main.save(doc)
+    updated=client.get(f"/api/documents/{item['id']}").json()
+    assert updated['review_pending'] and not updated['review_completed']
+    assert len([e for e in updated['events'] if e['action'].startswith('review_')])==2
+
+
+def test_old_review_without_name_stays_completed(client):
+    item=upload(client);doc=wait(client,item['id'])
+    doc.update(quality='review',review_decision={'revision':1,'outcome':'accepted','checks':{'structure_correct':True}})
+    doc['result']['issues']=[{'kind':'table','message':'检查表格'}];main.save(doc)
+    main.event(doc,'review_accept')
+    import asyncio
+    async def restart():
+        async with main.lifespan(main.app):pass
+    asyncio.run(restart())
+    response=client.get(f"/api/documents/{item['id']}").json()
+    assert response['state']=='ready' and response['review_completed'] and not response['review_pending']
+    assert response['events'][-1]['payload'] is None

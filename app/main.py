@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.parser import soffice_path
+from app.admission import categories, requirements, confirmed, sync_admission
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = Path(os.environ.get("P18_DATA_DIR", ROOT / "runtime"))
@@ -49,9 +50,12 @@ def initialize():
     with connect() as conn:
         conn.execute("CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, body TEXT NOT NULL)")
         conn.execute("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, document_id TEXT, action TEXT, at TEXT, revision INTEGER)")
+        if "payload" not in {r[1] for r in conn.execute("PRAGMA table_info(events)")}:
+            conn.execute("ALTER TABLE events ADD COLUMN payload TEXT")
 
 
 def save(doc):
+    sync_admission(doc)
     doc["updated_at"] = now()
     with connect() as conn:
         conn.execute("INSERT OR REPLACE INTO documents VALUES (?, ?)", (doc["id"], json.dumps(doc, ensure_ascii=False)))
@@ -70,10 +74,10 @@ def all_docs():
         return [json.loads(r[0]) for r in conn.execute("SELECT body FROM documents")]
 
 
-def event(doc, action):
+def event(doc, action, payload=None):
     with connect() as conn:
-        conn.execute("INSERT INTO events (document_id, action, at, revision) VALUES (?, ?, ?, ?)",
-                     (doc["id"], action, now(), doc["revision"]))
+        conn.execute("INSERT INTO events (document_id, action, at, revision, payload) VALUES (?, ?, ?, ?, ?)",
+                     (doc["id"], action, now(), doc["revision"], json.dumps(payload, ensure_ascii=False) if payload is not None else None))
 
 
 def folder_for(identifier):
@@ -88,6 +92,9 @@ def folder_for(identifier):
 
 def public(doc, detailed=False):
     result = dict(doc)
+    result['review_pending'] = doc['state'] == 'review'
+    decision = doc.get('review_decision') or {}
+    result['review_completed'] = (doc['state'] in {'ready', 'held'} and decision.get('revision') == doc['revision'])
     if not detailed:
         result.pop("result", None)
     return result
@@ -145,11 +152,11 @@ def run_job(identifier, revision):
                 raise ValueError("文档处理进程中断，请重试或更换文件。")
             result = json.loads(result_file.read_text())
             doc["result"] = result
-            doc["issues_count"] = len(result["issues"])
+            doc["issues_count"] = len(result["issues"]) + len(result.get("preview_warnings", []))
             doc["characters"] = result["characters"]
             if result.get("error"):
                 doc.update(state="failed", quality="failed", error=result["error"])
-            elif result["issues"]:
+            elif result["issues"] or result.get("preview_warnings"):
                 doc.update(state="review", quality="review", error=None)
             else:
                 doc.update(state="ready", quality="clear", error=None)
@@ -176,11 +183,19 @@ async def lifespan(app):
     initialize()
     with LOCK:
         for doc in all_docs():
+            previous_state = doc["state"]
             if doc["state"] in STATES:
                 doc.update(state="failed", quality="failed", error="上次处理因服务停止而中断，请重试。")
                 save(doc)
             elif doc["state"] == "deleting":
                 doc.update(state="delete_failed", error="上次删除中断，请重试删除。")
+                save(doc)
+            # Old generic confirmations did not attest to category-specific
+            # checks. Keep history, but require one explicit review before use.
+            if doc['state'] == 'ready' and categories(doc) and not confirmed(doc):
+                doc.update(state='review', quality='review')
+                event(doc, 'admission_review_required')
+            if 'admission' not in doc or doc['state'] != previous_state:
                 save(doc)
     yield
     with LOCK:
@@ -228,7 +243,9 @@ def detail(identifier: str):
         if doc["state"] in {"deleted", "deleting", "delete_failed", "superseded"}:
             raise HTTPException(404, "文档不可用。")
         with connect() as conn:
-            events = [dict(row) for row in conn.execute("SELECT action, at, revision FROM events WHERE document_id=? ORDER BY id", (identifier,))]
+            events = [dict(row) for row in conn.execute("SELECT action, at, revision, payload FROM events WHERE document_id=? ORDER BY id", (identifier,))]
+        for item in events:
+            item["payload"] = json.loads(item["payload"]) if item["payload"] else None
         return {**public(doc, True), "events": events}
 
 
@@ -299,11 +316,34 @@ async def review(identifier: str, request: Request):
         action = body.get("action")
         if action not in {"accept", "hold"}:
             raise HTTPException(400, "请选择确认使用或暂不入库。")
+        reviewer = body.get('reviewer')
+        note = body.get('note', '')
+        if not isinstance(reviewer, str) or not reviewer.strip() or len(reviewer.strip()) > 80:
+            raise HTTPException(400, "请填写审核人姓名或工号（1–80 字符，人工填写，未验证身份）。")
+        if not isinstance(note, str) or len(note.strip()) > 2000:
+            raise HTTPException(400, "审核备注不能超过 2000 字符。")
+        reviewer, note = reviewer.strip(), note.strip()
+        checks = body.get('checks', {})
+        if not isinstance(checks, dict):
+            raise HTTPException(400, "复核确认格式不正确。")
+        if action == 'accept':
+            if 'unusable' in categories(doc):
+                raise HTTPException(409, "文件没有可用内容，不能确认入库，请更换文件或重新解析。")
+            if any(checks.get(r['key']) is not True for r in requirements(doc)):
+                raise HTTPException(400, "请逐项核对并确认；已知错误或无法判断的内容应暂不入库。")
+        outcome = 'accepted' if action == 'accept' else body.get('outcome', 'uncertain')
+        if outcome not in {'accepted', 'incorrect', 'uncertain'} or (action == 'hold' and outcome == 'accepted'):
+            raise HTTPException(400, "请选择确认有误或无法判断。")
+        doc['review_decision'] = {'revision': doc['revision'], 'outcome': outcome,
+                                  'checks': {r['key']: checks.get(r['key']) is True for r in requirements(doc)}, 'at': now(),
+                                  'reviewer': reviewer, 'identity_source': 'manual', 'note': note}
         doc.update(state="ready" if action == "accept" else "held", reviewed_at=now())
         if action == "accept":
             activate_replacement(doc)
         save(doc)
-        event(doc, "review_" + action)
+        event(doc, "review_" + action, {**doc['review_decision'], 'document_name': doc['name'],
+              'requirements': requirements(doc), 'issues': (doc.get('result') or {}).get('issues', []),
+              'preview_warnings': (doc.get('result') or {}).get('preview_warnings', [])})
         return public(doc, True)
 
 
@@ -315,7 +355,7 @@ def retry(identifier: str):
             return {"message": "任务已经在队列中或处理中。"}
         if doc["state"] != "failed":
             raise HTTPException(409, "只有处理失败的文档可以重试。")
-        doc.update(state="queued", quality="pending", error=None, reviewed_at=None, result=None,
+        doc.update(state="queued", quality="pending", error=None, reviewed_at=None, review_decision=None, result=None,
                    revision=doc["revision"] + 1, characters=0, issues_count=0)
         save(doc)
         event(doc, "retry")

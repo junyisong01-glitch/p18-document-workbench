@@ -65,10 +65,17 @@ def convert(source, target_dir, fmt):
     if not binary:
         raise ValueError("未配置 LibreOffice 转换服务；原文件已保留，请配置后重试。")
     target_dir.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    # The bundled macOS headless build needs an explicit fontconfig location
+    # to discover system CJK fonts. Keep caller-provided configuration intact.
+    fontconfig = Path(binary).resolve().parent.parent / "Resources" / "fontconfig"
+    if (fontconfig / "fonts.conf").is_file():
+        env.setdefault("FONTCONFIG_FILE", str(fontconfig / "fonts.conf"))
+        env.setdefault("FONTCONFIG_PATH", str(fontconfig))
     with tempfile.TemporaryDirectory(prefix="p18-office-") as profile:
         result = subprocess.run(
             [binary, f"-env:UserInstallation={Path(profile).as_uri()}", "--headless", "--convert-to", fmt,
-             "--outdir", str(target_dir), str(source)], capture_output=True, timeout=60,
+             "--outdir", str(target_dir), str(source)], capture_output=True, timeout=60, env=env,
         )
     output = target_dir / (source.stem + "." + fmt.split(":")[0])
     if result.returncode or not output.exists() or not output.stat().st_size:
