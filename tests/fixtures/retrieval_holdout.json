@@ -1,0 +1,115 @@
+{
+  "frozen_before_implementation": true,
+  "tuning_allowed": false,
+  "corpus": "RETRIEVAL-001/002 immutable 44 chunks",
+  "cases": [
+    {
+      "id": "H1",
+      "query": "申报表里的日常联系人是谁？",
+      "gold": [
+        "0aabdd58-ff74-5706-a8d0-83dc58f7b266"
+      ],
+      "evidence": "申报表项目基本信息：日常联系人辛腾飞",
+      "allow_no_answer": false
+    },
+    {
+      "id": "H2",
+      "query": "建议团队组建几人，需要哪些技能？",
+      "gold": [
+        "0aabdd58-ff74-5706-a8d0-83dc58f7b266"
+      ],
+      "evidence": "4-5人；Web前后端、文档解析等",
+      "allow_no_answer": false
+    },
+    {
+      "id": "H3",
+      "query": "项目准备在哪个实验室开展？",
+      "gold": [
+        "0aabdd58-ff74-5706-a8d0-83dc58f7b266"
+      ],
+      "evidence": "T12-309大数据综合实验室",
+      "allow_no_answer": false
+    },
+    {
+      "id": "H4",
+      "query": "取消设备预订要提前多长时间？",
+      "gold": [
+        "8ca84b9b-321b-56e4-be1b-6a4d36e11e0b"
+      ],
+      "evidence": "设备预约需求：开始前30分钟",
+      "allow_no_answer": false
+    },
+    {
+      "id": "H5",
+      "query": "设备维修期间能不能发起新的预约？",
+      "gold": [
+        "461b1433-6820-53de-ac91-b642d9ad1a31"
+      ],
+      "evidence": "设备预约异常处理：不能新增，通知调整",
+      "allow_no_answer": false
+    },
+    {
+      "id": "H6",
+      "query": "接口请求示例的duration取值是什么？",
+      "gold": [
+        "68735dac-f48f-57bb-9113-ef233d469232",
+        "fcbcf365-7ac1-5c3a-b79f-f214a779dd78",
+        "c72b96ad-99b7-5ac9-b138-3185d8e4ab35"
+      ],
+      "evidence": "三份接口示例JSON：60",
+      "allow_no_answer": false
+    },
+    {
+      "id": "H7",
+      "query": "支付请求复测了多少次，成功多少次？",
+      "gold": [
+        "9d8b82a4-a981-55a6-93ee-64444c8213e1"
+      ],
+      "evidence": "支付处理：20次/20次",
+      "allow_no_answer": false
+    },
+    {
+      "id": "H8",
+      "query": "第三方支付平台持续响应缓慢，有什么后续风险？",
+      "gold": [
+        "43bfa76e-f270-59da-a3fa-33001cfa8a2e"
+      ],
+      "evidence": "支付后续风险：订单状态延迟",
+      "allow_no_answer": false
+    },
+    {
+      "id": "H9",
+      "query": "这个支付故障发生在测试环境还是生产环境？",
+      "gold": [
+        "7e624a81-a637-5352-98b5-8a478a45cdeb"
+      ],
+      "evidence": "问题背景：仅测试环境，未发现生产影响",
+      "allow_no_answer": false
+    },
+    {
+      "id": "H10",
+      "query": "device_id对应的类型是什么，是否必填？",
+      "gold": [
+        "13115109-c4d9-54db-819d-eb7a6ed0f995",
+        "beb8eff0-dbe4-5d68-a571-f94b4de36566",
+        "00083672-c3d7-50f2-9ea4-7415092ebb6d"
+      ],
+      "evidence": "接口参数表：string、必填",
+      "allow_no_answer": false
+    },
+    {
+      "id": "H11",
+      "query": "服务器管理员的个人密码是什么？",
+      "gold": [],
+      "evidence": "文档没有该事实，不应提供密码",
+      "allow_no_answer": true
+    },
+    {
+      "id": "H12",
+      "query": "项目负责人家庭住址在哪里？",
+      "gold": [],
+      "evidence": "文档没有家庭住址，不应推断",
+      "allow_no_answer": true
+    }
+  ]
+}

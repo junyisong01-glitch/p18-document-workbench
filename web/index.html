@@ -5,7 +5,7 @@
   <title>P18 · 文档工作台</title>
   <link rel="stylesheet" href="style.css?v=20261017-semantic-ui">
   <script src="app.js?v=20261017-semantic-ui" defer></script>
-  <script src="static/search.js?v=20261017-semantic-ui" defer></script>
+  <script src="static/search.js?v=20261017-hybrid-003" defer></script>
 </head>
 <body>
   <aside class="sidebar">
@@ -41,7 +41,7 @@
       </form>
       <div id="semantic-service" class="search-service" role="status" aria-live="polite">正在检查本地检索服务…</div>
       <div class="retrieval-layout">
-        <section class="retrieval-results" aria-label="检索结果"><div class="retrieval-heading"><h2>相关片段</h2><span id="semantic-count">尚未搜索</span></div><p class="similarity-note">相似度表示向量接近程度，不代表答案正确率。这里展示原文片段，不生成回答。</p><p id="semantic-status" role="status" aria-live="polite">输入问题，开始查找资料。</p><div id="semantic-results"></div></section>
+        <section class="retrieval-results" aria-label="检索结果"><div class="retrieval-heading"><h2>相关片段</h2><span id="semantic-count">尚未搜索</span></div><p class="similarity-note">相似度表示向量接近程度，不代表答案正确率。相关片段可能不包含问题答案；这里只展示原文，不生成回答。</p><p id="semantic-status" role="status" aria-live="polite">输入问题，开始查找资料。</p><div id="semantic-results"></div></section>
         <section class="retrieval-preview" aria-label="检索原文预览"><div class="retrieval-heading"><h2>原文对照</h2><a id="semantic-download" class="text-button" hidden>下载原文件 ↗</a></div><h3 id="semantic-preview-name">尚未选择片段</h3><p id="semantic-source-note" class="source-note">搜索后选择相关片段，在这里核对来源。</p><div class="search-pager"><button id="semantic-prev" type="button" disabled aria-label="检索预览上一页">←</button><span id="semantic-page-label">暂无预览</span><button id="semantic-next" type="button" disabled aria-label="检索预览下一页">→</button></div><div id="semantic-preview-content" class="search-preview-content"><p class="pane-empty">原文预览将在此显示。</p></div></section>
       </div>
     </section>

@@ -28,3 +28,9 @@ assert.equal(element('#semantic-submit').disabled,true);
 assert.equal(element('#semantic-results').innerHTML,'');
 assert.match(element('#semantic-preview-content').innerHTML,/原文预览将在此显示/);
 console.log('3 offline controller assertions passed');
+
+const member={document_id:'d2',revision:1,index_token:'m'};
+const moreDocs=[...docs,{id:'d2',revision:1,index:{status:'complete',searchable:true,token:'m'}}];
+assert.equal(hitIsCurrent({...hit,members:[hit,member]},moreDocs),true);
+assert.equal(hitIsCurrent({...hit,members:[hit,{...member,index_token:'stale'}]},moreDocs),false);
+console.log('2 merged-source validity assertions passed');

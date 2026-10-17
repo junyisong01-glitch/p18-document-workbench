@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import uuid
+from typing import Literal
 
 import pymupdf as fitz
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Query
@@ -413,6 +414,7 @@ def require_semantic():
 
 
 class SearchBody(BaseModel):
+    mode: Literal["vector", "hybrid", "hybrid_dedup"] | None = None
     query: str = Field(min_length=1, max_length=2000)
     document_id: str | None = None
     top_k: int | None = Field(default=None, ge=1, le=50, strict=True)
@@ -426,7 +428,7 @@ def semantic_health():
             'model': service.config if service else None,
             'metrics': service.provider.metrics if service else {},
             'model_loaded': bool(service and service.provider.process and service.provider.process.is_alive()),
-            'scope': 'local', 'external_inference': False}
+            'scope': 'local', 'external_inference': False, 'retrieval_mode': os.environ.get('P18_SEARCH_MODE', 'vector')}
 
 
 @app.get('/api/documents/{identifier}/index')
@@ -464,7 +466,7 @@ def semantic_search(body: SearchBody):
     except ValueError:
         raise HTTPException(503, 'P18_SEARCH_TOP_K 必须为1–50。')
     try:
-        return service.search(body.query.strip(), body.document_id, top_k)
+        return service.search(body.query.strip(), body.document_id, top_k, mode=body.mode)
     except (EmbeddingError, SemanticError) as exc:
         raise HTTPException(503, {'code': exc.code, 'message': str(exc)}) from exc
 
