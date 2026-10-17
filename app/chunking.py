@@ -9,7 +9,7 @@ import os
 import re
 import uuid
 
-METHOD = 'local-rules-v2'
+METHOD = 'local-rules-v3'
 
 
 def configuration():
@@ -58,11 +58,16 @@ def units_from(doc):
     units, warnings = [], []
     section = '正文'
     inside_fence = None
+    source_section = None
     for block in (doc.get('result') or {}).get('blocks', []):
         raw = block.get('text', '')
         title = block.get('section') or block.get('label', '').split(' · ')[0]
-        if block.get('kind') == 'paragraph' and title and title != '正文' and not inside_fence:
-            section = title
+        if block.get('kind') == 'paragraph' and not inside_fence:
+            # Unchanged parent metadata must not erase a numbered subheading.
+            if title and title != source_section:
+                if title != '正文':
+                    section = title
+                source_section = title
         if block.get('kind') == 'table':
             caption = units[-1] if units and re.match(r'^\s*(?:表\s*\d+|Table\s+\d+)', units[-1]['text'], re.I) else None
             units.append({'kind': 'table', 'text': raw, 'section': section,
@@ -82,11 +87,17 @@ def units_from(doc):
         code_like = (inside_fence or CODE.search(raw) or block.get('style', '').lower() in {'code', 'source code'}
                      or raw.strip() in {'{','['}
                      or ('\n' in raw and raw.lstrip().startswith(('{', '['))))
-        parts = [(0, len(raw), raw)] if code_like else [(m.start(), m.end(), m.group()) for m in re.finditer(r'[^\n]+' if block.get('kind') == 'page' else r'[^\n]+(?:\n(?![ \t]*\n)[^\n]+)*', raw)]
+        if block.get('kind') == 'page' and not code_like:
+            # Fence state changes within a page. Keep blank lines inside code.
+            parts = [(m.start(), m.start() + len(m.group().removesuffix('\n')), m.group().removesuffix('\n'))
+                     for m in re.finditer(r'[^\n]*(?:\n|$)', raw) if m.start() < len(raw)]
+        else:
+            parts = [(0, len(raw), raw)] if code_like else [(m.start(), m.end(), m.group()) for m in re.finditer(r'[^\n]+(?:\n(?![ \t]*\n)[^\n]+)*', raw)]
         for start, end, text in parts:
-            if not text.strip():
+            part_code = (code_like or inside_fence or CODE.search(text)) if block.get('kind') == 'page' else code_like
+            if not text.strip() and not inside_fence:
                 continue
-            is_heading = (not inside_fence and not code_like and (block.get('heading_level') is not None or (len(text) < 100 and '\n' not in text and HEADING.match(text))))
+            is_heading = (not inside_fence and not part_code and (block.get('heading_level') is not None or (len(text) < 100 and '\n' not in text and HEADING.match(text))))
             if is_heading:
                 section = text.strip()
             if text.lstrip().startswith(('```', '~~~')):
@@ -95,7 +106,7 @@ def units_from(doc):
                     inside_fence = None
                 elif not inside_fence and text.count(marker) == 1:
                     inside_fence = marker
-            kind = 'heading' if is_heading else 'code' if code_like else 'steps' if STEP.match(text) else 'text'
+            kind = 'heading' if is_heading else 'code' if part_code else 'steps' if STEP.match(text) else 'text'
             units.append({'kind': kind, 'text': text if kind == 'code' else tidy(text),
                           'section': section, 'sources': [source_for(doc, block, start, end)]})
     if doc['ext'] == '.doc':
