@@ -29,11 +29,11 @@ def rig(tmp_path):
     def snapshot(id):
         if id not in docs or docs[id]['state']!='ready':return None
         return {'token':'token-'+id+'-'+str(docs[id]['revision']),'doc':docs[id],'chunks':[dict(chunks[id],revision=docs[id]['revision'])]}
-    def search(query,top_k):
+    def search(query,top_k,document_filter=None):
         assert top_k==20
         values=[]
         for id in docs:
-            if not snapshot(id):continue
+            if not snapshot(id) or (document_filter and not document_filter(docs[id])):continue
             values.append({'document_id':id,'document_name':docs[id]['name'],'chunk_id':chunks[id]['id'],'revision':docs[id]['revision'],
                            'index_token':snapshot(id)['token'],'text':chunks[id]['text'],'section':'正文','sources':[{'block_id':'p1'}],'risk':{'incomplete':False}})
         return {'results':values}
@@ -52,7 +52,7 @@ def test_default_no_permission_never_calls(rig):
 
 def test_second_evidence_and_explicit_consent(rig):
     rig.grant(['a','b']);p=rig.rag.prepare('项目负责人是谁？')
-    assert len(p['evidence'])==2 and p['blocked_count']==1
+    assert len(p['evidence'])==2 and p['blocked_count']==0
     with pytest.raises(RagError,match='明确同意'):rig.rag.answer(p['ticket'],False)
     result=rig.rag.answer(p['ticket'],True);assert result['citations'][0]['document_id']=='b'
     sent=json.dumps(rig.provider.requests,ensure_ascii=False);assert 'UNAUTHORIZED_PRIVATE' not in sent and 'secret.docx' not in sent
@@ -165,7 +165,7 @@ def test_successful_transport_payload_never_exposes_key(monkeypatch):
 
 def test_grouped_evidence_preserves_only_authorized_members(rig):
     original=rig.service.search('test',20)['results']
-    rig.service.search=lambda query,top_k:{'results':[dict(original[0],members=original)]}
+    rig.service.search=lambda query,top_k,document_filter=None:{'results':[dict(original[0],members=original)]}
     rig.grant(['a','b']);p=rig.rag.prepare('负责人是谁？')
     assert len(p['evidence'])==1 and len(p['evidence'][0]['members'])==2
     assert p['blocked_count']==1
@@ -181,3 +181,71 @@ def test_session_window_is_bounded(rig):
         p=rig.rag.prepare(f'第{n}轮项目负责人是谁？',sid);sid=p['session_id'];rig.rag.answer(p['ticket'],True)
     assert len(rig.rag.sessions[sid]['turns'])==3
     assert len(rig.rag.prepare('下一个明确问题',sid)['history'])==3
+
+
+def test_authorized_evidence_not_starved_by_twenty_higher_unlicensed_hits(rig):
+    # Simulate retrieval cutoff AFTER applying the caller's document scope.
+    original=rig.service.search
+    hits=original('q',20)['results']
+    high=[dict(hits[-1],chunk_id=f'private-{i}') for i in range(25)]
+    ranked=high+[hits[1]]
+    scopes=[]
+    def scoped_search(query,top_k,document_filter=None):
+        scopes.append(document_filter)
+        values=[h for h in ranked if document_filter is None or document_filter(rig.docs[h['document_id']])]
+        return {'results':values[:top_k]}
+    rig.service.search=scoped_search;rig.grant(['b'])
+    p=rig.rag.prepare('项目负责人是谁？')
+    assert scopes[0] is not None
+    assert [s['chunk_id'] for s in p['evidence']]==['chunk-b']
+    rig.provider.reply={'answer':'林晓岚。[S1]','citations':['S1']}
+    rig.rag.answer(p['ticket'],True)
+    assert 'UNAUTHORIZED_PRIVATE' not in json.dumps(rig.provider.requests)
+
+
+def test_network_wait_does_not_block_other_sessions_and_ticket_is_single_use(rig):
+    from concurrent.futures import ThreadPoolExecutor
+    entered=threading.Event();release=threading.Event()
+    rig.grant(['a','b']);first=rig.rag.prepare('项目负责人是谁？')
+    sibling=rig.rag.prepare('另一个问题',first['session_id'])
+    def wait():
+        if threading.current_thread().name.startswith('slow'):
+            entered.set();assert release.wait(5)
+    rig.provider.hook=wait
+    with ThreadPoolExecutor(1,thread_name_prefix='slow') as slow, ThreadPoolExecutor(1) as other:
+        pending=slow.submit(rig.rag.answer,first['ticket'],True)
+        try:
+            assert entered.wait(2)
+            # Busy sessions must survive pruning while a request is in flight.
+            rig.rag.sessions[first['session_id']]['at']-=2000
+            def unrelated():
+                p=rig.rag.prepare('另一会话的项目负责人？')
+                return rig.rag.answer(p['ticket'],True)
+            assert other.submit(unrelated).result(timeout=2)['status']=='answered'
+            with pytest.raises(RagError) as reused:rig.rag.answer(first['ticket'],True)
+            assert reused.value.code=='ticket_expired'
+            with pytest.raises(RagError) as busy:rig.rag.prepare('追问',first['session_id'])
+            assert busy.value.code=='session_busy'
+            with pytest.raises(RagError) as duplicate:rig.rag.answer(sibling['ticket'],True)
+            assert duplicate.value.code=='session_busy'
+            assert rig.rag.sessions[first['session_id']]['turns']==[]
+        finally:release.set()
+        assert pending.result(timeout=2)['status']=='answered'
+    assert len(rig.rag.sessions[first['session_id']]['turns'])==1
+    assert len(rig.provider.requests)==2
+    assert not rig.rag.sessions[first['session_id']]['busy']
+    assert rig.rag.prepare('完成后的问题',first['session_id'])['status']=='prepared'
+
+
+def test_failed_request_releases_session_without_reusing_ticket(rig):
+    rig.grant(['a','b']);p=rig.rag.prepare('负责人？')
+    def fail():raise RagError('api_timeout','测试超时')
+    rig.provider.hook=fail
+    with pytest.raises(RagError):rig.rag.answer(p['ticket'],True)
+    assert not rig.rag.sessions[p['session_id']]['busy']
+    assert rig.rag.sessions[p['session_id']]['turns']==[]
+    with pytest.raises(RagError) as used:rig.rag.answer(p['ticket'],True)
+    assert used.value.code=='ticket_expired'
+    rig.provider.hook=lambda:None
+    next_turn=rig.rag.prepare('重试负责人？',p['session_id'])
+    assert rig.rag.answer(next_turn['ticket'],True)['status']=='answered'

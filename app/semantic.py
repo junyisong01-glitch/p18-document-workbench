@@ -198,17 +198,18 @@ class IndexService:
                 self.invalidate(doc['id'])
                 self.schedule(doc['id'])
 
-    def candidates(self, identifier=None):
+    def candidates(self, identifier=None, document_filter=None):
         found = {}
         docs = [self.store.available(identifier)] if identifier else self.store.all_docs()
         for doc in docs:
+            if document_filter is not None and not document_filter(doc):continue
             snap, run = self.snapshot(doc['id']), self.read(doc['id'])
             if self.valid(run, snap) and run['status'] == 'complete':
                 for chunk in snap['chunks']:
                     found[self.point_id(snap, chunk)] = (snap, chunk)
         return found
 
-    def search(self, query, identifier=None, top_k=5, mode=None):
+    def search(self, query, identifier=None, top_k=5, mode=None, document_filter=None):
         from app.retrieval import bm25, fuse, groups
         mode = mode or os.environ.get('P18_SEARCH_MODE', 'vector')
         if mode not in {'vector', 'hybrid', 'hybrid_dedup'}:
@@ -221,7 +222,7 @@ class IndexService:
         if not self.current_config():
             raise SemanticError('configuration_changed', '模型配置已变化，需重启并重建索引。')
         with self.store.LOCK:
-            candidates = self.candidates(identifier)
+            candidates = self.candidates(identifier, document_filter)
         if not candidates:
             return {'status': 'no_index', 'results': [], 'retrieval_mode': mode,
                     'message': '没有当前有效的已建立索引，请查看构建状态。'}
@@ -256,7 +257,7 @@ class IndexService:
         with self.store.LOCK:
             if not self.current_config():
                 raise SemanticError('configuration_changed', '模型配置已变化，结果未返回，请重启并重建。')
-            current = self.candidates(identifier)
+            current = self.candidates(identifier, document_filter)
             def valid_hit(hit):
                 pair = current.get(str(hit.id))
                 if not pair:return None

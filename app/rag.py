@@ -114,7 +114,7 @@ class RagService:
 
     def prune(self):
         now=time.monotonic()
-        self.sessions={k:v for k,v in self.sessions.items() if now-v['at']<1800}
+        self.sessions={k:v for k,v in self.sessions.items() if v.get('busy') or now-v['at']<1800}
         self.tickets={k:v for k,v in self.tickets.items() if now-v['at']<180}
         if len(self.sessions)>=64 or len(self.tickets)>=128:raise RagError('rag_busy','本机会话过多，请稍后重试。')
 
@@ -137,6 +137,7 @@ class RagService:
             if session_id and session_id not in self.sessions:raise RagError('session_expired','会话已过期，请清空会话后重新提问。')
             sid=session_id or secrets.token_urlsafe(24)
             session=self.sessions.setdefault(sid,{'at':time.monotonic(),'turns':[],'version':0})
+            if session.get('busy'):raise RagError('session_busy','当前会话正在生成回答，请等待完成后再提问。')
             history=[]
             with self.store.LOCK:
                 for turn in session['turns'][-cfg['history_turns']:]:
@@ -150,7 +151,7 @@ class RagService:
                 return {'status':'clarify','message':'请说明指的是哪位人员或哪个项目。','session_id':sid}
             # Conservative local query expansion, no second model call or assumed person name.
             query=(history[-1]['question']+'\n追问：'+question) if pronoun else question
-            result=self.store.require_semantic().search(query,top_k=20)
+            result=self.store.require_semantic().search(query,top_k=20,document_filter=lambda doc:allowed(self.store.DATA,doc))
             evidence=[];seen=set();skipped=0;budget=len(SYSTEM)+len(question)+len(json.dumps(history,ensure_ascii=False))+256
             with self.store.LOCK:
                 for hit in result['results']:
@@ -186,6 +187,7 @@ class RagService:
             self.prune();ticket=self.tickets.pop(ticket_id,None)
             if not ticket:raise RagError('ticket_expired','发送预览已过期或已使用，请重新准备；未自动重试。')
             session=self.sessions.get(ticket['sid'])
+            if session and session.get('busy'):raise RagError('session_busy','当前会话正在生成回答，请等待完成后重新准备。')
             if not session or session['version']!=ticket['version']:raise RagError('session_changed','会话已变化，请重新准备。')
             if digest(config())!=ticket['config_hash']:raise RagError('config_changed','模型或目标地址已变化，请重新确认发送范围。')
             historical=[s for t in session['turns'][-ticket['config']['history_turns']:] for s in t['evidence']]
@@ -195,15 +197,25 @@ class RagService:
                 messages=[{'role':'system','content':SYSTEM},{'role':'user','content':json.dumps({
                     'question':ticket['question'],'history_for_reference_only':ticket['history'],
                     'untrusted_evidence':ticket['evidence']},ensure_ascii=False)}]
+            session['busy']=True
+        # The ticket is consumed and this session reserved; unrelated sessions may proceed.
+        # Neither the global RAG lock nor the business-data lock spans network I/O.
+        try:
             raw=self.client.complete(messages,ticket['config'])
-            with self.store.LOCK:
-                if not self.valid(ticket['evidence']+historical):raise RagError('evidence_stale','请求期间来源或许可变化，回答未发布；已发送的内容无法撤回。')
-            answer,citations=self.validate_answer(raw,ticket['evidence'])
-            session['version']+=1;session['at']=time.monotonic()
-            session['turns']=(session['turns']+[{'question':ticket['question'],'answer':answer,'evidence':ticket['evidence']}])[-ticket['config']['history_turns']:]
-            return {'status':'answered','answer':answer,'citations':citations,'evidence':ticket['evidence'],
-                    'session_id':ticket['sid'],'provider':self.client.label,
-                    'notice':'仅核验引用身份及有效性，不保证回答事实正确；重要结论请核对原文。'}
+            with self.lock:
+                if self.sessions.get(ticket['sid']) is not session or session['version']!=ticket['version']:
+                    raise RagError('session_changed','会话已变化，回答未发布。')
+                with self.store.LOCK:
+                    if not self.valid(ticket['evidence']+historical):raise RagError('evidence_stale','请求期间来源或许可变化，回答未发布；已发送的内容无法撤回。')
+                answer,citations=self.validate_answer(raw,ticket['evidence'])
+                session['version']+=1;session['at']=time.monotonic()
+                session['turns']=(session['turns']+[{'question':ticket['question'],'answer':answer,'evidence':ticket['evidence']}])[-ticket['config']['history_turns']:]
+                return {'status':'answered','answer':answer,'citations':citations,'evidence':ticket['evidence'],
+                        'session_id':ticket['sid'],'provider':self.client.label,
+                        'notice':'仅核验引用身份及有效性，不保证回答事实正确；重要结论请核对原文。'}
+        finally:
+            with self.lock:
+                session['busy']=False;session['at']=time.monotonic()
 
     @staticmethod
     def validate_answer(raw,evidence):
