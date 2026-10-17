@@ -5,7 +5,7 @@ if [[ ! -x .venv/bin/python ]]; then
   read -r '?按回车关闭窗口…'
   exit 1
 fi
-.venv/bin/python scripts/launch.py --open
+.venv/bin/python scripts/launch.py --open --interactive
 if [[ $? -ne 0 ]]; then
   read -r '?启动未完成，按回车关闭窗口…'
 fi

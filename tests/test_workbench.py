@@ -185,7 +185,7 @@ def test_entry_assets_resolve_from_http_and_file_paths(client):
 
 def test_launcher_reuses_healthy_server():
     from scripts import launch
-    with patch.object(launch, 'healthy', return_value=True), patch.object(launch.subprocess, 'Popen') as spawn:
+    with patch.object(launch, 'probe', return_value={'config':{'workbench_version':launch.VERSION,'data_directory':str(launch.ROOT/'runtime')},'semantic':{'enabled':False}}), patch.object(launch.subprocess, 'Popen') as spawn:
         launch.launch(False)
         spawn.assert_not_called()
 
@@ -296,7 +296,9 @@ def test_reviewer_required_and_history_append_only(client):
     assert [r['reviewer'] for r in reviews]==['甲','乙']
     assert reviews[0]['note']=='需再次确认' and reviews[1]['issues'][0]['page']==1
     assert reviews[1]['requirements'][0]['key']=='accept_incomplete'
-    doc=main.get(item['id']);doc.update(state='review',revision=2);main.save(doc)
+    # Direct fixture edits follow the same lock discipline as production routes.
+    with main.LOCK:
+        doc=main.get(item['id']);doc.update(state='review',revision=2);main.save(doc)
     updated=client.get(f"/api/documents/{item['id']}").json()
     assert updated['review_pending'] and not updated['review_completed']
     assert len([e for e in updated['events'] if e['action'].startswith('review_')])==2

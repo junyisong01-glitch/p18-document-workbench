@@ -7,17 +7,17 @@ const states = {queued:'等待处理',converting:'转换与解析中',parsing:'�
 const qualities = {pending:'等待检查',clear:'未发现明显异常',review:'需要复核',failed:'处理失败'};
 const busyStates = new Set(['queued','converting','parsing']);
 let records = [], selected = [], current = null, page = 1, previewPages = 0, onlyReview = false, uploadBusy = false;
-let toastTimer, detailRequest = 0, previewRequest = 0;
+let toastTimer, detailRequest = 0, previewRequest = 0, searchUI=null, semanticHealth=null, refreshing=false;
 const size = n => n < 1e6 ? `${(n / 1000).toFixed(1)} KB` : `${(n / 1e6).toFixed(1)} MB`;
 const date = value => new Date(value).toLocaleString('zh-CN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
 function toast(text) { $('#toast').textContent = text; $('#toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').hidden = true, 4500); }
 async function api(path, options={}) {
   const response = await fetch(path, {...options, headers:{'X-P18-Client':'workbench',...(options.headers || {})}});
   const data = await response.json();
-  if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '请求未完成，请刷新后重试。');
+  if (!response.ok) {const error=new Error(typeof data.detail==='string'?data.detail:data.detail?.message||'请求未完成，请核对输入或稍后重试。');error.code=data.detail?.code;throw error;}
   return data;
 }
-function badge(doc) {return `<span class="badge ${doc.state==='failed'||doc.state==='delete_failed'?'failed':doc.state==='review'||doc.state==='held'?'review':busyStates.has(doc.state)?'processing':'ready'}">${esc(states[doc.state]||doc.state)}</span>`;}
+function badge(doc) {if(doc.state==='ready'){const index=doc.index||{status:'unavailable',searchable:false};return `<span class="badge ${index?.status==='failed'?'failed':index?.searchable?'ready':'processing'}">${esc(window.P18Search?.indexLabel(index)||'待建立索引')}</span>`;}return `<span class="badge ${doc.state==='failed'||doc.state==='delete_failed'?'failed':doc.state==='review'||doc.state==='held'?'review':busyStates.has(doc.state)?'processing':'ready'}">${esc(states[doc.state]||doc.state)}</span>`;}
 function qualityBadge(doc) {if(doc.review_completed)return `<span class="badge ${doc.admission?.incomplete?'review':'ready'}">已复核${doc.admission?.incomplete?' · 内容不完整':''}</span>`;return `<span class="badge ${esc(doc.quality)}">${esc(qualities[doc.quality]||'待检查')}${doc.issues_count ? ` · ${doc.issues_count} 项` : ''}</span>`;}
 
 function renderList() {
@@ -26,9 +26,9 @@ function renderList() {
   $('#nav-count').textContent=records.length; $('#stat-total').textContent=records.length;
   $('#stat-processing').textContent=records.filter(d=>busyStates.has(d.state)).length;
   $('#stat-review').textContent=records.filter(d=>d.review_pending).length;
-  $('#stat-ready').textContent=records.filter(d=>d.state==='ready').length;
+  $('#stat-ready').textContent=records.filter(d=>d.index?.searchable===true).length;
   $('#file-count').textContent=`${records.length} 份`;
-  $('#documents').innerHTML=filtered.map(d=>`<tr><td><div class="file-cell"><span class="file-icon ${d.ext!=='.pdf'?'word':''}">${esc(d.ext.slice(1).toUpperCase())}</span><div><button class="file-title" data-open="${d.id}">${esc(d.name)}</button><div class="file-sub">${size(d.size)}${d.characters?` · ${d.characters.toLocaleString()} 字符`:''}${d.replaces?' · 替换文件':''}</div></div></div></td><td class="timestamp">${date(d.created_at)}</td><td>${badge(d)}</td><td>${qualityBadge(d)}</td><td><div class="row-actions">${d.state!=='delete_failed'?`<button data-open="${d.id}">${d.state==='review'?'去复核':'查看'}</button>`:''}${d.state==='failed'?`<button data-retry="${d.id}">重试</button>`:''}<button class="danger" data-delete="${d.id}">${d.state==='delete_failed'?'重试删除':'删除'}</button></div></td></tr>`).join('');
+  $('#documents').innerHTML=filtered.map(d=>`<tr><td><div class="file-cell"><span class="file-icon ${d.ext!=='.pdf'?'word':''}">${esc(d.ext.slice(1).toUpperCase())}</span><div><button class="file-title" data-open="${d.id}">${esc(d.name)}</button><div class="file-sub">${size(d.size)}${d.characters?` · ${d.characters.toLocaleString()} 字符`:''}${d.replaces?' · 替换文件':''}</div></div></div></td><td class="timestamp">${date(d.created_at)}</td><td>${badge(d)}</td><td>${qualityBadge(d)}</td><td><div class="row-actions">${d.state!=='delete_failed'?`<button data-open="${d.id}">${d.state==='review'?'去复核':'查看'}</button>`:''}${d.state==='failed'?`<button data-retry="${d.id}">重试</button>`:''}${canIndexRetry(d)?`<button data-index-retry="${d.id}">${d.index.status==='failed'?'重试索引':'建立索引'}</button>`:''}<button class="danger" data-delete="${d.id}">${d.state==='delete_failed'?'重试删除':'删除'}</button></div></td></tr>`).join('');
   $('#empty').hidden=filtered.length>0;
   $('#empty h3').textContent=records.length?'没有匹配的文档':'从第一份文档开始';
   $('#empty p').innerHTML=records.length?'试试更换搜索词或筛选条件。':'支持文字型 PDF、DOCX 和旧版 DOC。<br>没有企业资料也可以先使用虚构样例体验完整流程。';
@@ -36,17 +36,27 @@ function renderList() {
   $('#list-summary').textContent=`显示 ${filtered.length} / ${records.length} 份文档`;
 }
 async function refresh() {
+  if(refreshing)return;refreshing=true;
   try {
-    records=await api('/api/documents'); $('#list-error').hidden=true; renderList();
+    const [docs,health]=await Promise.all([api('/api/documents'),api('/api/semantic').catch(()=>({enabled:false,error:'当前服务版本较旧，未提供语义能力接口；需要先安全重启，文档管理仍可使用。'}))]);
+    records=docs;semanticHealth=health;$('#list-error').hidden=true;renderList();
+    $('#library-service-note').textContent=health.enabled?'符合入库条件后自动切分并建立本地索引；只有索引有效才可检索。请在知识检索中核对片段与原文。':(typeof health.error==='string'?health.error:health.error?.message)||(!health.setup?.ready?health.setup?.message:'本地语义检索尚未启用；文档管理可继续使用。请通过原启动入口检查和启用。');
+    searchUI?.sync(records,semanticHealth);
     if(current) {
       const latest=records.find(d=>d.id===current.id);
       if(!latest) return back();
       if(latest.updated_at!==current.updated_at) await openDetail(current.id, true);
+      else if(indexSignature(latest.index)!==indexSignature(current.index)) await openDetail(current.id,true);
       else if([$('#left-kind').value,$('#right-kind').value].includes('chunks') && document.querySelector('.chunk-summary')?.textContent.match(/等待切分|正在切分/)) await renderPanes();
     }
-  } catch(error) {$('#list-error').textContent=error.message;$('#list-error').hidden=false;}
+  } catch(error) {$('#list-error').textContent=error.message;$('#list-error').hidden=false;searchUI?.offline('暂时无法连接本机服务，请检查原工作台是否仍在运行。');}
+  finally {refreshing=false;}
 }
-function back() {current=null;detailRequest++;previewRequest++;$('#list-view').hidden=false;$('#detail-view').hidden=true;}
+function back() {current=null;detailRequest++;previewRequest++;searchUI?.hide();$('#search-view').hidden=true;$('#nav-search').classList.remove('active');$('#nav-documents').classList.add('active');$('#current-page').textContent='文档管理';$('#list-view').hidden=false;$('#detail-view').hidden=true;}
+function indexSignature(index){return JSON.stringify(['status','token','generation','updated_at','searchable','error'].map(key=>index?.[key]));}
+function canIndexRetry(doc){return doc.admission?.eligible && semanticHealth?.enabled && ['failed','stale','not_started'].includes(doc.index?.status);}
+async function retryIndex(id){const doc=records.find(d=>d.id===id)||current;if(!doc)return;try{await api(`/api/documents/${id}/index`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:doc.revision})});toast('已请求建立当前版本索引，请留意真实状态。');await refresh();}catch(e){toast(e.message);}}
+
 let previewZoom=1;
 function previewLink(item) {
   const n=item.preview_pages?.original;
@@ -68,7 +78,7 @@ function chunksHTML(result) {
   const labels={not_started:'尚未切分',blocked:'未通过入库条件',queued:'等待切分',processing:'正在切分',complete:'切分完成',failed:'切分失败',stale:'配置或结果已变化'};
   const cfg=result.config||result.current_config;
   const configText=cfg?`目标 ${cfg.target_chars} 字符 · 重叠参考 ${cfg.overlap_chars} 字符 · ${cfg.method}`:'配置不可用';
-  return `<div class="chunk-summary"><h3>${esc(labels[result.status]||result.status)} · ${result.count||0} 个片段</h3><p>${esc(result.message)}</p><p>${esc(configText)}</p><p>长度是测试初值，特殊结构可超过目标；尚未向量化或创建索引。</p>${result.status==='stale'?`<p>当前配置：${esc(JSON.stringify(result.current_config))}；旧配置片段不予使用。</p>`:''}${result.error?`<p class="error-banner">${esc(result.error)}</p>`:''}${['not_started','stale','failed'].includes(result.status)?'<button class="secondary" data-generate-chunks>重新生成切分结果</button>':''}${(result.warnings||[]).map(w=>`<p class="preview-warning">${esc(w)}</p>`).join('')}</div>`+(result.chunks||[]).map(c=>`<article class="extracted-block chunk-block"><h3>片段 ${c.order} · ${esc(c.section||'正文')}</h3><p class="subtitle">${esc({text:'正文',heading:'标题',table:'表格',code:'代码 / 接口',steps:'操作步骤',pdf_page:'PDF 整页保守保留'}[c.kind]||c.kind)} · 解析 ${c.revision}${c.row_start?` · 提取表格行 ${c.row_start}–${c.row_end}（重复首行作上下文）`:''}</p>${c.risk?.incomplete?'<p class="preview-warning">来源文档部分内容未解析，复核后风险仍保留。</p>':''}${c.risk?.quality==='review'?'<p class="subtitle">来源含检查提示，已按当前版本完成必要复核；请结合原文查看。</p>':''}${c.table_title?`<p>表格上下文：${esc(c.table_title)}</p>`:''}<pre>${esc(c.text)}</pre><div class="chunk-sources">${(c.sources||[]).map(src=>`<button class="text-button" ${src.page?`data-chunk-page="${src.page}"`:src.block_id?`data-chunk-block="${esc(src.block_id)}"`:''}>${esc(src.label||'文档级来源')}${src.page?' · 查看原 PDF 页':src.block_id?' · 定位原始提取位置':''}</button>`).join('')}</div><details><summary>片段标识与实际配置</summary><p>${esc(c.id)}</p><pre>${esc(JSON.stringify(c.config,null,2))}</pre></details></article>`).join('');
+  return `<div class="chunk-summary"><h3>${esc(labels[result.status]||result.status)} · ${result.count||0} 个片段</h3><p>${esc(result.message)}</p><p>${esc(configText)}</p><p>长度是测试初值，特殊结构可超过目标；切分完成不等于可检索，请查看文档索引状态。</p>${result.status==='stale'?`<p>当前配置：${esc(JSON.stringify(result.current_config))}；旧配置片段不予使用。</p>`:''}${result.error?`<p class="error-banner">${esc(result.error)}</p>`:''}${['not_started','stale','failed'].includes(result.status)?'<button class="secondary" data-generate-chunks>重新生成切分结果</button>':''}${(result.warnings||[]).map(w=>`<p class="preview-warning">${esc(w)}</p>`).join('')}</div>`+(result.chunks||[]).map(c=>`<article class="extracted-block chunk-block"><h3>片段 ${c.order} · ${esc(c.section||'正文')}</h3><p class="subtitle">${esc({text:'正文',heading:'标题',table:'表格',code:'代码 / 接口',steps:'操作步骤',pdf_page:'PDF 整页保守保留'}[c.kind]||c.kind)} · 解析 ${c.revision}${c.row_start?` · 提取表格行 ${c.row_start}–${c.row_end}（重复首行作上下文）`:''}</p>${c.risk?.incomplete?'<p class="preview-warning">来源文档部分内容未解析，复核后风险仍保留。</p>':''}${c.risk?.quality==='review'?'<p class="subtitle">来源含检查提示，已按当前版本完成必要复核；请结合原文查看。</p>':''}${c.table_title?`<p>表格上下文：${esc(c.table_title)}</p>`:''}<pre>${esc(c.text)}</pre><div class="chunk-sources">${(c.sources||[]).map(src=>`<button class="text-button" ${src.page?`data-chunk-page="${src.page}"`:src.block_id?`data-chunk-block="${esc(src.block_id)}"`:''}>${esc(src.label||'文档级来源')}${src.page?' · 查看原 PDF 页':src.block_id?' · 定位原始提取位置':''}</button>`).join('')}</div><details><summary>片段标识与实际配置</summary><p>${esc(c.id)}</p><pre>${esc(JSON.stringify(c.config,null,2))}</pre></details></article>`).join('');
 }
 async function generateChunks(){
   if(!current)return;
@@ -90,18 +100,18 @@ async function openDetail(id, preserve=false) {
     const doc=await api(`/api/documents/${id}`);
     if(request!==detailRequest) return;
     const resetReview=!preserve || current?.revision!==doc.revision;
-    current=doc;if(!preserve)page=1;
+    current=doc;if(!preserve)page=1;searchUI?.hide();$('#search-view').hidden=true;$('#nav-search').classList.remove('active');$('#nav-documents').classList.add('active');$('#current-page').textContent='文档管理';
     if(resetReview){$('#reviewer').value='';$('#review-note').value='';}
     $('#list-view').hidden=true;$('#detail-view').hidden=false;
     $('#detail-name').textContent=doc.name;
     $('#detail-meta').textContent=`${doc.ext.slice(1).toUpperCase()} · ${size(doc.size)} · 上传于 ${date(doc.created_at)} · 第 ${doc.revision} 次解析`;
-    let statusText=doc.error || (doc.state==='ready'?(doc.build?.message || '符合条件，待构建；知识库尚未接通，当前不可检索。'):doc.state==='review'?'检测到需复核内容。请查看问题位置，再决定是否使用已提取内容。':doc.state==='held'?'你选择了暂不入库。原文件与提取内容已保留，可继续核对。':'正在本机处理，请稍候；无需保持上传窗口打开。');
-    $('#detail-status').innerHTML=`<div>${badge(doc)} ${qualityBadge(doc)}<strong>${esc(statusText)}</strong>${doc.admission?.incomplete?'<span>部分内容未解析，复核后仍保留内容不完整风险。</span>':doc.review_completed?'<span>已完成复核，原检查提示和审核记录保留供查阅。</span>':doc.quality==='review'?'<span>请核对检查提示后记录复核结论。</span>':''}${doc.state==='failed'?`<button class="text-button" data-retry="${doc.id}">重新处理</button>`:''}</div>`;
+    let statusText=doc.error || (doc.state==='ready'?(doc.index?.message || '待建立有效索引。'):doc.state==='review'?'检测到需复核内容。请查看问题位置，再决定是否使用已提取内容。':doc.state==='held'?'你选择了暂不入库。原文件与提取内容已保留，可继续核对。':'正在本机处理，请稍候；无需保持上传窗口打开。');
+    $('#detail-status').innerHTML=`<div>${badge(doc)} ${qualityBadge(doc)}<strong>${esc(statusText)}</strong>${doc.admission?.incomplete?'<span>部分内容未解析，复核后仍保留内容不完整风险。</span>':doc.review_completed?'<span>已完成复核，原检查提示和审核记录保留供查阅。</span>':doc.quality==='review'?'<span>请核对检查提示后记录复核结论。</span>':''}${doc.state==='failed'?`<button class="text-button" data-retry="${doc.id}">重新处理</button>`:''}${canIndexRetry(doc)?`<button class="text-button" data-index-retry="${doc.id}">${doc.index.status==='failed'?'重试索引':'建立索引'}</button>`:''}${doc.index?.error?`<span>${esc(doc.index.error)}</span>`:''}</div>`;
     $('#preview-warnings').innerHTML=(doc.result?.preview_warnings||[]).map(t=>`<div class="preview-warning">${esc(t)}</div>`).join('');
     const issues=doc.result?.issues||[];
     $('#issue-count').textContent=`${issues.length} 项`;
     $('#issues').innerHTML=issues.length?issues.map((it,i)=>`<button class="issue-item" data-issue="${i}"><strong>${it.page?`第 ${it.page} 页`:it.block?'正文 / 表格位置':'文档级提示'}</strong>${esc(it.message)}<span class="link-label">${it.page?'查看对应原文页 →':it.block?'定位提取内容 →':'核对整份文档'}</span></button>`).join(''):`<p class="subtitle">${doc.quality==='clear'?'自动检查未发现明显异常，仍建议抽查内容。':'尚无可定位的问题，请查看处理提示。'}</p>`;
-    $('#admission-summary').innerHTML=`<strong>入库条件检查</strong><p>${esc(doc.build?.message || '等待检查')}</p>${(doc.admission?.categories||[]).map(c=>`<p class="badge review">${esc(c.label)}</p>`).join('')}${doc.admission?.incomplete?'<p>部分内容未解析；后续检索与问答仍须保留风险提示。</p>':''}${doc.review_decision?`<p>最近复核：${esc({accepted:'确认内容可用',incorrect:'确认有误，暂不入库',uncertain:'无法判断，暂不入库'}[doc.review_decision.outcome])}</p>`:''}`;
+    $('#admission-summary').innerHTML=`<strong>入库条件检查</strong><p>${esc(doc.admission?.eligible?'已满足入库条件；是否可检索取决于当前索引状态。':'尚未满足入库条件，需完成解析或必要复核。')}</p>${(doc.admission?.categories||[]).map(c=>`<p class="badge review">${esc(c.label)}</p>`).join('')}${doc.admission?.incomplete?'<p>部分内容未解析；后续检索与问答仍须保留风险提示。</p>':''}${doc.review_decision?`<p>最近复核：${esc({accepted:'确认内容可用',incorrect:'确认有误，暂不入库',uncertain:'无法判断，暂不入库'}[doc.review_decision.outcome])}</p>`:''}`;
     $('#review-checks').innerHTML=(doc.admission?.requirements||[]).map(r=>`<label style="display:block;margin:12px 0"><input type="checkbox" data-review-check="${esc(r.key)}"> ${esc(r.label)}</label>`).join('');
     $('#accept').textContent=doc.admission?.incomplete?'确认使用已提取内容':'确认内容可用';
     $('#accept').disabled=(doc.admission?.categories||[]).some(c=>c.code==='unusable');
@@ -168,7 +178,7 @@ function ask(title, body, action='确认') {
   });
 }
 async function removeDoc(id) {
-  if(!await ask('删除这份文档？','将删除原文件、转换副本、提取结果及关联数据。之后的新检索不得使用该文档。当前知识库尚未接通。','确认删除'))return;
+  if(!await ask('删除这份文档？','将删除原文件、转换副本、提取结果及关联数据。之后的新检索不得使用该文档。相关检索结果将失效。','确认删除'))return;
   try{await api(`/api/documents/${id}`,{method:'DELETE'});if(current?.id===id)back();await refresh();toast('文档及处理副本已删除。');}catch(e){toast(e.message);await refresh();}
 }
 async function retryDoc(id){try{await api(`/api/documents/${id}/retry`,{method:'POST'});await refresh();toast('已加入处理队列。');}catch(e){toast(e.message);}}
@@ -179,7 +189,7 @@ async function reviewDoc(action,outcome='uncertain'){
   const checks=Object.fromEntries([...document.querySelectorAll('[data-review-check]')].map(el=>[el.dataset.reviewCheck,el.checked]));
   if(action==='accept'){
     if((current.admission?.requirements||[]).some(r=>checks[r.key]!==true))return toast('请先逐项核对并勾选确认。有错误或无法判断时，请选择暂不入库。');
-    if(!await ask('确认当前内容可用？','确认后自动进入待构建；已有风险和复核记录仍保留。已知错误不能仅通过接受风险放行。知识库服务尚未接通，当前不可检索。','确认使用'))return;
+    if(!await ask('确认当前内容可用？','确认后自动进行切分；本地服务启用时建立索引。已有风险和复核记录仍保留，只有索引有效才可检索。已知错误不能仅通过接受风险放行。','确认使用'))return;
   }
   try{await api(`/api/documents/${current.id}/review`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,outcome,checks,reviewer,note,revision:current.revision})});await refresh();toast(action==='accept'?'已确认，自动进入待构建；风险提示仍保留。':'已暂缓入库，请修正或更换文件后重新检查。');}catch(e){toast(e.message);}
 }
@@ -220,6 +230,11 @@ async function submitUpload(){
 $('#search').addEventListener('input',renderList);$('#state-filter').onchange=renderList;$('#quality-filter').onchange=renderList;
 $('#review-only').onclick=()=>{onlyReview=!onlyReview;$('#review-only').setAttribute('aria-pressed',onlyReview);renderList();};
 $('#refresh').onclick=refresh;$('#back').onclick=back;$('#nav-documents').onclick=back;
+window.addEventListener('DOMContentLoaded',()=>{
+ searchUI=window.P18Search.create({api,esc,onShow(){current=null;detailRequest++;previewRequest++;$('#list-view').hidden=true;$('#detail-view').hidden=true;$('#search-view').hidden=false;$('#nav-documents').classList.remove('active');$('#nav-search').classList.add('active');$('#current-page').textContent='知识检索';}});
+ searchUI.sync(records,semanticHealth);$('#nav-search').onclick=()=>{searchUI.show();refresh();};
+});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-index-retry]');if(b)retryIndex(b.dataset.indexRetry);});
 $('#upload-open').onclick=openUpload;$('#empty-upload').onclick=openUpload;$('#file-input').onchange=e=>chooseFiles(e.target.files);$('#upload-submit').onclick=submitUpload;
 $('#dropzone').ondragover=e=>{e.preventDefault();$('#dropzone').classList.add('dragover');};$('#dropzone').ondragleave=()=>$('#dropzone').classList.remove('dragover');$('#dropzone').ondrop=e=>{e.preventDefault();$('#dropzone').classList.remove('dragover');chooseFiles(e.dataTransfer.files);};
 $('#upload-dialog').addEventListener('cancel',e=>{if(uploadBusy)e.preventDefault();});
@@ -233,5 +248,6 @@ $('#reparse').onclick=async()=>{
 document.addEventListener('click',e=>{const b=e.target.closest('[data-preview-page]');if(b){page=Number(b.dataset.previewPage);$('#left-kind').value='original';renderPanes();}});
 $('#left-kind').onchange=renderPanes;$('#right-kind').onchange=renderPanes;$('#page-prev').onclick=()=>{if(page>1){page--;renderPanes();}};$('#page-next').onclick=()=>{if(page<previewPages){page++;renderPanes();}};
 document.addEventListener('click',e=>{const button=e.target.closest('[data-open],[data-delete],[data-retry],[data-issue]');if(!button)return;if(button.dataset.open)openDetail(button.dataset.open);else if(button.dataset.delete)removeDoc(button.dataset.delete);else if(button.dataset.retry)retryDoc(button.dataset.retry);else focusIssue(Number(button.dataset.issue));});
-refresh();setInterval(refresh,2500);
+refresh();
+async function poll(){await refresh();const busy=records.some(d=>busyStates.has(d.state)||['waiting','building'].includes(d.index?.status));setTimeout(poll,document.hidden?20000:busy?4000:10000);}setTimeout(poll,4000);
 }
