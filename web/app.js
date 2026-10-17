@@ -42,14 +42,48 @@ async function refresh() {
       const latest=records.find(d=>d.id===current.id);
       if(!latest) return back();
       if(latest.updated_at!==current.updated_at) await openDetail(current.id, true);
+      else if([$('#left-kind').value,$('#right-kind').value].includes('chunks') && document.querySelector('.chunk-summary')?.textContent.match(/等待切分|正在切分/)) await renderPanes();
     }
   } catch(error) {$('#list-error').textContent=error.message;$('#list-error').hidden=false;}
 }
 function back() {current=null;detailRequest++;previewRequest++;$('#list-view').hidden=false;$('#detail-view').hidden=true;}
-function extractedHTML(result) {
-  if(!result?.blocks?.length) return '<p class="pane-empty">暂无提取内容。处理完成后会显示实际结果。</p>';
-  return result.blocks.map(b=>`<article class="extracted-block" data-block="${esc(b.id)}"><h3>${esc(b.label)}</h3>${b.kind!=='table'?`<pre>${esc(b.text || '本页未提取到文字。')}</pre>`:''}${(b.tables||[]).map(t=>`<table aria-label="提取的表格"><tbody>${t.rows.map(row=>`<tr>${row.map(cell=>`<td>${esc(cell ?? '〔空或合并单元格〕')}</td>`).join('')}</tr>`).join('')}</tbody></table>`).join('')}</article>`).join('');
+let previewZoom=1;
+function previewLink(item) {
+  const n=item.preview_pages?.original;
+  return n?`<button class="text-button" data-preview-page="${n}">查看系统转换预览第 ${n} 页</button>`:'<small>暂无法确定对应预览页</small>';
 }
+function tableHTML(t) {
+  if(!t.cells)return `<table><tbody>${t.rows.map(row=>`<tr>${row.map(c=>`<td>${esc(c??'〔空或合并单元格〕')}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  return `<div class="table-scroll"><table><tbody>${t.rows.map((row,i)=>`<tr>${row.map((value,j)=>{
+    const cell=t.cells.find(c=>c.row===i+1&&c.column===j+1);
+    if(cell)return `<td rowspan="${cell.rowspan}" colspan="${cell.colspan}"><div>${esc(cell.text)}</div><small>第 ${cell.row} 行 · 第 ${cell.column} 列</small>${cell.text.trim()?previewLink(cell):''}</td>`;
+    return value===null?'':'<td></td>';
+  }).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+function extractedHTML(result) {
+  if(!result?.blocks?.length) return '<p class="pane-empty">暂无提取内容。</p>';
+  return result.blocks.filter(b=>b.kind!=='paragraph'||b.text?.trim()||b.has_objects).map(b=>`<article class="extracted-block" data-block="${esc(b.id)}"><h3>${esc(b.label)}</h3>${b.kind!=='page'?previewLink(b):''}${b.kind!=='table'?`<pre>${esc(b.text || (b.kind==='page'?'本页未提取到文字。':'含图片或未支持对象，未提取到正文，请核对原文件。'))}</pre>`:''}${(b.tables||[]).map(tableHTML).join('')}</article>`).join('');
+}
+function chunksHTML(result) {
+  const labels={not_started:'尚未切分',blocked:'未通过入库条件',queued:'等待切分',processing:'正在切分',complete:'切分完成',failed:'切分失败',stale:'配置或结果已变化'};
+  const cfg=result.config||result.current_config;
+  const configText=cfg?`目标 ${cfg.target_chars} 字符 · 重叠参考 ${cfg.overlap_chars} 字符 · ${cfg.method}`:'配置不可用';
+  return `<div class="chunk-summary"><h3>${esc(labels[result.status]||result.status)} · ${result.count||0} 个片段</h3><p>${esc(result.message)}</p><p>${esc(configText)}</p><p>长度是测试初值，特殊结构可超过目标；尚未向量化或创建索引。</p>${result.status==='stale'?`<p>当前配置：${esc(JSON.stringify(result.current_config))}；旧配置片段不予使用。</p>`:''}${result.error?`<p class="error-banner">${esc(result.error)}</p>`:''}${['not_started','stale','failed'].includes(result.status)?'<button class="secondary" data-generate-chunks>重新生成切分结果</button>':''}${(result.warnings||[]).map(w=>`<p class="preview-warning">${esc(w)}</p>`).join('')}</div>`+(result.chunks||[]).map(c=>`<article class="extracted-block chunk-block"><h3>片段 ${c.order} · ${esc(c.section||'正文')}</h3><p class="subtitle">${esc({text:'正文',heading:'标题',table:'表格',code:'代码 / 接口',steps:'操作步骤',pdf_page:'PDF 整页保守保留'}[c.kind]||c.kind)} · 解析 ${c.revision}${c.row_start?` · 提取表格行 ${c.row_start}–${c.row_end}（重复首行作上下文）`:''}</p>${c.risk?.incomplete?'<p class="preview-warning">来源文档部分内容未解析，复核后风险仍保留。</p>':''}${c.risk?.quality==='review'?'<p class="subtitle">来源含检查提示，已按当前版本完成必要复核；请结合原文查看。</p>':''}${c.table_title?`<p>表格上下文：${esc(c.table_title)}</p>`:''}<pre>${esc(c.text)}</pre><div class="chunk-sources">${(c.sources||[]).map(src=>`<button class="text-button" ${src.page?`data-chunk-page="${src.page}"`:src.block_id?`data-chunk-block="${esc(src.block_id)}"`:''}>${esc(src.label||'文档级来源')}${src.page?' · 查看原 PDF 页':src.block_id?' · 定位原始提取位置':''}</button>`).join('')}</div><details><summary>片段标识与实际配置</summary><p>${esc(c.id)}</p><pre>${esc(JSON.stringify(c.config,null,2))}</pre></details></article>`).join('');
+}
+async function generateChunks(){
+  if(!current)return;
+  try{await api(`/api/documents/${current.id}/chunks`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:current.revision})});await renderPanes();}catch(error){toast(error.message);}
+}
+async function locateChunkSource(button){
+  if(!current)return;
+  const block=button.dataset.chunkBlock;
+  $('#right-kind').value='chunks';
+  if(button.dataset.chunkPage){page=Number(button.dataset.chunkPage);$('#left-kind').value='original';}
+  else if(block){$('#left-kind').value='extracted';}
+  await renderPanes();
+  if(block){const target=$('#left-content').querySelector(`[data-block="${CSS.escape(block)}"]`);if(target){target.classList.add('focused');target.scrollIntoView({block:'nearest'});}}
+}
+
 async function openDetail(id, preserve=false) {
   const request=++detailRequest;
   try {
@@ -92,8 +126,13 @@ async function renderPanes() {
   const doc=current, request=++previewRequest;
   const left=$('#left-kind').value,right=$('#right-kind').value;
   let maxPages=0;
+  const chunkPromise=[left,right].includes('chunks')?api(`/api/documents/${doc.id}/chunks`):null;
   await Promise.all([['left',left],['right',right]].map(async([side,kind])=>{
     const container=$(`#${side}-content`);
+    if(kind==='chunks'){
+      try{const result=await chunkPromise;if(request===previewRequest)container.innerHTML=chunksHTML(result);}catch(error){if(request===previewRequest)container.innerHTML=`<p class="pane-empty">${esc(error.message)}</p>`;}
+      return;
+    }
     if(kind==='extracted'){container.innerHTML=extractedHTML(doc.result);return;}
     container.innerHTML='<p class="pane-empty">正在加载预览…</p>';
     try {
@@ -101,7 +140,7 @@ async function renderPanes() {
       if(request!==previewRequest)return;
       maxPages=Math.max(maxPages,meta.pages);
       const p=Math.min(page,meta.pages);
-      container.innerHTML=`<img src="/api/documents/${doc.id}/preview/${kind}/${p}?revision=${doc.revision}" alt="${esc(doc.name)} ${kind==='converted'?'转换副本预览':doc.ext==='.pdf'?'原文件预览':'Word 转换预览'}，第 ${p} 页">`;
+      container.innerHTML=`<img style="width:${previewZoom*100}%;max-width:none" src="/api/documents/${doc.id}/preview/${kind}/${p}?revision=${doc.revision}&zoom=${previewZoom}" alt="${esc(doc.name)} ${kind==='converted'?'转换副本预览':doc.ext==='.pdf'?'原文件预览':'Word 转换预览'}，第 ${p} 页">`;
     } catch(error) {if(request===previewRequest)container.innerHTML=`<p class="pane-empty">${esc(error.message)}</p>`;}
   }));
   if(request!==previewRequest)return;
@@ -109,7 +148,7 @@ async function renderPanes() {
   $('#page-label').textContent=maxPages?`第 ${Math.min(page,maxPages)} / ${maxPages} 页`:'暂无预览页';
   $('#page-prev').disabled=page<=1;$('#page-next').disabled=page>=maxPages;
   $('#preview-note').textContent=doc.ext==='.pdf'?'页码按原 PDF 物理页序计算，可能与印刷页码不同。':'Word 预览由转换生成，排版可能变化；不能据此保证原始排版一致。问题按段落或表格定位。';
-  const download=$('#left-download');download.hidden=left==='extracted';download.href=`/api/documents/${doc.id}/file/${left}`;
+  const download=$('#left-download');download.hidden=['extracted','chunks'].includes(left);download.href=`/api/documents/${doc.id}/file/${left}`;
   download.textContent=left==='converted'?'下载转换副本 ↗':'下载原文件 ↗';
 }
 function focusIssue(index) {
@@ -185,6 +224,13 @@ $('#upload-open').onclick=openUpload;$('#empty-upload').onclick=openUpload;$('#f
 $('#dropzone').ondragover=e=>{e.preventDefault();$('#dropzone').classList.add('dragover');};$('#dropzone').ondragleave=()=>$('#dropzone').classList.remove('dragover');$('#dropzone').ondrop=e=>{e.preventDefault();$('#dropzone').classList.remove('dragover');chooseFiles(e.dataTransfer.files);};
 $('#upload-dialog').addEventListener('cancel',e=>{if(uploadBusy)e.preventDefault();});
 $('#detail-delete').onclick=()=>current&&removeDoc(current.id);$('#accept').onclick=()=>reviewDoc('accept');$('#hold').onclick=()=>reviewDoc('hold','uncertain');$('#incorrect').onclick=()=>reviewDoc('hold','incorrect');
+document.addEventListener('click',e=>{if(e.target.closest('[data-generate-chunks]'))generateChunks();else{const source=e.target.closest('[data-chunk-page],[data-chunk-block]');if(source)locateChunkSource(source);}});
+$('#preview-zoom').onchange=e=>{previewZoom=Number(e.target.value);renderPanes();};
+$('#reparse').onclick=async()=>{
+ if(!current||!await ask('重新解析？','将生成新解析版本，旧复核结论和切分结果不再沿用，历史审核记录保留。','重新解析'))return;
+ try{await api(`/api/documents/${current.id}/reparse`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:current.revision})});await openDetail(current.id);}catch(e){toast(e.message);}
+};
+document.addEventListener('click',e=>{const b=e.target.closest('[data-preview-page]');if(b){page=Number(b.dataset.previewPage);$('#left-kind').value='original';renderPanes();}});
 $('#left-kind').onchange=renderPanes;$('#right-kind').onchange=renderPanes;$('#page-prev').onclick=()=>{if(page>1){page--;renderPanes();}};$('#page-next').onclick=()=>{if(page<previewPages){page++;renderPanes();}};
 document.addEventListener('click',e=>{const button=e.target.closest('[data-open],[data-delete],[data-retry],[data-issue]');if(!button)return;if(button.dataset.open)openDetail(button.dataset.open);else if(button.dataset.delete)removeDoc(button.dataset.delete);else if(button.dataset.retry)retryDoc(button.dataset.retry);else focusIssue(Number(button.dataset.issue));});
 refresh();setInterval(refresh,2500);

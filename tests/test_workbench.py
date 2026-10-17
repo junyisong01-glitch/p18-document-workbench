@@ -175,7 +175,8 @@ def test_entry_assets_resolve_from_http_and_file_paths(client):
     from urllib.parse import urlsplit
     html = client.get('/').text
     script_src = re.search(r'<script src="([^"]+)"', html).group(1)
-    assert 'href="style.css"' in html and urlsplit(script_src).path == 'app.js'
+    style_src = re.search(r'<link rel="stylesheet" href="([^"]+)"', html).group(1)
+    assert urlsplit(style_src).path == 'style.css' and urlsplit(script_src).path == 'app.js'
     assert client.get('/style.css').status_code == 200
     script = client.get('/' + script_src)
     assert script.status_code == 200 and 'text/javascript' in script.headers['content-type']

@@ -13,6 +13,8 @@ from docx import Document
 from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
+from lxml import etree
+from app.word_structure import table_structure, table_text, associate_preview, compatibility_copy, normalized, PARSER_VERSION
 
 MAX_TEXT = 2_000_000
 MAX_PAGES = 200
@@ -139,7 +141,9 @@ def parse_word(path):
                 section = text.strip()
             bid = f"paragraph-{paragraph_count}"
             label = f"{section} · 段落 {paragraph_count}"
-            blocks.append({"id": bid, "kind": "paragraph", "label": label, "text": text, "tables": []})
+            blocks.append({"id": bid, "kind": "paragraph", "label": label, "text": text, "tables": [], "section": section, "style": style,
+                           "has_objects": bool(node.xpath(".//w:drawing | .//w:pict | .//w:object | .//m:oMath")),
+                           "heading_level": int(style.split()[-1]) if style.startswith("Heading ") and style.split()[-1].isdigit() else None})
             if node.xpath(".//w:drawing | .//w:pict"):
                 issues.append(issue("image", f"{label} 含图片，图片文字未识别，请核对内容完整性。", block=bid))
             if node.xpath(".//m:oMath | .//m:oMathPara"):
@@ -150,12 +154,12 @@ def parse_word(path):
         elif node.tag == qn("w:tbl"):
             table_count += 1
             table = Table(node, doc)
-            rows = [[cell.text for cell in row.cells] for row in table.rows]
             bid = f"table-{table_count}"
-            text = "\n".join("\t".join(row) for row in rows)
+            structure = table_structure(table, bid)
+            text = table_text(structure)
             total += len(text)
             blocks.append({"id": bid, "kind": "table", "label": f"{section} · 表格 {table_count}",
-                           "text": text, "tables": [{"rows": rows, "index": table_count}]})
+                           "text": text, "section": section, "tables": [{**structure, "index": table_count}]})
             if node.xpath(".//w:gridSpan | .//w:vMerge | ./w:tr/w:tc/w:tbl"):
                 issues.append(issue("table", f"表格 {table_count} 存在合并单元格或嵌套结构，请核对行列对应关系。", block=bid))
             if node.xpath(".//w:drawing | .//w:pict | .//m:oMath"):
@@ -167,7 +171,9 @@ def parse_word(path):
     if doc.element.xpath(".//w:txbxContent | .//w:object | .//w:ins | .//w:del"):
         issues.append(issue("objects", "文档含文本框、嵌入对象或修订内容，提取可能不完整，请核对原文。"))
     with zipfile.ZipFile(path) as archive:
-        if any(n in archive.namelist() for n in ["word/footnotes.xml", "word/endnotes.xml"]):
+        if any(any(note.get(qn('w:type'), 'normal') == 'normal' and (''.join(note.itertext()).strip() or note.xpath('.//w:drawing | .//w:object', namespaces={'w': qn('w:p').split('}')[0][1:]}))
+                   for note in etree.fromstring(archive.read(name)))
+               for name in ('word/footnotes.xml', 'word/endnotes.xml') if name in archive.namelist()):
             issues.append(issue("notes", "文档包含脚注或尾注，当前正文提取不覆盖这些内容，请核对。"))
     return {"blocks": blocks, "issues": issues, "pages": [], "characters": total}
 
@@ -175,7 +181,7 @@ def parse_word(path):
 def process(folder, ext):
     source = folder / ("original" + ext)
     validate(source, ext)
-    result = {"preview": {}, "preview_warnings": []}
+    result = {"preview": {}, "preview_warnings": [], "parser_version": PARSER_VERSION}
     word = source
     if ext == ".doc":
         word = convert(source, folder / "converted", "docx")
@@ -186,8 +192,15 @@ def process(folder, ext):
     else:
         for variant, target in [("original", source)] + ([("converted", word)] if ext == ".doc" else []):
             try:
-                preview = convert(target, folder / ("preview-" + variant), "pdf")
+                preview_copy = folder / ('preview-source-' + variant + '.docx')
+                compatibility_copy(word, preview_copy)
+                preview = convert(preview_copy, folder / ("preview-" + variant), "pdf")
+                result['preview_font'] = 'Arial Unicode MS（仅临时预览副本）'
                 result["preview"][variant] = str(preview.relative_to(folder))
+                pages = associate_preview(result['blocks'], preview, variant)
+                expected = [b['text'] for b in result['blocks'] if b['kind'] == 'paragraph'] + [c['text'] for b in result['blocks'] for t in b.get('tables', []) for c in t.get('cells', [])]
+                if any(len(normalized(text)) >= 8 and normalized(text) not in ''.join(pages) for text in expected):
+                    result['preview_warnings'].append('Word 转换预览可能不完整，请下载原文件核对；系统转换预览页码可能与 Word 分页不同。')
             except Exception:
                 result["preview_warnings"].append(f"{variant} 的转换预览未生成，可下载文件核对；预览失败不等于正文解析失败。")
     if not result["characters"]:

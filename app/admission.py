@@ -58,6 +58,6 @@ def sync_admission(doc):
         'request_id': f"{doc['id']}:{doc['revision']}" if eligible else None,
         'revision': doc['revision'],
         'reason': 'pipeline_not_connected' if eligible else 'admission_not_met',
-        'message': '符合入库条件，待构建；切分、向量化与索引服务尚未接通，当前不可检索。' if eligible else '尚不符合入库条件，不触发知识库构建。',
+        'message': '符合入库条件，待构建；可查看本地切分结果，向量化与索引服务尚未接通，当前不可检索。' if eligible else '尚不符合入库条件，不触发知识库构建。',
         'searchable': False,
     }
