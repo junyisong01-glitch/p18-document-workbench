@@ -1,4 +1,4 @@
-"""Single-machine document workbench. Indexing is intentionally not simulated."""
+"""Single-machine document workbench with optional offline semantic indexing."""
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -18,6 +18,7 @@ import pymupdf as fitz
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.parser import soffice_path
@@ -31,6 +32,8 @@ LOCK = threading.RLock()
 POOL = ThreadPoolExecutor(max_workers=2)
 ACTIVE = {}
 CHUNK_ACTIVE = {}
+INDEX_SERVICE = None
+SEMANTIC_ERROR = None
 MAX_FILE = 20_000_000
 MAX_BATCH = 100_000_000
 STATES = {"queued", "converting", "parsing"}
@@ -54,6 +57,7 @@ def initialize():
         conn.execute("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, document_id TEXT, action TEXT, at TEXT, revision INTEGER)")
         if "payload" not in {r[1] for r in conn.execute("PRAGMA table_info(events)")}:
             conn.execute("ALTER TABLE events ADD COLUMN payload TEXT")
+        conn.execute("CREATE TABLE IF NOT EXISTS index_runs (document_id TEXT PRIMARY KEY, body TEXT NOT NULL)")
         conn.execute("CREATE TABLE IF NOT EXISTS chunk_runs (document_id TEXT PRIMARY KEY, body TEXT NOT NULL)")
         conn.execute("CREATE TABLE IF NOT EXISTS chunks (document_id TEXT NOT NULL, sequence INTEGER NOT NULL, id TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(document_id, sequence))")
 
@@ -67,6 +71,9 @@ def save(doc):
         if row and (not doc['admission']['eligible'] or json.loads(row[0])['revision'] != doc['revision']):
             conn.execute("DELETE FROM chunks WHERE document_id=?", (doc['id'],))
             conn.execute("DELETE FROM chunk_runs WHERE document_id=?", (doc['id'],))
+
+    if INDEX_SERVICE is not None:
+        INDEX_SERVICE.invalidate(doc['id'])
 
 
 def get(identifier):
@@ -106,6 +113,7 @@ def public(doc, detailed=False):
     result['review_completed'] = (doc['state'] in {'ready', 'held'} and decision.get('revision') == doc['revision'])
     if detailed:
         result['chunking'] = chunk_result(doc, include_chunks=False)
+        result['index'] = index_status(doc['id'])
     if not detailed:
         result.pop("result", None)
     return result
@@ -293,6 +301,8 @@ def run_chunk_job(identifier, generation):
                     [(identifier, c['order'], c['id'], json.dumps(c, ensure_ascii=False)) for c in chunks])
                 write_chunk_run(conn, run)
             save(latest)
+            if INDEX_SERVICE is not None:
+                INDEX_SERVICE.schedule(identifier)
     except Exception as exc:
         with LOCK:
             run = load_chunk_run(identifier)
@@ -323,7 +333,16 @@ def run_chunk_job(identifier, generation):
 
 @asynccontextmanager
 async def lifespan(app):
+    global INDEX_SERVICE, SEMANTIC_ERROR
     initialize()
+    SEMANTIC_ERROR = None
+    if os.environ.get('P18_SEMANTIC_ENABLED') == '1':
+        try:
+            from app.semantic import IndexService
+            INDEX_SERVICE = IndexService(sys.modules[__name__])
+        except Exception:
+            SEMANTIC_ERROR = '本地索引初始化失败，请检查可选依赖、模型配置及Qdrant目录占用。'
+            INDEX_SERVICE = None
     with LOCK:
         for doc in all_docs():
             previous_state = doc["state"]
@@ -343,11 +362,16 @@ async def lifespan(app):
         for doc in all_docs():
             if doc.get('admission', {}).get('eligible'):
                 schedule_chunks(doc)
+    if INDEX_SERVICE is not None:
+        INDEX_SERVICE.recover()
     yield
     # Finish bounded local preparation before a test/app changes its database.
     while CHUNK_ACTIVE:
         import asyncio
         await asyncio.sleep(.02)
+    if INDEX_SERVICE is not None:
+        INDEX_SERVICE.close()
+        INDEX_SERVICE = None
     with LOCK:
         for proc in list(ACTIVE.values()):
             kill_process(proc)
@@ -373,10 +397,79 @@ async def local_guard(request: Request, call_next):
     return response
 
 
+def index_status(identifier):
+    if INDEX_SERVICE is None:
+        return {'status': 'unavailable' if SEMANTIC_ERROR else 'disabled', 'searchable': False,
+                'message': SEMANTIC_ERROR or '本地语义后端未启用；安装可选依赖并设置 P18_SEMANTIC_ENABLED=1。'}
+    return INDEX_SERVICE.status(identifier)
+
+
+def require_semantic():
+    if INDEX_SERVICE is None:
+        raise HTTPException(503, {'code': 'model_unavailable', 'message': SEMANTIC_ERROR or '本地语义后端未启用。'})
+    return INDEX_SERVICE
+
+
+class SearchBody(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    document_id: str | None = None
+    top_k: int | None = Field(default=None, ge=1, le=50, strict=True)
+
+
+@app.get('/api/semantic')
+def semantic_health():
+    service = INDEX_SERVICE
+    return {'enabled': service is not None, 'error': SEMANTIC_ERROR or (service.provider.last_error if service else None),
+            'model': service.config if service else None,
+            'metrics': service.provider.metrics if service else {},
+            'model_loaded': bool(service and service.provider.process and service.provider.process.is_alive()),
+            'scope': 'local', 'external_inference': False}
+
+
+@app.get('/api/documents/{identifier}/index')
+def document_index(identifier: str):
+    with LOCK:
+        available(identifier)
+        return index_status(identifier)
+
+
+@app.post('/api/documents/{identifier}/index')
+async def build_index(identifier: str, request: Request):
+    body = await request.json()
+    service = require_semantic()
+    with LOCK:
+        doc = available(identifier)
+        if not isinstance(body, dict) or body.get('revision') != doc['revision'] or not service.snapshot(identifier):
+            raise HTTPException(409, '当前解析版本无效或尚无通过审核的有效切分结果。')
+        if not service.current_config():
+            raise HTTPException(409, '模型配置已变化，请重启后重建索引。')
+        service.schedule(identifier, retry=True)
+        return service.status(identifier)
+
+
+@app.post('/api/search')
+def semantic_search(body: SearchBody):
+    from app.embedding import EmbeddingError
+    from app.semantic import SemanticError
+    if not body.query.strip():
+        raise HTTPException(422, '问题不能为空。')
+    service = require_semantic()
+    try:
+        top_k = body.top_k if body.top_k is not None else int(os.environ.get('P18_SEARCH_TOP_K', '5'))
+        if not 1 <= top_k <= 50:
+            raise ValueError()
+    except ValueError:
+        raise HTTPException(503, 'P18_SEARCH_TOP_K 必须为1–50。')
+    try:
+        return service.search(body.query.strip(), body.document_id, top_k)
+    except (EmbeddingError, SemanticError) as exc:
+        raise HTTPException(503, {'code': exc.code, 'message': str(exc)}) from exc
+
+
 @app.get("/api/config")
 def config():
     return {"max_file": MAX_FILE, "max_batch": MAX_BATCH, "max_files": 20, "max_pages": 200,
-            "workers": 2, "conversion": bool(soffice_path()), "indexing": False, "scope": "local"}
+            "workers": 2, "conversion": bool(soffice_path()), "indexing": INDEX_SERVICE is not None, "scope": "local"}
 
 
 @app.get("/api/documents")
