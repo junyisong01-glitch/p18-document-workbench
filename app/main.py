@@ -15,13 +15,14 @@ import threading
 import uuid
 
 import pymupdf as fitz
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.parser import soffice_path
 from app.admission import categories, requirements, confirmed, sync_admission
+from app.chunking import configuration, digest, fingerprint, prepare
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = Path(os.environ.get("P18_DATA_DIR", ROOT / "runtime"))
@@ -29,6 +30,7 @@ DB = DATA / "workbench.sqlite3"
 LOCK = threading.RLock()
 POOL = ThreadPoolExecutor(max_workers=2)
 ACTIVE = {}
+CHUNK_ACTIVE = {}
 MAX_FILE = 20_000_000
 MAX_BATCH = 100_000_000
 STATES = {"queued", "converting", "parsing"}
@@ -52,6 +54,8 @@ def initialize():
         conn.execute("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, document_id TEXT, action TEXT, at TEXT, revision INTEGER)")
         if "payload" not in {r[1] for r in conn.execute("PRAGMA table_info(events)")}:
             conn.execute("ALTER TABLE events ADD COLUMN payload TEXT")
+        conn.execute("CREATE TABLE IF NOT EXISTS chunk_runs (document_id TEXT PRIMARY KEY, body TEXT NOT NULL)")
+        conn.execute("CREATE TABLE IF NOT EXISTS chunks (document_id TEXT NOT NULL, sequence INTEGER NOT NULL, id TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(document_id, sequence))")
 
 
 def save(doc):
@@ -59,6 +63,10 @@ def save(doc):
     doc["updated_at"] = now()
     with connect() as conn:
         conn.execute("INSERT OR REPLACE INTO documents VALUES (?, ?)", (doc["id"], json.dumps(doc, ensure_ascii=False)))
+        row = conn.execute("SELECT body FROM chunk_runs WHERE document_id=?", (doc['id'],)).fetchone()
+        if row and (not doc['admission']['eligible'] or json.loads(row[0])['revision'] != doc['revision']):
+            conn.execute("DELETE FROM chunks WHERE document_id=?", (doc['id'],))
+            conn.execute("DELETE FROM chunk_runs WHERE document_id=?", (doc['id'],))
 
 
 def get(identifier):
@@ -91,10 +99,13 @@ def folder_for(identifier):
 
 
 def public(doc, detailed=False):
+    sync_admission(doc)
     result = dict(doc)
     result['review_pending'] = doc['state'] == 'review'
     decision = doc.get('review_decision') or {}
     result['review_completed'] = (doc['state'] in {'ready', 'held'} and decision.get('revision') == doc['revision'])
+    if detailed:
+        result['chunking'] = chunk_result(doc, include_chunks=False)
     if not detailed:
         result.pop("result", None)
     return result
@@ -163,6 +174,7 @@ def run_job(identifier, revision):
                 activate_replacement(doc)
             save(doc)
             event(doc, "extraction_finished")
+            schedule_chunks(doc)
     except Exception as exc:
         with LOCK:
             try:
@@ -176,6 +188,137 @@ def run_job(identifier, revision):
         with LOCK:
             if ACTIVE.get(identifier) is proc:
                 ACTIVE.pop(identifier, None)
+
+
+def load_chunk_run(identifier):
+    with connect() as conn:
+        row = conn.execute("SELECT body FROM chunk_runs WHERE document_id=?", (identifier,)).fetchone()
+    return json.loads(row[0]) if row else None
+
+
+def write_chunk_run(conn, run):
+    conn.execute("INSERT OR REPLACE INTO chunk_runs VALUES (?, ?)",
+                 (run['document_id'], json.dumps(run, ensure_ascii=False)))
+
+
+def chunk_result(doc, include_chunks=True):
+    # Recalculate rather than trusting stale caller-supplied admission flags.
+    sync_admission(doc)
+    run = load_chunk_run(doc['id'])
+    answer = {'status': 'not_started', 'count': 0, 'chunks': [], 'searchable': False,
+              'message': '尚未切分。', 'warnings': []}
+    if not doc['admission']['eligible']:
+        answer.update(status='blocked', message='尚未通过入库条件，不提供正式切分结果。')
+        return answer
+    try:
+        settings = configuration()
+        answer['current_config'] = settings
+    except ValueError as exc:
+        answer.update(status='failed', message=str(exc))
+        return answer
+    if not run:
+        return answer
+    stale = (run['revision'] != doc['revision'] or run.get('config_hash') != digest(settings)
+             or run.get('input_hash') != fingerprint(doc))
+    answer.update({key: value for key, value in run.items() if key != 'normalized'})
+    if stale:
+        answer.update(status='stale', count=0, message='解析结果或切分配置已变化，请重新生成；旧片段不再提供使用。')
+    elif include_chunks and run['status'] == 'complete':
+        with connect() as conn:
+            answer['chunks'] = [json.loads(row[0]) for row in conn.execute(
+                "SELECT body FROM chunks WHERE document_id=? ORDER BY sequence", (doc['id'],))]
+    return answer
+
+
+def schedule_chunks(doc, retry_failed=False):
+    # Called under LOCK at parsing/review completion and startup, not from GET.
+    sync_admission(doc)
+    if not doc['admission']['eligible']:
+        return
+    try:
+        settings = configuration()
+        error = None
+    except ValueError as exc:
+        settings = {};error = str(exc)
+    previous = load_chunk_run(doc['id'])
+    config_hash, input_hash = digest(settings), fingerprint(doc)
+    same = previous and previous.get('config_hash') == config_hash and previous.get('input_hash') == input_hash
+    if same and (previous['status'] == 'complete' or (previous['status'] == 'failed' and not retry_failed)):
+        return
+    if doc['id'] in CHUNK_ACTIVE:
+        if same:
+            return
+        # Old worker's publication guard will reject it. A subsequent request can
+        # regenerate, or it will queue the new version after discarding its output.
+        return
+    run = {'document_id': doc['id'], 'revision': doc['revision'], 'config': settings,
+           'config_hash': config_hash, 'input_hash': input_hash,
+           'generation': uuid.uuid4().hex, 'status': 'failed' if error else 'queued',
+           'count': 0, 'updated_at': now(), 'warnings': [],
+           'message': error or '已加入本地切分队列。', 'error': error}
+    with connect() as conn:
+        conn.execute("DELETE FROM chunks WHERE document_id=?", (doc['id'],))
+        write_chunk_run(conn, run)
+    if error:
+        return
+    CHUNK_ACTIVE[doc['id']] = run['generation']
+    POOL.submit(run_chunk_job, doc['id'], run['generation'])
+
+
+def run_chunk_job(identifier, generation):
+    try:
+        with LOCK:
+            doc = get(identifier)
+            run = load_chunk_run(identifier)
+            sync_admission(doc)
+            if not run or run['generation'] != generation or not doc['admission']['eligible']:
+                return
+            run.update(status='processing', updated_at=now(), message='正在本地整理与切分。')
+            with connect() as conn:write_chunk_run(conn, run)
+        normalized, chunks = prepare(doc, run['config'])
+        with LOCK:
+            latest = get(identifier)
+            sync_admission(latest)
+            current_run = load_chunk_run(identifier)
+            if (not latest['admission']['eligible'] or latest['revision'] != run['revision']
+                or fingerprint(latest) != run['input_hash'] or configuration() != run['config']
+                or not current_run or current_run['generation'] != generation):
+                return
+            run.update(status='complete', count=len(chunks), normalized=normalized,
+                       warnings=normalized['warnings'], updated_at=now(), error=None,
+                       message='本地切分完成；尚未向量化或创建索引，当前不可检索。')
+            with connect() as conn:
+                conn.execute("DELETE FROM chunks WHERE document_id=?", (identifier,))
+                conn.executemany("INSERT INTO chunks VALUES (?, ?, ?, ?)",
+                    [(identifier, c['order'], c['id'], json.dumps(c, ensure_ascii=False)) for c in chunks])
+                write_chunk_run(conn, run)
+            save(latest)
+    except Exception as exc:
+        with LOCK:
+            run = load_chunk_run(identifier)
+            if run and run['generation'] == generation:
+                run.update(status='failed', count=0, updated_at=now(),
+                           error=str(exc) if isinstance(exc, ValueError) else '本地切分或保存失败，请重试。',
+                           message='本地切分失败，未生成可用片段。')
+                with connect() as conn:
+                    conn.execute("DELETE FROM chunks WHERE document_id=?", (identifier,))
+                    write_chunk_run(conn, run)
+    finally:
+        with LOCK:
+            if CHUNK_ACTIVE.get(identifier) == generation:
+                CHUNK_ACTIVE.pop(identifier, None)
+            # Invalidate interrupted/stale runs, then pick up an admitted new
+            # revision if parsing/review completed while this worker was running.
+            try:
+                latest = get(identifier)
+                run = load_chunk_run(identifier)
+                if run and run['generation'] == generation and run['status'] in {'queued', 'processing'}:
+                    run.update(status='failed', message='结果已过期或任务中断，请重新生成。', error='stale_result', count=0)
+                    with connect() as conn:write_chunk_run(conn, run)
+                if latest.get('admission', {}).get('eligible') and (not run or run['revision'] != latest['revision']):
+                    schedule_chunks(latest)
+            except HTTPException:
+                pass
 
 
 @asynccontextmanager
@@ -197,7 +340,14 @@ async def lifespan(app):
                 event(doc, 'admission_review_required')
             if 'admission' not in doc or doc['state'] != previous_state:
                 save(doc)
+        for doc in all_docs():
+            if doc.get('admission', {}).get('eligible'):
+                schedule_chunks(doc)
     yield
+    # Finish bounded local preparation before a test/app changes its database.
+    while CHUNK_ACTIVE:
+        import asyncio
+        await asyncio.sleep(.02)
     with LOCK:
         for proc in list(ACTIVE.values()):
             kill_process(proc)
@@ -344,7 +494,28 @@ async def review(identifier: str, request: Request):
         event(doc, "review_" + action, {**doc['review_decision'], 'document_name': doc['name'],
               'requirements': requirements(doc), 'issues': (doc.get('result') or {}).get('issues', []),
               'preview_warnings': (doc.get('result') or {}).get('preview_warnings', [])})
+        schedule_chunks(doc)
         return public(doc, True)
+
+
+@app.get("/api/documents/{identifier}/chunks")
+def chunks_view(identifier: str):
+    with LOCK:
+        return chunk_result(available(identifier))
+
+
+@app.post("/api/documents/{identifier}/chunks")
+async def regenerate_chunks(identifier: str, request: Request):
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(400, '请提供当前解析版本。')
+    with LOCK:
+        doc = available(identifier)
+        sync_admission(doc)
+        if body.get('revision') != doc['revision'] or not doc['admission']['eligible']:
+            raise HTTPException(409, '当前版本尚未通过入库条件，或解析版本已变化。')
+        schedule_chunks(doc, retry_failed=True)
+        return chunk_result(doc)
 
 
 @app.post("/api/documents/{identifier}/retry")
@@ -360,6 +531,27 @@ def retry(identifier: str):
         save(doc)
         event(doc, "retry")
         POOL.submit(run_job, identifier, doc["revision"])
+        return public(doc)
+
+
+@app.post("/api/documents/{identifier}/reparse")
+async def reparse(identifier: str, request: Request):
+    body = await request.json()
+    with LOCK:
+        doc = available(identifier)
+        if not isinstance(body, dict) or body.get('revision') != doc['revision']:
+            raise HTTPException(409, '解析版本已变化，请刷新后重试。')
+        if doc['state'] in STATES or identifier in ACTIVE:
+            raise HTTPException(409, '文档仍在处理中。')
+        archive = folder_for(identifier) / 'history'
+        archive.mkdir(exist_ok=True)
+        (archive / f"revision-{doc['revision']}.json").write_text(json.dumps(doc, ensure_ascii=False), encoding='utf-8')
+        event(doc, 'reparse_requested', {'previous_revision': doc['revision']})
+        doc.update(state='queued', quality='pending', error=None, reviewed_at=None,
+                   review_decision=None, result=None, revision=doc['revision']+1,
+                   characters=0, issues_count=0)
+        save(doc)
+        POOL.submit(run_job, identifier, doc['revision'])
         return public(doc)
 
 
@@ -431,7 +623,7 @@ def preview_meta(identifier: str, variant: str):
 
 
 @app.get("/api/documents/{identifier}/preview/{variant}/{page}")
-def preview_page(identifier: str, variant: str, page: int):
+def preview_page(identifier: str, variant: str, page: int, zoom: float = Query(1, ge=1, le=3)):
     with LOCK:
         doc = available(identifier)
         relative = (doc.get("result") or {}).get("preview", {}).get(variant)
@@ -441,7 +633,7 @@ def preview_page(identifier: str, variant: str, page: int):
             if not 1 <= page <= len(pdf):
                 raise HTTPException(404, "页码不存在。")
             target = pdf[page - 1]
-            scale = min(1.4, 1600 / max(target.rect.width, target.rect.height))
+            scale = min(2 * zoom, 4200 / max(target.rect.width, target.rect.height))
             png = target.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False).tobytes("png")
         return Response(png, media_type="image/png", headers={"Cache-Control": "no-store"})
 
