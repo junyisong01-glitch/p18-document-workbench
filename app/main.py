@@ -35,6 +35,7 @@ ACTIVE = {}
 CHUNK_ACTIVE = {}
 INDEX_SERVICE = None
 SEMANTIC_ERROR = None
+RAG_SERVICE = None
 MAX_FILE = 20_000_000
 MAX_BATCH = 100_000_000
 STATES = {"queued", "converting", "parsing"}
@@ -336,8 +337,10 @@ def run_chunk_job(identifier, generation):
 
 @asynccontextmanager
 async def lifespan(app):
-    global INDEX_SERVICE, SEMANTIC_ERROR
+    global INDEX_SERVICE, SEMANTIC_ERROR, RAG_SERVICE
     initialize()
+    from app.rag import RagService
+    RAG_SERVICE = RagService(sys.modules[__name__])
     SEMANTIC_ERROR = None
     if os.environ.get('P18_SEMANTIC_ENABLED') == '1':
         try:
@@ -469,6 +472,43 @@ def semantic_search(body: SearchBody):
         return service.search(body.query.strip(), body.document_id, top_k, mode=body.mode)
     except (EmbeddingError, SemanticError) as exc:
         raise HTTPException(503, {'code': exc.code, 'message': str(exc)}) from exc
+
+
+class RagPrepareBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    question: str = Field(min_length=1, max_length=2000)
+    session_id: str | None = Field(default=None, max_length=100)
+
+
+class RagAnswerBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    ticket: str = Field(min_length=1, max_length=100)
+    consent: bool = Field(strict=True)
+
+
+def rag_call(method, *args):
+    from app.rag import RagError
+    from app.embedding import EmbeddingError
+    from app.semantic import SemanticError
+    try:
+        return getattr(RAG_SERVICE, method)(*args)
+    except (RagError, EmbeddingError, SemanticError) as error:
+        raise HTTPException(409, {'code':error.code,'message':str(error)})
+
+
+@app.get('/api/rag')
+def rag_health():
+    return RAG_SERVICE.status()
+
+
+@app.post('/api/rag/prepare')
+def rag_prepare(body: RagPrepareBody):
+    return rag_call('prepare', body.question, body.session_id)
+
+
+@app.post('/api/rag/answer')
+def rag_answer(body: RagAnswerBody):
+    return rag_call('answer', body.ticket, body.consent)
 
 
 @app.get("/api/config")
