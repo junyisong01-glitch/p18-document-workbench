@@ -78,7 +78,12 @@ class IndexService:
                 if not self.valid(run, snap) or not self.current_config():
                     answer.update(status='stale', searchable=False, count=0, message='索引已失效，需满足入库条件并重新建立。')
             elif not snap:
-                answer.update(status='blocked', message='尚无符合入库条件的有效切分片段。')
+                doc = self.store.get(identifier)
+                self.store.sync_admission(doc)
+                if doc['admission']['eligible']:
+                    answer.update(status='not_started', message='已满足入库条件，等待有效切分结果后建立索引。')
+                else:
+                    answer.update(status='blocked', message='尚无符合入库条件的有效切分片段。')
             answer['searchable'] = answer['status'] == 'complete'
             return answer
 
@@ -232,7 +237,7 @@ class IndexService:
                 if hit.payload.get('chunk_id') != chunk['id'] or hit.payload.get('token') != snap['token']:
                     continue
                 results.append({'rank': len(results)+1, 'score': hit.score, 'document_id': snap['doc']['id'],
-                                'document_name': snap['doc']['name'], 'chunk_id': chunk['id'],
+                                'document_name': snap['doc']['name'], 'chunk_id': chunk['id'], 'index_token': snap['token'],
                                 'revision': chunk['revision'], 'order': chunk['order'], 'text': chunk['text'],
                                 'section': chunk['section'], 'sources': chunk['sources'], 'risk': chunk['risk']})
         return {'status': 'ok' if results else 'no_results', 'results': results, 'model': self.config,

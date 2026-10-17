@@ -111,9 +111,11 @@ def public(doc, detailed=False):
     result['review_pending'] = doc['state'] == 'review'
     decision = doc.get('review_decision') or {}
     result['review_completed'] = (doc['state'] in {'ready', 'held'} and decision.get('revision') == doc['revision'])
+    index = index_status(doc['id'])
+    result['index'] = index if detailed else {key: index.get(key) for key in
+        ('status', 'searchable', 'count', 'message', 'error', 'error_code', 'updated_at', 'token', 'generation')}
     if detailed:
         result['chunking'] = chunk_result(doc, include_chunks=False)
-        result['index'] = index_status(doc['id'])
     if not detailed:
         result.pop("result", None)
     return result
@@ -418,8 +420,9 @@ class SearchBody(BaseModel):
 
 @app.get('/api/semantic')
 def semantic_health():
+    from app.local_setup import check_local_runtime
     service = INDEX_SERVICE
-    return {'enabled': service is not None, 'error': SEMANTIC_ERROR or (service.provider.last_error if service else None),
+    return {'setup': check_local_runtime(), 'enabled': service is not None, 'error': SEMANTIC_ERROR or (service.provider.last_error if service else None),
             'model': service.config if service else None,
             'metrics': service.provider.metrics if service else {},
             'model_loaded': bool(service and service.provider.process and service.provider.process.is_alive()),
@@ -469,7 +472,8 @@ def semantic_search(body: SearchBody):
 @app.get("/api/config")
 def config():
     return {"max_file": MAX_FILE, "max_batch": MAX_BATCH, "max_files": 20, "max_pages": 200,
-            "workers": 2, "conversion": bool(soffice_path()), "indexing": INDEX_SERVICE is not None, "scope": "local"}
+            "workers": 2, "conversion": bool(soffice_path()), "indexing": INDEX_SERVICE is not None, "scope": "local",
+            "workbench_version": "semantic-ui-v1", "data_directory": str(DATA.resolve())}
 
 
 @app.get("/api/documents")

@@ -3,33 +3,47 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>P18 · 文档工作台</title>
-  <link rel="stylesheet" href="style.css?v=20261017-word-structure">
-  <script src="app.js?v=20261017-word-structure" defer></script>
+  <link rel="stylesheet" href="style.css?v=20261017-semantic-ui">
+  <script src="app.js?v=20261017-semantic-ui" defer></script>
+  <script src="static/search.js?v=20261017-semantic-ui" defer></script>
 </head>
 <body>
   <aside class="sidebar">
     <a class="brand" href="/" aria-label="P18 文档工作台首页"><span class="brand-mark">P18</span><span>研发知识工作台<small>RESEARCH WORKSPACE</small></span></a>
     <div class="workspace-label">工作空间</div>
     <button class="nav-item active" id="nav-documents"><span>▤</span> 文档管理 <span class="nav-count" id="nav-count">0</span></button>
-    <div class="nav-item muted"><span>⌕</span> 知识检索 <small>后续模块</small></div>
+    <button class="nav-item" id="nav-search"><span>⌕</span> 知识检索</button>
     <div class="nav-item muted"><span>◇</span> 知识问答 <small>后续模块</small></div>
     <div class="sidebar-bottom"><span class="status-dot"></span> 本地测试环境<p>仅使用公开或虚构样例<br>文档不会发送给外部模型</p></div>
   </aside>
   <main>
-    <header class="topbar"><span>工作空间 <span class="slash">/</span> 文档管理</span><span class="local-badge">仅本机访问</span></header>
+    <header class="topbar"><span>工作空间 <span class="slash">/</span> <span id="current-page">文档管理</span></span><span class="local-badge">仅本机访问</span></header>
     <section class="workspace" id="list-view">
       <div class="page-heading"><div><p class="eyebrow">DOCUMENT LIBRARY</p><h1>让每份资料，都有据可查。</h1><p class="subtitle">上传研发文档，核对解析内容，为知识检索准备可靠的资料。</p></div><button class="primary" id="upload-open">＋ 上传文档</button></div>
-      <div class="notice"><span class="notice-symbol">i</span><div><strong>当前阶段：文档管理与解析</strong><span>上传、解析和复核均为真实处理。符合入库条件后自动进入“待构建”。符合条件的资料自动进行本地切分；向量化与索引服务尚未接通，当前不可检索。</span></div></div>
-      <div class="stats" aria-label="文档统计"><div><span>全部文档</span><strong id="stat-total">0</strong></div><div><span>正在处理</span><strong id="stat-processing">0</strong></div><div><span>需要复核</span><strong class="amber-text" id="stat-review">0</strong></div><div><span>待构建资料</span><strong id="stat-ready">0</strong></div></div>
+      <div class="notice"><span class="notice-symbol">i</span><div><strong>文档管理与本地知识索引</strong><span id="library-service-note">正在核对本地语义检索能力…</span></div></div>
+      <div class="stats" aria-label="文档统计"><div><span>全部文档</span><strong id="stat-total">0</strong></div><div><span>正在处理</span><strong id="stat-processing">0</strong></div><div><span>需要复核</span><strong class="amber-text" id="stat-review">0</strong></div><div><span>可检索资料</span><strong id="stat-ready">0</strong></div></div>
       <div class="library">
         <div class="library-heading"><h2>文档资料库 <span id="file-count">0 份</span></h2><button id="refresh" class="text-button">刷新列表</button></div>
-        <div class="filters"><label class="search"><span>⌕</span><input id="search" type="search" placeholder="搜索文档名称…" aria-label="搜索文档名称"></label><select id="state-filter" aria-label="处理状态"><option value="">全部处理状态</option><option value="processing">处理中</option><option value="review">等待复核</option><option value="held">暂不入库</option><option value="ready">待构建</option><option value="failed">处理失败</option><option value="delete_failed">删除未完成</option></select><select id="quality-filter" aria-label="质量状态"><option value="">全部质量状态</option><option value="clear">未发现明显异常</option><option value="review">需要复核</option><option value="failed">处理失败</option></select><button class="filter-button" id="review-only" aria-pressed="false">仅看需要复核</button></div>
+        <div class="filters"><label class="search"><span>⌕</span><input id="search" type="search" placeholder="搜索文档名称…" aria-label="搜索文档名称"></label><select id="state-filter" aria-label="处理状态"><option value="">全部处理状态</option><option value="processing">处理中</option><option value="review">等待复核</option><option value="held">暂不入库</option><option value="ready">解析完成（全部索引状态）</option><option value="failed">处理失败</option><option value="delete_failed">删除未完成</option></select><select id="quality-filter" aria-label="质量状态"><option value="">全部质量状态</option><option value="clear">未发现明显异常</option><option value="review">需要复核</option><option value="failed">处理失败</option></select><button class="filter-button" id="review-only" aria-pressed="false">仅看需要复核</button></div>
         <div id="list-error" class="error-banner" role="alert" hidden></div>
         <div class="table-wrap"><table class="document-table"><thead><tr><th>文档名称</th><th>上传时间</th><th>处理状态</th><th>质量检查</th><th>操作</th></tr></thead><tbody id="documents"></tbody></table></div>
         <div id="empty" class="empty" hidden><div class="empty-mark">▤</div><h3>从第一份文档开始</h3><p>支持文字型 PDF、DOCX 和旧版 DOC。<br>没有企业资料也可以先使用虚构样例体验完整流程。</p><button class="secondary" id="empty-upload">选择文档</button></div>
         <footer class="table-footer"><span id="list-summary">正在读取资料库…</span><span>不做数值评分 · 问题定位辅助人工复核</span></footer>
       </div>
       <div class="bottom-note"><strong>原文件始终保留</strong><span>旧版 DOC 会生成转换副本；遇到疑似遗漏，先核对再确认使用。</span></div>
+    </section>
+
+    <section id="search-view" class="workspace search-workspace" hidden>
+      <div class="page-heading"><div><p class="eyebrow">KNOWLEDGE RETRIEVAL</p><h1>知识检索</h1><p class="subtitle">通过自然语言查找研发文档中的相关内容，检索结果仅供参考，请结合原文核对。</p></div></div>
+      <form id="semantic-form" class="semantic-form">
+        <label class="semantic-question" for="semantic-query">你想查找什么？<textarea id="semantic-query" maxlength="2000" rows="2" placeholder="例如：付款请求一直没有响应，应该怎么排查？" required></textarea></label>
+        <div class="semantic-controls"><label for="semantic-scope">搜索范围 <select id="semantic-scope"><option value="">全部文档</option></select></label><span>默认返回前 5 条，具体数量由后端配置决定</span><button id="semantic-submit" class="primary" type="submit">搜索</button></div>
+      </form>
+      <div id="semantic-service" class="search-service" role="status" aria-live="polite">正在检查本地检索服务…</div>
+      <div class="retrieval-layout">
+        <section class="retrieval-results" aria-label="检索结果"><div class="retrieval-heading"><h2>相关片段</h2><span id="semantic-count">尚未搜索</span></div><p class="similarity-note">相似度表示向量接近程度，不代表答案正确率。这里展示原文片段，不生成回答。</p><p id="semantic-status" role="status" aria-live="polite">输入问题，开始查找资料。</p><div id="semantic-results"></div></section>
+        <section class="retrieval-preview" aria-label="检索原文预览"><div class="retrieval-heading"><h2>原文对照</h2><a id="semantic-download" class="text-button" hidden>下载原文件 ↗</a></div><h3 id="semantic-preview-name">尚未选择片段</h3><p id="semantic-source-note" class="source-note">搜索后选择相关片段，在这里核对来源。</p><div class="search-pager"><button id="semantic-prev" type="button" disabled aria-label="检索预览上一页">←</button><span id="semantic-page-label">暂无预览</span><button id="semantic-next" type="button" disabled aria-label="检索预览下一页">→</button></div><div id="semantic-preview-content" class="search-preview-content"><p class="pane-empty">原文预览将在此显示。</p></div></section>
+      </div>
     </section>
 
     <section id="detail-view" class="detail" hidden>
