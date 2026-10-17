@@ -102,3 +102,48 @@ python3 -m venv .venv
 样例生成脚本仅使用虚构内容。上传文件、解析副本、SQLite、日志、测试截图和运行环境都在 Git 忽略范围内，不推送 GitHub。
 
 私有仓库：https://github.com/junyisong01-glitch/p18-document-workbench
+
+
+## 本地语义检索后端（P18-M2-009-010 阶段一）
+
+本阶段只提供后端，不增加搜索页面、不生成回答；前端阶段二须用户另行确认。默认不开启向量工作，避免升级时自动改动现有运行目录。启用后，符合已有入库条件的当前片段自动排队索引。
+
+安装可选依赖并显式下载官方模型（不上传任何资料）：
+
+```sh
+uv pip install --python .venv/bin/python -r requirements-dev.txt -r requirements-semantic.txt
+.venv/bin/python -m scripts.download_embedding
+```
+
+如没有 uv，可用项目 Python 环境的 pip 安装同一依赖文件。下载约1.2GB权重至 Hugging Face 用户缓存，不进入仓库。默认固定 Qwen/Qwen3-Embedding-0.6B 提交 `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`。运行仅使用本地缓存、禁用远程代码；缓存缺失会失败，不自动下载、不切换外部 API。
+
+启动一个独立数据目录，避免操作现有资料（路径请自行选定）：
+
+```sh
+P18_DATA_DIR=/private/tmp/p18-semantic-demo P18_SEMANTIC_ENABLED=1 .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8767 --workers 1
+```
+
+Qdrant 本地目录锁要求每个数据目录只用一个服务进程，不使用多个 worker；数据库锁失败会明确显示后端未就绪。SQLite 新增 index_runs，Qdrant 存在所选数据目录的 qdrant/。原来的上传、解析、审核与切分接口继续使用；不要把开启新数据目录误认为原资料丢失。现有8765/8766服务本轮未重启或迁移。
+
+接口：
+
+- `GET /api/semantic`：配置、模型是否已加载、最近错误及运行指标，不为健康检查加载权重。
+- `GET /api/documents/{id}/index`：not_started / waiting / building / complete / failed / stale；未满足条件为 blocked，后端禁用为 disabled。仅 complete 且版本有效时 searchable 为 true。
+- `POST /api/documents/{id}/index`：JSON `{"revision": 当前解析版本}`，有效片段的幂等建立或失败重试。复用当前入库和审核规则，不强行放行。
+- `POST /api/search`：JSON `{"query":"付款请求一直没有响应怎么办？","top_k":5}`；可加 `document_id` 限定一份文档。问题最多2000字符，Top-K为1–50，默认5；返回排名、真实余弦相似度、完整片段、版本、来源及风险。没有有效索引时返回 no_index，没有当前有效命中时为 no_results；模型/检索异常返回503和错误分类。
+- 写请求继续要求 `X-P18-Client: workbench`；例如 `curl -H 'X-P18-Client: workbench' -H 'Content-Type: application/json' -d '{"query":"付款请求一直没有响应怎么办？"}' http://127.0.0.1:8767/api/search`。
+
+开发者配置通过环境变量修改并重启：`P18_SEARCH_TOP_K`（默认5），`P18_EMBEDDING_DIMENSION`（默认1024，32–1024），`P18_EMBEDDING_MAX_TOKENS`（默认4096，128–32768），`P18_EMBEDDING_TIMEOUT`（默认180秒，最多600秒），`P18_EMBEDDING_REVISION`（仅完整官方模型提交SHA）。更换版本需先显式下载相应权重。不支持更换其他模型名称或自动外部回退。
+
+CPU float32、最后token池化、归一化和查询英文指令遵循模型用法；文档不添加查询指令。一个独立模型进程串行逐条编码，防止多份文档同时加载权重；超时终止该进程，后续可重试。超长片段明确失败而非截断。失败区分 model_unavailable、embedding_timeout、input_too_long、embedding_failed、index_write_failed 等。
+
+索引按模型与配置哈希隔离集合；文档/切分版本变化使索引失效。先写真实向量，再在 SQLite 核对版本并发布 complete。检索只查询 SQLite 当前有效片段的向量标识，返回前再次核验。清理异步排队，旧向量即使尚未物理删除也不会返回；重启恢复中断任务，完整索引不重复建立。Qdrant 不存第二份正文。此机制是本机单进程可恢复方案，不是跨数据库分布式事务。
+
+复现实测（仅独立虚构样例和临时目录）：
+
+```sh
+.venv/bin/python -m scripts.validate_semantic
+P18_TEST_LOCAL_EMBEDDINGS=1 .venv/bin/python -m pytest -q
+```
+
+普通测试默认跳过真实模型验收；上面命令显式开启后才包含真实权重、持久化和 Top-5 效果验证。实测问题、排名、分数及限制见 [阶段一验证记录](docs/semantic-validation.md)。相似度不是答案正确率；未设经过业务验证的相关性阈值，小规模虚构样例成功不等于企业验收。Qdrant本地模式针对教学原型，不承诺大规模性能。

@@ -23,3 +23,11 @@ __pycache__/
 test-results/
 playwright-report/
 dist/
+
+# Local model weights and vector stores (also excluded under runtime/)
+models/
+qdrant_storage/
+*.safetensors
+*.onnx
+*.pt
+*.pth
