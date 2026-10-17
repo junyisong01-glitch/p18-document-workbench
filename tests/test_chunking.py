@@ -329,3 +329,42 @@ def test_fenced_content_does_not_create_fake_sections():
     _,chunks=prepare(sample(blocks),configuration())
     assert all(c['section']=='接口' for c in chunks)
     assert '# not a document heading\n1 another code line' in next(c['text'] for c in chunks if c['kind']=='code')
+
+
+@pytest.mark.parametrize('marker', ['```', '~~~'])
+def test_pdf_prose_then_fence_preserves_code_and_page_sources(marker):
+    code = marker + 'python\n# code heading\n1 code line\n    value = 1\n\n    return value\n' + marker
+    raw = 'Introductory prose.\n' + code + '\nFollowing prose.'
+    block = {'id': 'page-1', 'kind': 'page', 'page': 1, 'label': '第 1 页', 'text': raw, 'tables': []}
+    normalized, chunks = prepare(sample([block], ext='.pdf'), {**configuration(), 'target_chars': 80})
+    code_chunks = [c for c in chunks if c['kind'] == 'code']
+    assert len(code_chunks) == 1 and code_chunks[0]['text'] == code
+    assert all(c['section'] == '正文' for c in chunks)
+    assert any('Introductory prose.' in c['text'] for c in chunks if c['kind'] == 'text')
+    assert any('Following prose.' in c['text'] for c in chunks if c['kind'] == 'text')
+    assert all(s['page'] == 1 for s in code_chunks[0]['sources'])
+    assert all(raw[s['raw_start']:s['raw_end']] == u['text']
+               for u in normalized['units'] if u['kind'] != 'code' for s in u['sources'])
+
+
+@pytest.mark.parametrize('ext', ['.docx', '.doc'])
+def test_word_normal_numbered_subheading_survives_parent_metadata(tmp_path, ext):
+    document = Document()
+    document.add_heading('Setup', level=1)
+    document.add_paragraph('Parent introduction.')
+    document.add_paragraph('1.1 Installation')
+    document.add_paragraph('Install the package. ' * 20)
+    document.add_paragraph('Check the installation. ' * 20)
+    document.add_paragraph('1.2 Configuration')
+    document.add_paragraph('Configure the application.')
+    document.add_heading('Usage', level=1)
+    document.add_paragraph('Run the application.')
+    path = tmp_path / 'subheadings.docx'; document.save(path)
+    result = parse_word(path)
+    doc = sample(result['blocks'], ext=ext)
+    _, chunks = prepare(doc, {**configuration(), 'target_chars': 80, 'overlap_chars': 0})
+    for phrase, section in [('Parent introduction.', 'Setup'), ('Install the package.', '1.1 Installation'),
+                            ('Check the installation.', '1.1 Installation'),
+                            ('Configure the application.', '1.2 Configuration'), ('Run the application.', 'Usage')]:
+        matches = [c for c in chunks if phrase in c['text']]
+        assert matches and all(c['section'] == section for c in matches)
