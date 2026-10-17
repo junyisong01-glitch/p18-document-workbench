@@ -11,6 +11,7 @@
     return Number.isInteger(value) && value>0 ? value : null;
   }
   function hitIsCurrent(hit, records) {
+    if(hit.members && !hit.members.every(member=>hitIsCurrent(member,records)))return false;
     const doc=records.find(d=>d.id===hit.document_id);
     return !!doc && doc.revision===hit.revision && doc.index?.searchable===true && doc.index?.status==='complete' && !!hit.index_token && doc.index.token===hit.index_token;
   }
@@ -59,13 +60,16 @@
       $('#semantic-results').innerHTML=hits.map((hit,i)=>{
         const long=Array.from(hit.text).length>240;
         const snippet=Array.from(hit.text).slice(0,240).join('');
-        return `<article class="semantic-card${selected===hit.chunk_id?' selected':''}" data-result-card="${i}"><button type="button" class="result-select" data-select-hit="${i}" aria-pressed="${selected===hit.chunk_id}"><span class="result-rank">${hit.rank}</span><span><strong>${esc(hit.document_name)}</strong>${hit.section?`<small>${esc(hit.section)}</small>`:''}</span><span class="result-score">相似度 ${Number(hit.score).toFixed(4)}</span></button>${long?`<details class="result-text"><summary><span class="result-excerpt">${esc(snippet)}…</span><span class="expand-result">展开完整片段</span></summary><pre>${esc(hit.text)}</pre></details>`:`<pre class="result-text">${esc(hit.text)}</pre>`}${hit.risk?.incomplete?'<p class="preview-warning">来源文档存在内容不完整风险，使用时请核对原文。</p>':''}${hit.risk?.quality==='review'?'<p class="source-note">来源已复核，原检查提示仍保留。</p>':''}<div class="result-sources">${(hit.sources||[]).map((src,j)=>`<button type="button" class="text-button" data-hit-source="${i}" data-source-index="${j}">${esc(src.label||'文档级来源')} · 查看原文 ↗</button>`).join('')||`<button type="button" class="text-button" data-select-hit="${i}">查看原文 ↗</button>`}</div></article>`;
+        const members=hit.members||[hit];
+        const sourceButtons=members.map((member,m)=>(member.sources?.length?member.sources:[{label:'文档级来源'}]).map((src,j)=>`<button type="button" class="text-button" data-hit-source="${i}" data-source-index="${j}" data-member-index="${m}">${members.length>1?esc(member.document_name)+' · ':''}${esc(src.label||'文档级来源')} · 查看原文 ↗</button>`).join('')).join('');
+        return `<article class="semantic-card${selected===hit.chunk_id?' selected':''}" data-result-card="${i}"><button type="button" class="result-select" data-select-hit="${i}" aria-pressed="${selected===hit.chunk_id}"><span class="result-rank">${hit.rank}</span><span><strong>${esc(hit.document_name)}</strong>${hit.section?`<small>${esc(hit.section)}</small>`:''}</span><span class="result-score">向量相似度 ${Number(hit.score).toFixed(4)}${hit.fusion_score!==undefined?' · 混合排序':''}</span></button>${long?`<details class="result-text"><summary><span class="result-excerpt">${esc(snippet)}…</span><span class="expand-result">展开完整片段</span></summary><pre>${esc(hit.text)}</pre></details>`:`<pre class="result-text">${esc(hit.text)}</pre>`}${members.some(m=>m.risk?.incomplete)?'<p class="preview-warning">来源文档存在内容不完整风险，使用时请核对原文。</p>':''}${members.some(m=>m.risk?.quality==='review')?'<p class="source-note">来源已复核，原检查提示仍保留。</p>':''}<div class="result-sources">${sourceButtons}</div></article>`;
       }).join('');
     }
-    async function selectHit(index,sourceIndex=0) {
-      const hit=hits[index];if(!hit)return;
+    async function selectHit(index,sourceIndex=0,memberIndex=0) {
+      const group=hits[index];if(!group)return;
+      const hit=group.members?.[memberIndex]||group;
       const epoch=++previewEpoch;previewAbort?.abort();previewAbort=new AbortController();
-      selected=hit.chunk_id;renderHits();$('#semantic-preview-name').textContent=hit.document_name;
+      selected=group.chunk_id;renderHits();$('#semantic-preview-name').textContent=hit.document_name;
       $('#semantic-download').hidden=true;$('#semantic-preview-content').innerHTML='<p class="pane-empty">正在核对来源并加载原文…</p>';
       previewPage=0;pageCount=0;$('#semantic-prev').disabled=true;$('#semantic-next').disabled=true;
       try {
@@ -107,14 +111,14 @@
         records=await api('/api/documents',{signal:queryAbort.signal});
         if(epoch!==searchEpoch||!visible)return;
         hits=(result.results||[]).filter(h=>hitIsCurrent(h,records));renderHits();
-        $('#semantic-status').textContent=hits.length?`问题：“${query}” · 点击片段查看右侧原文。`:result.message||'没有当前有效结果，请检查范围或等待索引完成。';
+        $('#semantic-status').textContent=hits.length?`问题：“${query}” · 点击片段核对原文；相关片段不保证含有答案。`:result.message||'没有当前有效结果，请检查范围或等待索引完成。';
         if(hits.length)await selectHit(0);
       } catch(error) {if(epoch===searchEpoch&&error.name!=='AbortError'){$('#semantic-status').textContent=`检索未完成：${error.message}`;hits=[];renderHits();resetPreview('没有可供预览的有效结果。');}}
       finally {if(epoch===searchEpoch)setBusy(false);}
     }
     $('#semantic-form').addEventListener('submit',submit);
     $('#semantic-scope').onchange=()=>{searchEpoch++;queryAbort?.abort();setBusy(false);hits=[];selected=null;renderHits();resetPreview();$('#semantic-status').textContent='搜索范围已切换，请重新搜索。';};
-    $('#semantic-results').onclick=event=>{const source=event.target.closest('[data-hit-source]'),button=event.target.closest('[data-select-hit]');if(source)selectHit(Number(source.dataset.hitSource),Number(source.dataset.sourceIndex));else if(button)selectHit(Number(button.dataset.selectHit));};
+    $('#semantic-results').onclick=event=>{const source=event.target.closest('[data-hit-source]'),button=event.target.closest('[data-select-hit]');if(source)selectHit(Number(source.dataset.hitSource),Number(source.dataset.sourceIndex),Number(source.dataset.memberIndex||0));else if(button)selectHit(Number(button.dataset.selectHit));};
     $('#semantic-prev').onclick=()=>{if(previewPage>1){previewPage--;renderPreview();}};
     $('#semantic-next').onclick=()=>{if(previewPage<pageCount){previewPage++;renderPreview();}};
     $('#semantic-preview-content').onclick=event=>{if(event.target.closest('#semantic-browse')){previewPage=1;renderPreview();}};

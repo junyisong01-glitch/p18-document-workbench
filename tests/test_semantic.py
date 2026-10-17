@@ -102,6 +102,21 @@ def test_real_model_semantic_lifecycle(tmp_path, monkeypatch):
             assert len(result['results'])==5 and expected in [r['document_name'] for r in result['results']]
             assert all(r['sources'][0]['page']==1 and r['score']==pytest.approx(float(r['score'])) for r in result['results'])
         assert len({r['document_id'] for r in evidence['queries'][0]['results']}) > 1
+        service=main.INDEX_SERVICE
+        vector_count=service.client.count(service.collection).count
+        for mode in ('hybrid','hybrid_dedup'):
+            result=c.post('/api/search',headers=HEADERS,json={'query':'付款没有响应如何处理','mode':mode}).json()
+            assert result['retrieval_mode']==mode and result['candidate_k']==20
+            assert docs['支付排障.pdf']['id'] in {h['document_id'] for h in result['results']}
+            assert all('fusion_score' in h and isinstance(h['score'],float) for h in result['results'])
+            scoped=c.post('/api/search',headers=HEADERS,json={'query':'支付','mode':mode,'document_id':docs['支付排障.pdf']['id']}).json()
+            assert scoped['results'] and all(h['document_id']==docs['支付排障.pdf']['id'] for h in scoped['results'])
+        assert service.client.count(service.collection).count==vector_count
+        with monkeypatch.context() as m:
+            m.setenv('P18_SEARCH_MODE','hybrid_dedup')
+            assert c.post('/api/search',headers=HEADERS,json={'query':'退款'}).json()['retrieval_mode']=='hybrid_dedup'
+            assert c.post('/api/search',headers=HEADERS,json={'query':'退款','mode':'vector'}).json()['retrieval_mode']=='vector'
+        assert c.post('/api/search',headers=HEADERS,json={'query':'x','mode':'invalid'}).status_code==422
         target=docs['支付排障.pdf']; route=f"/api/documents/{target['id']}/index"
         response=c.post('/api/search',headers=HEADERS,json={'query':QUERIES[0][0],'document_id':target['id'],'top_k':5})
         assert response.json()['results'] and all(r['document_id']==target['id'] for r in response.json()['results'])
@@ -167,7 +182,7 @@ def test_real_model_semantic_lifecycle(tmp_path, monkeypatch):
                 doc=main.get(failure_doc['id']);doc['state']='held';main.save(doc)
             return result
         with patch.object(service.client,'query_points',side_effect=revoke_after_query):
-            result=c.post('/api/search',headers=HEADERS,json={'query':'故障验证','document_id':failure_doc['id']}).json()
+            result=c.post('/api/search',headers=HEADERS,json={'query':'故障验证','document_id':failure_doc['id'],'mode':'hybrid_dedup'}).json()
             assert not result['results']
         evidence['checks'].append('final_sqlite_revalidation')
         with pytest.raises(EmbeddingError) as long_error:

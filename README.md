@@ -178,3 +178,24 @@ P18_TEST_LOCAL_EMBEDDINGS=1 .venv/bin/python -m pytest -q
 ```
 
 输出目录须不存在；脚本不会覆盖现有资料。通过工作台上传样例后，合并表格需按既有规则复核，超长表格用于验证真实输入上限失败。不要把这些样例当成企业验收。
+
+### 可选混合检索（P18-M2-RETRIEVAL-003，尚未正式启用）
+
+默认仍为原纯向量检索。开发者可在**独立实例**启动前设置：
+
+- `P18_SEARCH_MODE=vector`：原方案及显式回退。
+- `P18_SEARCH_MODE=hybrid`：向量与轻量BM25各取内部候选，等权RRF融合。
+- `P18_SEARCH_MODE=hybrid_dedup`：融合后保守合并相同内容，保留每个来源的版本、风险及原文入口。
+- `P18_SEARCH_CANDIDATES=20`：混合候选数，范围5–50；最终Top-K仍沿用原配置。请求级 `mode` 可覆盖默认，便于隔离评测；不新增普通用户参数面板。
+
+BM25使用中文二元字串/拉丁标识符，k1=1.2、b=0.75；RRF k=60。不混加余弦和词法分数。词法候选仅来自当前有效索引关联的SQLite片段，查询后再次核验版本/审核/token，无需重切分或改向量。词法独有候选的余弦分数也由当前Qdrant实际查询获得，不填写模拟值。该实现按小库扫描，尚无大库性能保证。
+
+API返回 `retrieval_mode`，混合结果另有 `fusion_score`；`score`始终是原始向量相似度，不是RRF分数或正确率。合并结果 `members` 保留各文档、片段、解析版本、token、原始正文、风险和来源，前端可分别打开。失效成员会使缓存组被保守移除，重新搜索可获得当前组。
+
+独立题集在开发前冻结：`tests/fixtures/retrieval_holdout.json`。复现隔离评测：
+
+```sh
+.venv/bin/python scripts/experiments/validate_hybrid.py --port 8768 --cases tests/fixtures/retrieval_holdout.json --output /tmp/p18-holdout-result.json
+```
+
+评测脚本拒绝8765/8766/8767保护端口。当前独立结果存在Top-1退步及无答案风险，**不建议直接替换正式默认方案**。先审阅[验收记录](docs/semantic-ui-validation.md)，再决定下一轮，不自动启用或合并。

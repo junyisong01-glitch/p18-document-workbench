@@ -208,40 +208,74 @@ class IndexService:
                     found[self.point_id(snap, chunk)] = (snap, chunk)
         return found
 
-    def search(self, query, identifier=None, top_k=5):
+    def search(self, query, identifier=None, top_k=5, mode=None):
+        from app.retrieval import bm25, fuse, groups
+        mode = mode or os.environ.get('P18_SEARCH_MODE', 'vector')
+        if mode not in {'vector', 'hybrid', 'hybrid_dedup'}:
+            raise SemanticError('search_configuration', '检索模式配置无效，请使用vector/hybrid/hybrid_dedup。')
+        try:
+            candidate_k = top_k if mode == 'vector' else int(os.environ.get('P18_SEARCH_CANDIDATES', '20'))
+            if mode != 'vector' and not 5 <= candidate_k <= 50:raise ValueError()
+        except ValueError:
+            raise SemanticError('search_configuration', '内部候选数量必须为5–50。')
         if not self.current_config():
             raise SemanticError('configuration_changed', '模型配置已变化，需重启并重建索引。')
         with self.store.LOCK:
             candidates = self.candidates(identifier)
         if not candidates:
-            return {'status': 'no_index', 'results': [], 'message': '没有当前有效的已建立索引，请查看构建状态。'}
+            return {'status': 'no_index', 'results': [], 'retrieval_mode': mode,
+                    'message': '没有当前有效的已建立索引，请查看构建状态。'}
+
+        def record(snap, chunk, score):
+            return {'score': score, 'document_id': snap['doc']['id'],
+                    'document_name': snap['doc']['name'], 'chunk_id': chunk['id'], 'index_token': snap['token'],
+                    'revision': chunk['revision'], 'order': chunk['order'], 'text': chunk['text'],
+                    'section': chunk['section'], 'sources': chunk['sources'], 'risk': chunk['risk'],
+                    'kind': chunk['kind'], 'chunk_config_hash': digest(chunk['config']),
+                    'table_structure_hash': digest(chunk['tables']) if chunk.get('tables') else None}
+
+        # Lexical candidates use only the same published, admitted SQLite chunks.
+        candidate_k = max(candidate_k, top_k)
+        lexical = bm25(query, [record(snap, chunk, None) for snap, chunk in candidates.values()])[:candidate_k] if mode != 'vector' else []
+        lexical_ids = {h['chunk_id'] for h in lexical}
         vector = self.provider.encode([query], query=True)[0]
         try:
             with self.vector_lock:
-                hits = self.client.query_points(self.collection, query=vector, limit=top_k,
+                hits = self.client.query_points(self.collection, query=vector,
+                    limit=top_k if mode == 'vector' else candidate_k,
                     query_filter=self.models.Filter(must=[self.models.HasIdCondition(has_id=list(candidates))]),
                     with_payload=True, with_vectors=False).points
+                # Retrieve genuine cosine scores for lexical-only candidates too;
+                # do not fabricate zero similarity or re-encode document text.
+                lex_points = [point for point, (_, chunk) in candidates.items() if chunk['id'] in lexical_ids]
+                lex_hits = self.client.query_points(self.collection, query=vector, limit=len(lex_points),
+                    query_filter=self.models.Filter(must=[self.models.HasIdCondition(has_id=lex_points)]),
+                    with_payload=True, with_vectors=False).points if lex_points else []
         except Exception as exc:
             raise SemanticError('search_failed', '本地向量检索失败，请检查索引后重试。') from exc
-        results = []
-        # Re-read SQLite after embedding and vector search; never trust payload text.
         with self.store.LOCK:
             if not self.current_config():
                 raise SemanticError('configuration_changed', '模型配置已变化，结果未返回，请重启并重建。')
             current = self.candidates(identifier)
-            for hit in hits:
+            def valid_hit(hit):
                 pair = current.get(str(hit.id))
-                if not pair:
-                    continue
+                if not pair:return None
                 snap, chunk = pair
-                if hit.payload.get('chunk_id') != chunk['id'] or hit.payload.get('token') != snap['token']:
-                    continue
-                results.append({'rank': len(results)+1, 'score': hit.score, 'document_id': snap['doc']['id'],
-                                'document_name': snap['doc']['name'], 'chunk_id': chunk['id'], 'index_token': snap['token'],
-                                'revision': chunk['revision'], 'order': chunk['order'], 'text': chunk['text'],
-                                'section': chunk['section'], 'sources': chunk['sources'], 'risk': chunk['risk']})
+                if hit.payload.get('chunk_id') != chunk['id'] or hit.payload.get('token') != snap['token']:return None
+                return record(snap, chunk, hit.score)
+            vector_results = [value for hit in hits if (value := valid_hit(hit)) is not None]
+            if mode == 'vector':
+                results = vector_results
+            else:
+                valid_lex = {value['chunk_id']: value for hit in lex_hits if (value := valid_hit(hit)) is not None}
+                lexical_results = [valid_lex[h['chunk_id']] for h in lexical if h['chunk_id'] in valid_lex]
+                results = fuse(vector_results, lexical_results)
+                if mode == 'hybrid_dedup':results = groups(results)
+            results = results[:top_k]
+            for rank, result in enumerate(results, 1):result['rank'] = rank
         return {'status': 'ok' if results else 'no_results', 'results': results, 'model': self.config,
-                'message': '相似度表示向量接近程度，不代表答案正确率；本次仅返回原文片段。' if results else '没有当前有效的检索结果。'}
+                'retrieval_mode': mode, 'candidate_k': top_k if mode == 'vector' else candidate_k,
+                'message': '这里只是相关片段，不保证包含问题答案；相似度不是正确率，未生成AI回答。'}
 
     def close(self):
         self.closed = True
