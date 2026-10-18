@@ -4,7 +4,7 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>P18 · 文档工作台</title>
   <link rel="stylesheet" href="style.css?v=20261017-semantic-ui">
-  <script src="app.js?v=20261017-semantic-ui" defer></script>
+  <script src="app.js?v=20261018-rag1" defer></script>
   <script src="static/search.js?v=20261017-hybrid-003" defer></script>
 </head>
 <body>
@@ -13,8 +13,8 @@
     <div class="workspace-label">工作空间</div>
     <button class="nav-item active" id="nav-documents"><span>▤</span> 文档管理 <span class="nav-count" id="nav-count">0</span></button>
     <button class="nav-item" id="nav-search"><span>⌕</span> 知识检索</button>
-    <div class="nav-item muted"><span>◇</span> 知识问答 <small>后续模块</small></div>
-    <div class="sidebar-bottom"><span class="status-dot"></span> 本地测试环境<p>仅使用公开或虚构样例<br>文档不会发送给外部模型</p></div>
+    <button class="nav-item" id="nav-rag"><span>◇</span> 知识问答</button>
+    <div class="sidebar-bottom"><span class="status-dot"></span> 本地测试环境<p>仅使用公开或虚构样例<br>文档默认不外发；问答需逐轮确认</p></div>
   </aside>
   <main>
     <header class="topbar"><span>工作空间 <span class="slash">/</span> <span id="current-page">文档管理</span></span><span class="local-badge">仅本机访问</span></header>
@@ -33,6 +33,23 @@
       <div class="bottom-note"><strong>原文件始终保留</strong><span>旧版 DOC 会生成转换副本；遇到疑似遗漏，先核对再确认使用。</span></div>
     </section>
 
+    <section id="rag-view" class="workspace" hidden>
+      <p class="eyebrow">DOCUMENT ASSISTANT</p><h1>知识问答</h1>
+      <p>AI参考回答，仅供参考，重要结论请核对原文。</p>
+      <p id="rag-health" role="status"></p>
+      <p class="source-note">当前会话仅在本页保留，刷新后清空。发送前会显示问题、必要历史和获准证据，须逐轮确认。</p>
+      <div id="rag-chat" aria-live="polite"></div>
+      <form id="rag-form" class="rag-compose"><label for="rag-question">继续提问</label>
+        <textarea id="rag-question" maxlength="2000" required placeholder="例如：项目负责人是谁？"></textarea>
+        <button class="primary" id="rag-prepare" type="submit">准备问题与发送预览</button>
+        <button class="text-button" id="rag-clear" type="button">清空当前会话</button>
+      </form>
+      <p id="rag-status" role="status"></p><div id="rag-consent"></div>
+    </section>
+    <dialog id="rag-modal" aria-labelledby="rag-modal-title">
+      <header><h2 id="rag-modal-title">原文核对</h2><button id="rag-modal-close" type="button" aria-label="关闭原文窗口">关闭 ×</button></header>
+      <div id="rag-modal-body"></div>
+    </dialog>
     <section id="search-view" class="workspace search-workspace" hidden>
       <div class="page-heading"><div><p class="eyebrow">KNOWLEDGE RETRIEVAL</p><h1>知识检索</h1><p class="subtitle">通过自然语言查找研发文档中的相关内容，检索结果仅供参考，请结合原文核对。</p></div></div>
       <form id="semantic-form" class="semantic-form">
@@ -58,5 +75,6 @@
   <dialog id="upload-dialog"><form method="dialog" class="modal-heading"><div><h2>上传文档</h2><p>选择一个或多个文件，后台自动排队处理。</p></div><button class="icon-button" aria-label="关闭上传窗口">×</button></form><div class="modal-body"><label class="dropzone" id="dropzone"><span class="upload-symbol">↑</span><strong>将文档拖到这里，或点击选择</strong><span>PDF · DOCX · DOC</span><input id="file-input" type="file" accept=".pdf,.docx,.doc" multiple></label><p class="limits">单个 ≤ 20 MB · 每批 ≤ 20 份 / 100 MB · PDF ≤ 200 页</p><div id="selected-files"></div><p class="upload-boundary">扫描内容暂不识别；解析异常会提示复核。请仅上传有权使用的公开或模拟资料。</p><div id="upload-results" role="status" aria-live="polite"></div><div class="modal-actions"><span id="selection-summary">尚未选择文件</span><button id="upload-submit" class="primary" disabled>开始上传</button></div></div></dialog>
   <dialog id="confirm-dialog"><div class="modal-body"><h2 id="confirm-title"></h2><p id="confirm-body"></p><div class="modal-actions"><button id="confirm-cancel" class="secondary">取消</button><button id="confirm-ok" class="primary">确认</button></div></div></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<script defer src="static/rag.js?v=20261018-rag1"></script>
 </body>
 </html>

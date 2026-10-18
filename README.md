@@ -199,3 +199,56 @@ API返回 `retrieval_mode`，混合结果另有 `fusion_score`；`score`始终�
 ```
 
 评测脚本拒绝8765/8766/8767保护端口。当前独立结果存在Top-1退步及无答案风险，**不建议直接替换正式默认方案**。先审阅[验收记录](docs/semantic-ui-validation.md)，再决定下一轮，不自动启用或合并。
+
+## P18-M3-001：DeepSeek RAG 第一阶段（独立分支，未部署正式库）
+
+已有工作台增加知识问答：先在本地检索Top-20，保守整理最多8组完整获准证据；用户逐轮核对问题、最近必要历史和实际文本后，才可请求非流式参考回答。沿用当前vector/hybrid/hybrid_dedup配置，不改变全局默认。引用窗口只显示后端核验编号对应的实际来源，编号核验不等于事实正确。
+
+### 后端配置
+
+仅通过本机后端环境变量读取密钥 `DEEPSEEK_API_KEY`，不要粘贴到聊天、前端、源文件或Git。当前不自动读取.env，也不自动调用API。未配置密钥时文档管理与知识检索不受影响。
+
+| 配置 | 默认及范围 |
+| --- | --- |
+| P18_DEEPSEEK_BASE_URL | https://api.deepseek.com，可配置兼容HTTPS地址；不接受含凭据/查询/片段地址，不跟随重定向 |
+| P18_DEEPSEEK_MODEL | deepseek-flash |
+| P18_DEEPSEEK_TIMEOUT | 60秒，1–120 |
+| P18_DEEPSEEK_MAX_TOKENS | 1500，128–4000 |
+| P18_RAG_EVIDENCE_COUNT | 8，5–10；可用证据不足时不凑数 |
+| P18_RAG_CONTEXT_CHARS | 20000，2000–64000；按完整证据组计预算，不静默截断表格/代码；历史过长时减少整轮 |
+| P18_RAG_HISTORY_TURNS | 3，3–5；仅临时内存，30分钟过期，不建聊天数据库 |
+
+官方依据：[Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/)（2026-10-18核对，deepseek-flash、JSON输出、非流式及thinking disabled）。原文、历史和模型输出均是不可信数据，系统提示禁止执行文档指令；没有工具调用或Agent。真实模型的事实准确性及提示注入抵抗力仍须单独实测。
+
+### 文档外发许可：默认全部无许可
+
+由本机操作者先人工确认文档确为完全虚构或已脱敏，再使用**明确指定的隔离数据目录**操作；不要给现有正式资料批量自动授权：
+
+```sh
+.venv/bin/python scripts/rag_permissions.py --data-dir /绝对路径/隔离数据目录 --document-id 文档UUID --revision 1 --reviewer 人工确认人 --classification fictional --confirm-external
+```
+
+脱敏文档使用`deidentified`；撤销时加`--revoke`。命令只读SQLite，原子写入数据目录内0600权限的`rag-permissions.json`。记录绑定文档UUID、解析版本、原件哈希及提取结果指纹；替换/重解析/删除不继承。人工分类是操作者声明，不是系统自动脱敏或身份认证。许可不改变原人工审核结论，检索仍须通过入库/索引有效性检查。
+
+每轮分两步：`POST /api/rag/prepare`仅本地检索，返回180秒有效的一次性发送预览；`POST /api/rag/answer`必须带明确`consent:true`及对应ticket。未经许可的成员不进入预览或请求；目标地址/模型配置改变须重新确认。发送前再次核验许可、文档及历史证据；返回后再次核验，失效则不发布。请求发送后发生的撤销无法追回已外发内容，因此不能承诺撤回网络中已发送的数据。
+
+连续追问由后端临时会话保存最近3轮有效问题/回答，轻量本地规则用上一问题扩展检索；每轮重新检索，不用历史答案代替证据，也不为指代多调用一次模型。多对象或无上下文时要求澄清；复杂指代仍可能需要显式姓名/项目。历史来源失效/撤销许可时要求清空会话。刷新页面不保存会话ID，页面立即清空，服务器匿名内存最多保留30分钟后清理。
+
+引用用S1等后端编号；校验编号、实际提供文本、当前文档/片段版本和索引token。无效编号、伪造页码/文件名或缺引用的事实回答不发布。回答正文仅作转义文本展示；原文窗口再次核验版本，PDF可靠页码或Word可靠转换页/结构信息，支持Esc关闭、焦点恢复及滚动查看。查看检索依据为只读；勾选候选、保存选择和可选重新生成留第二阶段。
+
+### 免费的本地模拟API验收
+
+`scripts/serve_rag_demo.py`仅用于新隔离目录及新端口，明确标识“模拟API验收（未调用DeepSeek）”，**没有外部HTTP调用**。它是固定虚构样例的测试替身，不代表真实DeepSeek问答质量。
+
+```sh
+.venv/bin/python scripts/serve_rag_demo.py --data-dir /绝对路径/p18-rag-新目录/data --port 8769
+```
+
+不要覆盖已有8769目录，也不要使用8765–8768保护端口。该脚本不自动上传或授权；按正常工作台流程上传完全虚构文档、完成必要复核，再用上面的CLI确认文档许可。真实服务用普通启动器和后端环境配置，不能用demo替代真实API验收。真实调用需要另行明确授权；不自动重试，超时/失败可能已计费。
+
+测试：`.venv/bin/python -m pytest -q`，`node tests/rag_helpers.cjs`。完整本轮结果和浏览器验收见 [RAG验证记录](docs/rag-validation.md)。本轮未提交推送、未部署8765，真实DeepSeek调用0次，付费端到端验收未完成。
+
+
+### RAG回答状态协议（本地修复，运行服务须另行授权更新）
+
+模型响应必须包含status、answer和citations。status为answered/partial时要求有效引用；insufficient_evidence时后端输出规范拒答及空答案引用，保留检索依据供查看，不依赖固定拒答措辞。API以answer_status返回该状态，外层status仍为请求完成状态。拒答中的未知编号/不一致引用仍报错，已知一致引用不作为拒答的事实依据。错误仅返回安全细分码，不保存完整模型响应。该协议不证明答案事实正确，详情见docs/rag-validation.md。

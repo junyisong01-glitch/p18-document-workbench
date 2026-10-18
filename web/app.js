@@ -1,3 +1,4 @@
+let ragUI=null;
 if (window.location.protocol === 'file:') {
   document.body.innerHTML = `<section class="opening-help"><span class="brand-mark">P18</span><h1>请通过工作台入口打开</h1><p>你现在打开的是网页源文件。上传、解析和文档列表需要本机服务，无法通过双击 index.html 使用。</p><ol><li>在项目文件夹里双击 <strong>启动文档工作台.command</strong>。</li><li>等待浏览器自动打开，之后就可以上传和查看文档。</li></ol><a class="primary" href="http://127.0.0.1:8765/">服务已启动？打开文档工作台 →</a><p class="subtitle">若链接无法连接，请先运行启动文件。本工作台只在你的电脑上运行。</p></section>`;
 } else {
@@ -52,7 +53,7 @@ async function refresh() {
   } catch(error) {$('#list-error').textContent=error.message;$('#list-error').hidden=false;searchUI?.offline('暂时无法连接本机服务，请检查原工作台是否仍在运行。');}
   finally {refreshing=false;}
 }
-function back() {current=null;detailRequest++;previewRequest++;searchUI?.hide();$('#search-view').hidden=true;$('#nav-search').classList.remove('active');$('#nav-documents').classList.add('active');$('#current-page').textContent='文档管理';$('#list-view').hidden=false;$('#detail-view').hidden=true;}
+function back() {ragUI?.hide();current=null;detailRequest++;previewRequest++;searchUI?.hide();$('#search-view').hidden=true;$('#nav-search').classList.remove('active');$('#nav-documents').classList.add('active');$('#current-page').textContent='文档管理';$('#list-view').hidden=false;$('#detail-view').hidden=true;}
 function indexSignature(index){return JSON.stringify(['status','token','generation','updated_at','searchable','error'].map(key=>index?.[key]));}
 function canIndexRetry(doc){return doc.admission?.eligible && semanticHealth?.enabled && ['failed','stale','not_started'].includes(doc.index?.status);}
 async function retryIndex(id){const doc=records.find(d=>d.id===id)||current;if(!doc)return;try{await api(`/api/documents/${id}/index`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:doc.revision})});toast('已请求建立当前版本索引，请留意真实状态。');await refresh();}catch(e){toast(e.message);}}
@@ -100,7 +101,7 @@ async function openDetail(id, preserve=false) {
     const doc=await api(`/api/documents/${id}`);
     if(request!==detailRequest) return;
     const resetReview=!preserve || current?.revision!==doc.revision;
-    current=doc;if(!preserve)page=1;searchUI?.hide();$('#search-view').hidden=true;$('#nav-search').classList.remove('active');$('#nav-documents').classList.add('active');$('#current-page').textContent='文档管理';
+    ragUI?.hide();current=doc;if(!preserve)page=1;searchUI?.hide();$('#search-view').hidden=true;$('#nav-search').classList.remove('active');$('#nav-documents').classList.add('active');$('#current-page').textContent='文档管理';
     if(resetReview){$('#reviewer').value='';$('#review-note').value='';}
     $('#list-view').hidden=true;$('#detail-view').hidden=false;
     $('#detail-name').textContent=doc.name;
@@ -231,8 +232,9 @@ $('#search').addEventListener('input',renderList);$('#state-filter').onchange=re
 $('#review-only').onclick=()=>{onlyReview=!onlyReview;$('#review-only').setAttribute('aria-pressed',onlyReview);renderList();};
 $('#refresh').onclick=refresh;$('#back').onclick=back;$('#nav-documents').onclick=back;
 window.addEventListener('DOMContentLoaded',()=>{
- searchUI=window.P18Search.create({api,esc,onShow(){current=null;detailRequest++;previewRequest++;$('#list-view').hidden=true;$('#detail-view').hidden=true;$('#search-view').hidden=false;$('#nav-documents').classList.remove('active');$('#nav-search').classList.add('active');$('#current-page').textContent='知识检索';}});
+ searchUI=window.P18Search.create({api,esc,onShow(){ragUI?.hide();current=null;detailRequest++;previewRequest++;$('#list-view').hidden=true;$('#detail-view').hidden=true;$('#search-view').hidden=false;$('#nav-documents').classList.remove('active');$('#nav-search').classList.add('active');$('#current-page').textContent='知识检索';}});
  searchUI.sync(records,semanticHealth);$('#nav-search').onclick=()=>{searchUI.show();refresh();};
+ ragUI=window.P18Rag.create({api,esc,onShow(){searchUI?.hide();current=null;detailRequest++;previewRequest++;$('#list-view').hidden=true;$('#detail-view').hidden=true;$('#search-view').hidden=true;$('#rag-view').hidden=false;$('#nav-documents').classList.remove('active');$('#nav-search').classList.remove('active');$('#nav-rag').classList.add('active');$('#current-page').textContent='知识问答';}});$('#nav-rag').onclick=()=>ragUI.show();
 });
 document.addEventListener('click',e=>{const b=e.target.closest('[data-index-retry]');if(b)retryIndex(b.dataset.indexRetry);});
 $('#upload-open').onclick=openUpload;$('#empty-upload').onclick=openUpload;$('#file-input').onchange=e=>chooseFiles(e.target.files);$('#upload-submit').onclick=submitUpload;
@@ -247,7 +249,8 @@ $('#reparse').onclick=async()=>{
 };
 document.addEventListener('click',e=>{const b=e.target.closest('[data-preview-page]');if(b){page=Number(b.dataset.previewPage);$('#left-kind').value='original';renderPanes();}});
 $('#left-kind').onchange=renderPanes;$('#right-kind').onchange=renderPanes;$('#page-prev').onclick=()=>{if(page>1){page--;renderPanes();}};$('#page-next').onclick=()=>{if(page<previewPages){page++;renderPanes();}};
-document.addEventListener('click',e=>{const button=e.target.closest('[data-open],[data-delete],[data-retry],[data-issue]');if(!button)return;if(button.dataset.open)openDetail(button.dataset.open);else if(button.dataset.delete)removeDoc(button.dataset.delete);else if(button.dataset.retry)retryDoc(button.dataset.retry);else focusIssue(Number(button.dataset.issue));});
+document.addEventListener('click',e=>{const button=e.target.closest('[data-open],[data-delete],[data-retry],[data-issue]');if(!button)return;if(button.dataset.open)openDetail(button.dataset.open);else if(button.dataset.delete)removeDoc(button.dataset.delete);else if(button.dataset.retry)retryDoc(button.dataset.retry);else focusIssue(Number(button.dataset.issue));
+});
 refresh();
 async function poll(){await refresh();const busy=records.some(d=>busyStates.has(d.state)||['waiting','building'].includes(d.index?.status));setTimeout(poll,document.hidden?20000:busy?4000:10000);}setTimeout(poll,4000);
 }
