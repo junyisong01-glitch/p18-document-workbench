@@ -49,7 +49,7 @@ def test_vector_fallback_independent_of_hybrid_candidate_config(monkeypatch):
     service=IndexService.__new__(IndexService)
     service.store=SimpleNamespace(LOCK=threading.RLock())
     service.current_config=lambda:True
-    service.candidates=lambda identifier:{}
+    service.candidates=lambda identifier,document_filter=None:{}
     monkeypatch.setenv('P18_SEARCH_CANDIDATES','invalid')
     assert service.search('query',mode='vector')['status']=='no_index'
     with pytest.raises(SemanticError,match='候选数量'):
