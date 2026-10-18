@@ -20,7 +20,7 @@ class SimulatedClient:
         else:
             id=source['id'];ids=[id]
             answer=('该虚构项目的导师也是林晓岚。' if '导师' in question else '该虚构项目的预约时长上限为90分钟。' if '时长' in question else '该虚构项目的负责人为林晓岚。')+'['+id+']'
-        return json.dumps({'answer':answer,'citations':ids},ensure_ascii=False)
+        return json.dumps({'status':'answered' if ids else 'insufficient_evidence','answer':answer,'citations':ids},ensure_ascii=False)
 
 
 if __name__=='__main__':

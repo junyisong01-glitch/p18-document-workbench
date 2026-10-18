@@ -247,3 +247,8 @@ API返回 `retrieval_mode`，混合结果另有 `fusion_score`；`score`始终�
 不要覆盖已有8769目录，也不要使用8765–8768保护端口。该脚本不自动上传或授权；按正常工作台流程上传完全虚构文档、完成必要复核，再用上面的CLI确认文档许可。真实服务用普通启动器和后端环境配置，不能用demo替代真实API验收。真实调用需要另行明确授权；不自动重试，超时/失败可能已计费。
 
 测试：`.venv/bin/python -m pytest -q`，`node tests/rag_helpers.cjs`。完整本轮结果和浏览器验收见 [RAG验证记录](docs/rag-validation.md)。本轮未提交推送、未部署8765，真实DeepSeek调用0次，付费端到端验收未完成。
+
+
+### RAG回答状态协议（本地修复，运行服务须另行授权更新）
+
+模型响应必须包含status、answer和citations。status为answered/partial时要求有效引用；insufficient_evidence时后端输出规范拒答及空答案引用，保留检索依据供查看，不依赖固定拒答措辞。API以answer_status返回该状态，外层status仍为请求完成状态。拒答中的未知编号/不一致引用仍报错，已知一致引用不作为拒答的事实依据。错误仅返回安全细分码，不保存完整模型响应。该协议不证明答案事实正确，详情见docs/rag-validation.md。

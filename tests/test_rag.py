@@ -15,7 +15,7 @@ from app.rag import RagService,RagError,DeepSeekClient,UNKNOWN,config,permission
 
 class Provider:
     label='模拟API测试';configured=True
-    def __init__(self):self.requests=[];self.reply={'answer':'林晓岚负责项目。[S2]','citations':['S2']};self.hook=lambda:None
+    def __init__(self):self.requests=[];self.reply={'status':'answered','answer':'林晓岚负责项目。[S2]','citations':['S2']};self.hook=lambda:None
     def complete(self,messages,cfg):self.requests.append(messages);self.hook();return json.dumps(self.reply,ensure_ascii=False)
 
 
@@ -94,14 +94,14 @@ def test_invalidated_during_request_suppresses_answer(rig):
     with pytest.raises(RagError,match='无法撤回'):rig.rag.answer(p['ticket'],True)
 
 
-@pytest.mark.parametrize('reply',[{'answer':'林某[S99]','citations':['S99']},{'answer':'无引用事实','citations':[]},{'answer':'看第999页[S1]','citations':['S1']},{'answer':'看invented.pdf[S1]','citations':['S1']},{'answer':'林某[S1]','citations':['S2']}])
+@pytest.mark.parametrize('reply',[{'status':'answered','answer':'林某[S99]','citations':['S99']},{'status':'answered','answer':'无引用事实','citations':[]},{'status':'answered','answer':'看第999页[S1]','citations':['S1']},{'status':'answered','answer':'看invented.pdf[S1]','citations':['S1']},{'status':'answered','answer':'林某[S1]','citations':['S2']}])
 def test_invalid_citations_never_published(rig,reply):
     rig.grant(['a','b']);p=rig.rag.prepare('负责人？');rig.provider.reply=reply
-    with pytest.raises(RagError,match='引用'):rig.rag.answer(p['ticket'],True)
+    with pytest.raises(RagError):rig.rag.answer(p['ticket'],True)
 
 
 def test_no_answer_is_explicit(rig):
-    rig.grant(['a']);p=rig.rag.prepare('不存在的事实？');rig.provider.reply={'answer':UNKNOWN,'citations':[]}
+    rig.grant(['a']);p=rig.rag.prepare('不存在的事实？');rig.provider.reply={'status':'insufficient_evidence','answer':UNKNOWN,'citations':[]}
     r=rig.rag.answer(p['ticket'],True);assert r['answer']==UNKNOWN and not r['citations']
 
 
@@ -154,7 +154,7 @@ def test_successful_transport_payload_never_exposes_key(monkeypatch):
     from unittest.mock import MagicMock
     monkeypatch.setenv('DEEPSEEK_API_KEY','test-secret-only')
     response=MagicMock();response.__enter__.return_value=response
-    response.read.return_value=json.dumps({'choices':[{'finish_reason':'stop','message':{'content':'{"answer":"'+UNKNOWN+'","citations":[]}'}}]}).encode()
+    response.read.return_value=json.dumps({'choices':[{'finish_reason':'stop','message':{'content':'{"status":"insufficient_evidence","answer":"'+UNKNOWN+'","citations":[]}'}}]}).encode()
     with patch('app.rag.secure_urlopen',return_value=response) as send:
         content=DeepSeekClient().complete([{'role':'system','content':'JSON'}],config())
     req=send.call_args.args[0];payload=json.loads(req.data)
@@ -169,7 +169,7 @@ def test_grouped_evidence_preserves_only_authorized_members(rig):
     rig.grant(['a','b']);p=rig.rag.prepare('负责人是谁？')
     assert len(p['evidence'])==1 and len(p['evidence'][0]['members'])==2
     assert p['blocked_count']==1
-    rig.provider.reply={'answer':'林晓岚。[S1]','citations':['S1']}
+    rig.provider.reply={'status':'answered','answer':'林晓岚。[S1]','citations':['S1']}
     result=rig.rag.answer(p['ticket'],True)
     assert len(result['citations'][0]['members'])==2
     assert 'UNAUTHORIZED_PRIVATE' not in json.dumps(rig.provider.requests)
@@ -198,7 +198,7 @@ def test_authorized_evidence_not_starved_by_twenty_higher_unlicensed_hits(rig):
     p=rig.rag.prepare('项目负责人是谁？')
     assert scopes[0] is not None
     assert [s['chunk_id'] for s in p['evidence']]==['chunk-b']
-    rig.provider.reply={'answer':'林晓岚。[S1]','citations':['S1']}
+    rig.provider.reply={'status':'answered','answer':'林晓岚。[S1]','citations':['S1']}
     rig.rag.answer(p['ticket'],True)
     assert 'UNAUTHORIZED_PRIVATE' not in json.dumps(rig.provider.requests)
 
@@ -249,3 +249,76 @@ def test_failed_request_releases_session_without_reusing_ticket(rig):
     rig.provider.hook=lambda:None
     next_turn=rig.rag.prepare('重试负责人？',p['session_id'])
     assert rig.rag.answer(next_turn['ticket'],True)['status']=='answered'
+
+
+@pytest.mark.parametrize('state',['answered','partial'])
+def test_answer_states_preserve_verified_citations(rig,state):
+    rig.grant(['a','b']);p=rig.rag.prepare('负责人及未知事项？')
+    text='林晓岚负责项目。[S2]'+('其他部分证据不足。' if state=='partial' else '')
+    rig.provider.reply={'status':state,'answer':text,'citations':['S2']}
+    result=rig.rag.answer(p['ticket'],True)
+    assert result['answer_status']==state and result['answer']==text
+    assert result['citations'][0]['chunk_id']=='chunk-b'
+
+
+@pytest.mark.parametrize('text,ids',[
+    ('抱歉，材料没有提及，无法回答。',[]),
+    ('\n现有证据不足。\n',[]),
+    ('当前检索材料不包含该值。[S1][S2]',['S1','S2']),
+    ('任意模型生成内容必须全部丢弃，即使夹带错误事实。[S2]',['S2']),
+])
+def test_insufficient_evidence_always_canonicalizes_whole_answer(rig,text,ids):
+    rig.grant(['a','b']);p=rig.rag.prepare('duration示例值？')
+    rig.provider.reply={'status':'insufficient_evidence','answer':text,'citations':ids}
+    result=rig.rag.answer(p['ticket'],True)
+    assert result['answer_status']=='insufficient_evidence'
+    assert result['answer']==UNKNOWN and result['citations']==[]
+    assert result['evidence']==p['evidence'] # still available via 查看检索依据
+    assert rig.rag.sessions[p['session_id']]['turns'][0]['answer']==UNKNOWN
+
+
+@pytest.mark.parametrize('raw,code',[
+    ('not-json','answer_format'),
+    ('[]','answer_format'),
+    ('{"answer":"x","citations":[]}','answer_format'),
+    ('{"status":"partial","answer":3,"citations":[]}','answer_format'),
+    ('{"status":"answered","answer":"x","citations":[3]}','answer_format'),
+    ('{"status":"other","answer":"x","citations":[]}','answer_status'),
+    ('{"status":[],"answer":"x","citations":[]}','answer_status'),
+    ('{"status":"answered","answer":"事实[S99]","citations":["S99"]}','citation_unknown'),
+    ('{"status":"insufficient_evidence","answer":"不足[S99]","citations":["S99"]}','citation_unknown'),
+    ('{"status":"partial","answer":"事实[S1]","citations":["S2"]}','citation_mismatch'),
+    ('{"status":"insufficient_evidence","answer":"不足[S1]","citations":[]}','citation_mismatch'),
+    ('{"status":"answered","answer":"根据当前可用的文档证据，无法确定。","citations":[]}','citation_required'),
+    ('{"status":"partial","answer":"部分事实","citations":[]}','citation_required'),
+    ('{"status":"answered","answer":"见第99页[S1]","citations":["S1"]}','answer_location'),
+])
+def test_protocol_errors_have_safe_specific_codes(rig,raw,code):
+    rig.grant(['a','b']);p=rig.rag.prepare('问题？')
+    rig.provider.complete=lambda *args:raw
+    with pytest.raises(RagError) as error:rig.rag.answer(p['ticket'],True)
+    assert error.value.code==code and raw not in str(error.value)
+    assert not rig.rag.sessions[p['session_id']]['turns']
+    assert not rig.rag.sessions[p['session_id']]['busy']
+
+
+@pytest.mark.parametrize('state',['answered','partial','insufficient_evidence'])
+@pytest.mark.parametrize('when',['before','during'])
+def test_all_states_still_reject_revoked_evidence(rig,state,when):
+    rig.grant(['a','b']);p=rig.rag.prepare('未知问题？')
+    rig.provider.reply={'status':state,'answer':'原文结论[S2]','citations':['S2']}
+    if when=='before':rig.grant([])
+    else:rig.provider.hook=lambda:rig.grant([])
+    with pytest.raises(RagError) as error:rig.rag.answer(p['ticket'],True)
+    assert error.value.code=='evidence_stale'
+    assert len(rig.provider.requests)==(0 if when=='before' else 1)
+    assert not rig.rag.sessions[p['session_id']]['turns']
+
+
+def test_prompt_and_demo_follow_same_status_protocol(rig):
+    from app.rag import SYSTEM
+    from scripts.serve_rag_demo import SimulatedClient
+    for state in ['answered','partial','insufficient_evidence']:assert state in SYSTEM
+    payload={'question':'不存在的问题','untrusted_evidence':[]}
+    response=json.loads(SimulatedClient().complete([{'content':json.dumps(payload)}],config()))
+    assert response=={'status':'insufficient_evidence','answer':UNKNOWN,'citations':[]}
