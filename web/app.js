@@ -1,7 +1,7 @@
 let ragUI=null;
 if (window.location.protocol === 'file:') {
   document.body.innerHTML = `<section class="opening-help"><span class="brand-mark">P18</span><h1>请通过工作台入口打开</h1><p>你现在打开的是网页源文件。上传、解析和文档列表需要本机服务，无法通过双击 index.html 使用。</p><ol><li>在项目文件夹里双击 <strong>启动文档工作台.command</strong>。</li><li>等待浏览器自动打开，之后就可以上传和查看文档。</li></ol><a class="primary" href="http://127.0.0.1:8765/">服务已启动？打开文档工作台 →</a><p class="subtitle">若链接无法连接，请先运行启动文件。本工作台只在你的电脑上运行。</p></section>`;
-} else {
+} else if (!new URLSearchParams(location.search).has("qa-preview")) {
 const $ = (selector) => document.querySelector(selector);
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const states = {queued:'等待处理',converting:'转换与解析中',parsing:'解析与检查中',review:'等待复核',held:'暂不入库',ready:'待构建',failed:'处理失败',deleting:'删除中',delete_failed:'删除未完成'};

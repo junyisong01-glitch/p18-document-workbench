@@ -1,0 +1,41 @@
+/* P18 知识问答 · 设计令牌（第四版）。所有页面只允许使用这些值。 */
+:root{
+  /* 字体 */
+  --font-sans:"Noto Sans SC","Noto Sans CJK SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  /* 字号：只有这五级 */
+  --fs-title:20px;   /* 首页欢迎语，字重 600 */
+  --fs-section:15px; /* 区域标题、强调数字，字重 600 */
+  --fs-body:14px;    /* 正文、AI 回答、按钮、文档名(500)、证据摘要 */
+  --fs-aux:13px;     /* 辅助说明、文字按钮、状态行 */
+  --fs-tag:12px;     /* 状态标签、文件类型标、引用角标、模块栏文字 */
+  /* 行高 */
+  --lh-base:1.7; --lh-answer:1.9; --lh-summary:1.6; --lh-evidence-text:1.85;
+  /* 颜色 */
+  --accent:#5e6ad2;
+  --accent-tint:#eef0fb;      /* 引用角标、当前会话、当前模块底色 */
+  --accent-row:#f8f9ff;       /* 已勾选证据行底色 */
+  --accent-band:#f7f8fc;      /* 证据卡片标题带 */
+  --accent-disabled:#c9cdea;  /* 禁用的发送按钮 */
+  --text:#1b1d23; --text-body:#2a2e3a; --text-2:#6b7080; --text-3:#8a90a0;
+  --text-btn:#40465a; --text-tag-gray:#5d6373;
+  --surface:#ffffff; --surface-2:#f7f8fa;
+  --line:#eceef2; --line-card:#e3e6ec; --line-input:#dfe2e8; --line-btn:#e1e4ea; --line-row:#f0f1f4; --line-chain:#e6e8ed;
+  --ok-text:#1d7a5c; --ok-bg:#eef8f4; --ok-dot:#4b8a74; --online:#2fb58a;
+  --warn-text:#8f6416; --warn-bg:#fdf6e8;
+  --fail:#d9533c;
+  --hl-bg:#fff6cc; --hl-bar:#e0a030;           /* 原文命中高亮 */
+  --ext-pdf-bg:#fdecea; --ext-pdf:#b0402c;
+  --ext-doc-bg:#e8f0fe; --ext-doc:#2f5fbf;
+  --ext-xls-bg:#e6f6f0; --ext-xls:#1d7a5c;
+  --overlay:rgba(27,29,35,.42);
+  /* 圆角 */
+  --r-tag:6px; --r-icon:7px; --r-item:8px; --r-btn:10px; --r-card:14px; --r-composer:16px; --r-modal:16px;
+  /* 阴影 */
+  --sh-primary:0 2px 6px rgba(94,106,210,.35);
+  --sh-composer:0 2px 10px rgba(20,30,60,.07);
+  --sh-paper:0 1px 2px rgba(20,30,60,.06),0 6px 20px rgba(20,30,60,.05);
+  --sh-modal:0 24px 60px rgba(20,30,60,.28);
+  /* 布局尺寸 */
+  --w-rail:68px; --w-convo:232px; --w-panel:400px; --w-panel-collapsed:40px;
+  --w-chat-max:800px; --pad-chat:28px 40px 12px; --gap-turn:32px; --gap-in-turn:18px;
+}

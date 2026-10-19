@@ -252,3 +252,11 @@ API返回 `retrieval_mode`，混合结果另有 `fusion_score`；`score`始终�
 ### RAG回答状态协议（本地修复，运行服务须另行授权更新）
 
 模型响应必须包含status、answer和citations。status为answered/partial时要求有效引用；insufficient_evidence时后端输出规范拒答及空答案引用，保留检索依据供查看，不依赖固定拒答措辞。API以answer_status返回该状态，外层status仍为请求完成状态。拒答中的未知编号/不一致引用仍报错，已知一致引用不作为拒答的事实依据。错误仅返回安全细分码，不保存完整模型响应。该协议不证明答案事实正确，详情见docs/rag-validation.md。
+
+## 新版知识问答界面预览（P18-M3-002-A）
+
+独立运行 `python3 scripts/preview_qa.py --port 8771`，打开 [01首页](http://127.0.0.1:8771/?qa-preview=01)、[04证据选择](http://127.0.0.1:8771/?qa-preview=04)、[10回答结果](http://127.0.0.1:8771/?qa-preview=10)。建议1440×900、100%缩放对照。
+
+这是明确标识的虚构静态预览，不连接知识库、许可文件或DeepSeek，不替代原启动入口。不要把固定演示内容当作真实回答。其余状态待下一批授权；[已验证与限制](docs/qa-design-validation.md)。
+
+第二批已补齐第四版13种状态（仍为虚构前端模拟）。[全部页面开发验收入口](http://127.0.0.1:8771/static/qa/review.html)提供逐页链接；第13号不加入普通问答导航。直接状态地址使用`?qa-preview=01`至`13`。从首页推荐问题可体验模拟检索→勾选证据→模拟确认→固定证据摘录；历史项“项目负责人与导师”进入追问样例。刷新不保存选择/历史，没有真实DeepSeek请求。尚未接入真实后端，详见[第二批验收记录](docs/qa-design-validation.md)。
