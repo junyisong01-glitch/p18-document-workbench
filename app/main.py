@@ -752,10 +752,41 @@ def available(identifier):
     return doc
 
 
-@app.get("/api/documents/{identifier}/file/{variant}")
-def file_download(identifier: str, variant: str):
+def source_guard(doc, revision=None, index_token=None, chunk_id=None):
+    """Optional guards keep legacy previews compatible; new QA supplies all three."""
+    if all(x is None for x in (revision, index_token, chunk_id)):
+        return None
+    if revision is not None and index_token is None and chunk_id is None:
+        if doc['revision'] != revision:
+            raise HTTPException(409, {"code": "source_stale", "message": "来源解析版本已改变。"})
+        return None
+    if any(x is None for x in (revision, index_token, chunk_id)):
+        raise HTTPException(409, {"code": "source_stale", "message": "来源标识不完整，请重新检索。"})
+    service = require_semantic()
+    snap, run = service.snapshot(doc['id']), service.read(doc['id'])
+    if (doc['revision'] != revision or not service.valid(run, snap)
+            or run.get('status') != 'complete' or not service.current_config()
+            or snap['token'] != index_token):
+        raise HTTPException(409, {"code": "source_stale", "message": "来源版本或索引已失效，请重新检索。"})
+    chunk = next((c for c in snap['chunks'] if c['id'] == chunk_id), None)
+    if chunk is None:
+        raise HTTPException(409, {"code": "source_stale", "message": "来源片段已失效，请重新检索。"})
+    return chunk
+
+
+@app.get("/api/documents/{identifier}/source")
+def source_read(identifier: str, revision: int, index_token: str, chunk_id: str):
     with LOCK:
         doc = available(identifier)
+        chunk = source_guard(doc, revision, index_token, chunk_id)
+        return {"source": chunk, "document": public(doc, detailed=True)}
+
+
+@app.get("/api/documents/{identifier}/file/{variant}")
+def file_download(identifier: str, variant: str, revision: int | None = None, index_token: str | None = None, chunk_id: str | None = None):
+    with LOCK:
+        doc = available(identifier)
+        source_guard(doc, revision, index_token, chunk_id)
         if variant == "original":
             relative = "original" + doc["ext"]
             name = doc["name"]
@@ -768,9 +799,10 @@ def file_download(identifier: str, variant: str):
 
 
 @app.get("/api/documents/{identifier}/preview/{variant}/meta")
-def preview_meta(identifier: str, variant: str):
+def preview_meta(identifier: str, variant: str, revision: int | None = None, index_token: str | None = None, chunk_id: str | None = None):
     with LOCK:
         doc = available(identifier)
+        source_guard(doc, revision, index_token, chunk_id)
         relative = (doc.get("result") or {}).get("preview", {}).get(variant)
         if not relative:
             raise HTTPException(404, "预览尚未生成，可下载原文件查看。")
@@ -779,9 +811,10 @@ def preview_meta(identifier: str, variant: str):
 
 
 @app.get("/api/documents/{identifier}/preview/{variant}/{page}")
-def preview_page(identifier: str, variant: str, page: int, zoom: float = Query(1, ge=1, le=3)):
+def preview_page(identifier: str, variant: str, page: int, zoom: float = Query(1, ge=1, le=3), revision: int | None = None, index_token: str | None = None, chunk_id: str | None = None):
     with LOCK:
         doc = available(identifier)
+        source_guard(doc, revision, index_token, chunk_id)
         relative = (doc.get("result") or {}).get("preview", {}).get(variant)
         if not relative:
             raise HTTPException(404, "预览尚未生成。")

@@ -260,3 +260,19 @@ API返回 `retrieval_mode`，混合结果另有 `fusion_score`；`score`始终�
 这是明确标识的虚构静态预览，不连接知识库、许可文件或DeepSeek，不替代原启动入口。不要把固定演示内容当作真实回答。其余状态待下一批授权；[已验证与限制](docs/qa-design-validation.md)。
 
 第二批已补齐第四版13种状态（仍为虚构前端模拟）。[全部页面开发验收入口](http://127.0.0.1:8771/static/qa/review.html)提供逐页链接；第13号不加入普通问答导航。直接状态地址使用`?qa-preview=01`至`13`。从首页推荐问题可体验模拟检索→勾选证据→模拟确认→固定证据摘录；历史项“项目负责人与导师”进入追问样例。刷新不保存选择/历史，没有真实DeepSeek请求。尚未接入真实后端，详见[第二批验收记录](docs/qa-design-validation.md)。
+
+### 新版问答接线隔离验收（P18-M3-002-B-002）
+
+当前独立预览：[http://127.0.0.1:8772/](http://127.0.0.1:8772/)→知识问答。
+真实本地Qwen检索、后端人工选择及来源校验；回答为清楚标注的捕获模拟，**不调用DeepSeek**。不能据此判断真实模型回答质量。
+
+需要重新创建验收环境时，仅在8772空闲且使用新目录的情况下运行：
+
+```sh
+.venv/bin/python scripts/serve_qa_integration.py --data-dir /private/tmp/p18-qa-8772-新编号
+# 在另一个终端初始化空验收库；不得指向原有用户库
+.venv/bin/python scripts/seed_qa_integration.py --data-dir /private/tmp/p18-qa-8772-新编号
+```
+
+工具会拒绝未标记目录/非空库；仅生成完全虚构PDF，显式授予其中测试资料许可，不自动通过异常复核，不自动下载模型。仅该验收进程设置hybrid_dedup，正式默认不变。不要在服务已经运行时重复启动。
+完整操作、结果与局限见[接线验收记录](docs/rag-validation.md)。原13态设计预览仍使用`?qa-preview=01`等入口，与真实本地业务流程分开。

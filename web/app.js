@@ -234,7 +234,7 @@ $('#refresh').onclick=refresh;$('#back').onclick=back;$('#nav-documents').onclic
 window.addEventListener('DOMContentLoaded',()=>{
  searchUI=window.P18Search.create({api,esc,onShow(){ragUI?.hide();current=null;detailRequest++;previewRequest++;$('#list-view').hidden=true;$('#detail-view').hidden=true;$('#search-view').hidden=false;$('#nav-documents').classList.remove('active');$('#nav-search').classList.add('active');$('#current-page').textContent='知识检索';}});
  searchUI.sync(records,semanticHealth);$('#nav-search').onclick=()=>{searchUI.show();refresh();};
- ragUI=window.P18Rag.create({api,esc,onShow(){searchUI?.hide();current=null;detailRequest++;previewRequest++;$('#list-view').hidden=true;$('#detail-view').hidden=true;$('#search-view').hidden=true;$('#rag-view').hidden=false;$('#nav-documents').classList.remove('active');$('#nav-search').classList.remove('active');$('#nav-rag').classList.add('active');$('#current-page').textContent='知识问答';}});$('#nav-rag').onclick=()=>ragUI.show();
+ ragUI=window.P18LiveRag.create({api,esc,onShow(){searchUI?.hide();current=null;detailRequest++;previewRequest++;$('#list-view').hidden=true;$('#detail-view').hidden=true;$('#search-view').hidden=true;$('#rag-view').hidden=false;$('#nav-documents').classList.remove('active');$('#nav-search').classList.remove('active');$('#nav-rag').classList.add('active');$('#current-page').textContent='知识问答';}});$('#nav-rag').onclick=()=>ragUI.show();
 });
 document.addEventListener('click',e=>{const b=e.target.closest('[data-index-retry]');if(b)retryIndex(b.dataset.indexRetry);});
 $('#upload-open').onclick=openUpload;$('#empty-upload').onclick=openUpload;$('#file-input').onchange=e=>chooseFiles(e.target.files);$('#upload-submit').onclick=submitUpload;
