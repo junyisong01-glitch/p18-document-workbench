@@ -184,3 +184,42 @@ API外层status=answered仍表示请求成功处理，新增answer_status表示�
 **合并建议**：在方案A明确限定的完全虚构资料教学原型范围内，测试适配阻断已消除，可以提交用户作合并决定；不等于生产安全验收通过或正式环境可直接部署。PR当前未合并，GitHub未返回CI检查记录，需区分本地验证与远端检查。没有DeepSeek调用、Key读取、运行数据写入或8765—8770服务操作。
 
 十三项清单沿用：1入库、2组织、3整理、4正文、5结构、6参数、7只读片段均保持；8来源/风险保留上述限制；9模型不变；10检索质量阶段收口但非全面达标；11错误处理保留；12严格撤销方案B待办；13本次全量验证完成、真实问答质量/费用仍有限制。
+
+## P18-M3-002-B-001：人工证据选择后端（2026-10-19）
+
+状态：协议及离线测试本地完成，尚未接新版前端；不等于真实模型/浏览器完整链路验收。
+
+### API契约
+
+1. `POST /api/rag/drafts`：输入`question`、可选`session_id`。返回`status=drafted`、`draft_id`、`selection_version=0`、`candidates`、`default_candidate_ids`、`budget`、实际必要历史和本地检索状态。候选包含`candidate_id`、服务器保存的`evidence`、`selectable`、许可原因、召回通道/通道内排名、默认未选原因。没有发送票据，没有DeepSeek调用。`clarify`沿用原协议。
+2. `POST /api/rag/selection`：严格输入`draft_id`、整数`selection_version`及`candidate_ids`。不接受正文、授权状态、历史等额外字段。成功返回`status=prepared`、新的`selection_version`、一次性`ticket`、实际选择的完整`evidence`、准确`messages`、问题/历史/目的地/模型及预算。默认最多8组（既有配置可把限制调低，不能在本接口放宽到9/10组）。
+3. `POST /api/rag/answer`：继续仅接受`ticket`与严格布尔`consent`；只有`true`才能模拟或实际调用所配置客户端。用户需通过后续新版前端核对预览、再逐轮明确确认。本轮未实现前端接线，不能在8771静态页使用新API。
+
+所有POST继续要求同源及`X-P18-Client: workbench`。新接口不授予许可、不写SQLite，不创建永久会话；草稿和票据均为进程内存，逻辑有效期180秒，超期在后续访问时清理。会话继续使用既有30分钟/3–5轮规则；没有身份登录系统。
+
+### 安全与预算行为
+
+- 分别使用现有获准过滤Top20和本地有效候选Top20；不改检索算法或全局默认模式。未授权高排名不会挤掉获准通道证据。
+- 多来源候选按成员当前许可拆分，本地成员不会进入获准组的`members`。去除同一真实身份在两通道的重复出现，不按文件名推定许可。
+- 按已保存的候选身份解析选择；重新检查文档revision、真实chunk/text、索引token/有效状态、许可及历史来源。仅本地ID、未知/跨草稿ID拒绝。
+- 成功收到、且选择版本匹配的新选择会先使同一会话原待发送票据失效。空选择、违规选择、超限选择也不会保留旧可发送票据。晚到的旧版本更新返回`selection_changed`，不会废掉更新后的票据。前端未来必须即时丢弃旧预览并串行同步；服务器无法知道尚未送达的浏览器操作。
+- 超预算返回HTTP409，`detail.code=evidence_budget_exceeded`；`detail.details`含新`selection_version`、`budget`和`reasons`。`budget`字段为`groups/group_limit/message_chars/context_limit/unit`；`reasons`可以同时含`group_limit`和`context_limit`。没有静默删组或截断表格/代码。
+- `message_chars`计算完整待发送messages的Unicode JSON字符数，含系统提示、问题、实际必要历史、全部来源成员、元数据和S编号；不是精确Token或传输字节数。默认字符上限仍20000。默认勾选建议可以跳过超限组，但候选仍保留并显示`default_reason`；人工选择不做自动裁剪。
+- 票据绑定草稿、选择版本、会话版本、配置摘要及messages摘要；发送前检查实际消息与确认快照一致。票据单次消费，发送前后继续原有效性校验及严格三态/引用验证；无关会话不会被网络I/O占用全局RAG锁。
+- 许可撤销到实际发送之间的旧竞态仍存在；没有实现方案B，只允许人工授权的完全虚构资料教学使用，不能承诺发送后撤回。
+
+主要错误码：`draft_expired`、`selection_changed`、`selection_empty`、`selection_unknown`、`selection_forbidden`、`bad_selection`、`evidence_budget_exceeded`，以及原有`session_changed/session_busy/config_changed/evidence_stale/ticket_expired`。已受理的选择错误通过`details.selection_version`提供下一次同步版本；schema错误422不代表选择已被受理。错误不回显密钥或模型完整敏感响应。
+
+### 本次实际测试
+
+全部使用完全虚构内存检索、临时许可/SQLite和捕获客户端。新增`tests/test_rag_selection.py`45项，自动禁止真实DeepSeek客户端及其密钥就绪属性被调用。覆盖选择/消息一致、返回对象篡改隔离、未授权/跨草稿拒绝、旧票据失效、组数/单组/累计上下文预算、历史开销、多来源身份、许可/解析/索引/正文变化、旧版本乱序、会话并发、三态和未知引用及API严格字段。
+
+命令前清除`DEEPSEEK_API_KEY`、`P18_DATA_DIR`、`P18_TEST_LOCAL_EMBEDDINGS`环境覆盖，并设置`P18_SEMANTIC_ENABLED=0 HF_HUB_OFFLINE=1`；未读取原密钥值。
+
+- `.venv/bin/python -m pytest -q tests/test_rag_selection.py tests/test_rag.py tests/test_rag_boundaries.py tests/test_rag_api.py tests/test_rag_search_scope.py`：118通过，0失败，6条依赖弃用警告，0.57秒。
+- `.venv/bin/python -m pytest -q -rs`：207通过，0失败，1跳过，6条依赖弃用警告，15.42秒。跳过真实Qwen生命周期验收；没有模型下载、真实推理或新服务启动。
+- `node tests/qa_demo_state.cjs`16断言、`node tests/search_helpers.cjs`16断言、`node tests/rag_helpers.cjs`6断言通过，diff检查通过；已验收web文件与A提交没有差异。
+
+仍待：新版前端真实API对接/CSP样式兼容、原文GET版本守卫、实际本地Qwen隔离环境及浏览器验收、另行授权的真实DeepSeek测试。旧`prepare`继续兼容原客户端的自动整理规则；新人工流程必须走drafts→selection，不得在新版界面隐式回退旧自动票据。
+
+最终另补草稿容量边界：达到128个草稿时只阻止创建新草稿，既有草稿仍可确认；新增回归已纳入上述207通过。没有改动既有会话/票据上限规则。

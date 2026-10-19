@@ -13,7 +13,7 @@ import subprocess
 import sys
 import threading
 import uuid
-from typing import Literal
+from typing import Annotated, Literal
 
 import pymupdf as fitz
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Query
@@ -480,6 +480,13 @@ class RagPrepareBody(BaseModel):
     session_id: str | None = Field(default=None, max_length=100)
 
 
+class RagSelectionBody(BaseModel):
+    model_config = {"extra": "forbid", "strict": True}
+    draft_id: str = Field(min_length=1, max_length=100)
+    selection_version: int = Field(ge=0)
+    candidate_ids: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(max_length=80)
+
+
 class RagAnswerBody(BaseModel):
     model_config = {"extra": "forbid"}
     ticket: str = Field(min_length=1, max_length=100)
@@ -493,7 +500,7 @@ def rag_call(method, *args):
     try:
         return getattr(RAG_SERVICE, method)(*args)
     except (RagError, EmbeddingError, SemanticError) as error:
-        raise HTTPException(409, {'code':error.code,'message':str(error)})
+        raise HTTPException(409, {'code':error.code,'message':str(error),**({'details':error.details} if getattr(error,'details',None) is not None else {})})
 
 
 @app.get('/api/rag')
@@ -504,6 +511,16 @@ def rag_health():
 @app.post('/api/rag/prepare')
 def rag_prepare(body: RagPrepareBody):
     return rag_call('prepare', body.question, body.session_id)
+
+
+@app.post('/api/rag/drafts')
+def rag_draft(body: RagPrepareBody):
+    return rag_call('draft', body.question, body.session_id)
+
+
+@app.post('/api/rag/selection')
+def rag_selection(body: RagSelectionBody):
+    return rag_call('selection', body.draft_id, body.selection_version, body.candidate_ids)
 
 
 @app.post('/api/rag/answer')
