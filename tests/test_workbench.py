@@ -213,7 +213,7 @@ def test_word_preview_preserves_chinese(tmp_path):
 def test_clear_auto_build_intent_and_failed_blocked(client):
     item=upload(client);doc=wait(client,item['id'])
     assert doc['admission']['eligible'] and doc['build']['status']=='waiting'
-    assert doc['build']['reason']=='pipeline_not_connected' and not doc['build']['searchable']
+    assert doc['build']['reason']=='index_disabled' and not doc['build']['searchable']
     intent=doc['build']['request_id']
     main.save(main.get(item['id']))
     assert main.get(item['id'])['build']['request_id']==intent

@@ -33,9 +33,9 @@ def main():
     def unified_status():
         import hashlib
         root=Path(__file__).resolve().parents[1]
-        files=['web/index.html','web/search.js','web/unified.css','web/qa/live.js','web/qa/live.css']
+        files=['web/index.html','web/search.js','web/unified.css','web/qa/live.js','web/qa/live.css','web/qa/flow.js','web/qa/interactions.js','web/qa/sessions.js']
         fingerprint=hashlib.sha256(b''.join((root/name).read_bytes() for name in files)).hexdigest()
-        return {'ui_version':'P18-UI-001','port':8774,'data_directory':str(data),
+        return {'ui_version':'P18-INT-002','port':8774,'data_directory':str(data),
                 'provider_mode':'offline_capture','external_requests_enabled':False,'source_fingerprint':fingerprint}
     import uvicorn
     uvicorn.run(store.app,host='127.0.0.1',port=8774,workers=1)

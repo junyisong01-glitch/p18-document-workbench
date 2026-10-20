@@ -29,7 +29,7 @@ def probe(data, fetch=None):
         with urlopen(URL+path,timeout=2) as response:return json.load(response)
     try:
         status=get('/api/unified-preview');config=get('/api/config');rag=get('/api/rag')
-        return bool(status.get('ui_version')=='P18-UI-001' and status.get('port')==8774
+        return bool(status.get('ui_version')=='P18-INT-002' and status.get('port')==8774
             and status.get('provider_mode')=='offline_capture' and status.get('external_requests_enabled') is False
             and Path(status.get('data_directory','')).resolve()==data
             and Path(config.get('data_directory','')).resolve()==data

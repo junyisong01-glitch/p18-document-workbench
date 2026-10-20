@@ -1,4 +1,4 @@
-"""Admission policy and durable build intent; no vector worker is connected yet."""
+"""Admission policy and durable build intent; actual index status is resolved by the API."""
 CATEGORY_LABELS = {
     'preview': '仅预览异常', 'missing': '局部内容未提取',
     'structure': '结构或对应关系存疑', 'text': '文字内容疑似损坏',
@@ -57,7 +57,7 @@ def sync_admission(doc):
         'status': 'waiting' if eligible else 'blocked' if doc['state'] in {'review', 'held', 'failed'} else 'not_started',
         'request_id': f"{doc['id']}:{doc['revision']}" if eligible else None,
         'revision': doc['revision'],
-        'reason': 'pipeline_not_connected' if eligible else 'admission_not_met',
-        'message': '符合入库条件，待构建；可查看本地切分结果，向量化与索引服务尚未接通，当前不可检索。' if eligible else '尚不符合入库条件，不触发知识库构建。',
+        'reason': 'awaiting_index' if eligible else 'admission_not_met',
+        'message': '符合入库条件；是否可检索以当前向量索引状态为准。' if eligible else '尚不符合入库条件，不触发知识库构建。',
         'searchable': False,
     }

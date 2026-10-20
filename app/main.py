@@ -114,10 +114,13 @@ def public(doc, detailed=False):
     decision = doc.get('review_decision') or {}
     result['review_completed'] = (doc['state'] in {'ready', 'held'} and decision.get('revision') == doc['revision'])
     index = index_status(doc['id'])
+    if doc['admission']['eligible']:
+        result['build'] = dict(result['build'], status={'not_started':'waiting','disabled':'waiting','unavailable':'failed'}.get(index['status'],index['status']),
+            reason='index_'+index['status'], message=index['message'], searchable=bool(index.get('searchable')))
     result['index'] = index if detailed else {key: index.get(key) for key in
         ('status', 'searchable', 'count', 'message', 'error', 'error_code', 'updated_at', 'token', 'generation')}
     if detailed:
-        result['chunking'] = chunk_result(doc, include_chunks=False)
+        result['chunking'] = chunk_result(doc, include_chunks=False, index=index)
     if not detailed:
         result.pop("result", None)
     return result
@@ -213,7 +216,7 @@ def write_chunk_run(conn, run):
                  (run['document_id'], json.dumps(run, ensure_ascii=False)))
 
 
-def chunk_result(doc, include_chunks=True):
+def chunk_result(doc, include_chunks=True, index=None):
     # Recalculate rather than trusting stale caller-supplied admission flags.
     sync_admission(doc)
     run = load_chunk_run(doc['id'])
@@ -239,6 +242,10 @@ def chunk_result(doc, include_chunks=True):
         with connect() as conn:
             answer['chunks'] = [json.loads(row[0]) for row in conn.execute(
                 "SELECT body FROM chunks WHERE document_id=? ORDER BY sequence", (doc['id'],))]
+    if not stale and run['status'] == 'complete':
+        # IndexService.snapshot calls this function: never resolve the index here.
+        answer.update(searchable=bool(index and index.get('searchable')),
+                      message='本地切分已完成；'+(index['message'] if index else '可检索性由当前向量索引状态决定。'))
     return answer
 
 
@@ -298,7 +305,7 @@ def run_chunk_job(identifier, generation):
                 return
             run.update(status='complete', count=len(chunks), normalized=normalized,
                        warnings=normalized['warnings'], updated_at=now(), error=None,
-                       message='本地切分完成；尚未向量化或创建索引，当前不可检索。')
+                       message='本地切分完成；可检索性由当前向量索引状态决定。')
             with connect() as conn:
                 conn.execute("DELETE FROM chunks WHERE document_id=?", (identifier,))
                 conn.executemany("INSERT INTO chunks VALUES (?, ?, ?, ?)",
@@ -661,7 +668,7 @@ async def review(identifier: str, request: Request):
 @app.get("/api/documents/{identifier}/chunks")
 def chunks_view(identifier: str):
     with LOCK:
-        return chunk_result(available(identifier))
+        return chunk_result(available(identifier), index=index_status(identifier))
 
 
 @app.post("/api/documents/{identifier}/chunks")
@@ -675,7 +682,7 @@ async def regenerate_chunks(identifier: str, request: Request):
         if body.get('revision') != doc['revision'] or not doc['admission']['eligible']:
             raise HTTPException(409, '当前版本尚未通过入库条件，或解析版本已变化。')
         schedule_chunks(doc, retry_failed=True)
-        return chunk_result(doc)
+        return chunk_result(doc, index=index_status(identifier))
 
 
 @app.post("/api/documents/{identifier}/retry")

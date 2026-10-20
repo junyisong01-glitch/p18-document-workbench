@@ -17,7 +17,7 @@ def test_rejects_unmarked_or_formal_data():
 @pytest.mark.parametrize('change',['none','real','path','port','old'])
 def test_probe_checks_actual_capabilities_and_data(change):
     data=Path('/private/tmp/p18-qa-8774-fictional')
-    status={'ui_version':'P18-UI-001','port':8774,'data_directory':str(data),'provider_mode':'offline_capture','external_requests_enabled':False}
+    status={'ui_version':'P18-INT-002','port':8774,'data_directory':str(data),'provider_mode':'offline_capture','external_requests_enabled':False}
     config={'data_directory':str(data)};rag={'provider':'模拟回答 · 未调用外部API'}
     if change=='real':rag['provider']='DeepSeek'
     if change=='path':config['data_directory']='/private/tmp/other'

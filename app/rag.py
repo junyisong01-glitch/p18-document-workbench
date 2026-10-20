@@ -135,7 +135,7 @@ class RagService:
 
     def context(self, question, session_id, cfg, turn_id=None):
         self.prune()
-        if session_id and session_id not in self.sessions:raise RagError('session_expired','会话已过期，请清空会话后重新提问。')
+        if session_id and session_id not in self.sessions:raise RagError('session_expired','后端临时会话已过期，请重新检索与核验；旧问题与回答可以保留。')
         sid=session_id or secrets.token_urlsafe(24)
         session=self.sessions.setdefault(sid,{'at':time.monotonic(),'turns':[],'version':0})
         if session.get('busy'):raise RagError('session_busy','当前会话正在生成回答，请等待完成后再提问。')
@@ -149,7 +149,7 @@ class RagService:
             for turn in context_turns[-cfg['history_turns']:]:
                 # Do not send historical answers derived from now-revoked data.
                 if not self.valid(turn['evidence']):
-                    raise RagError('history_invalid','历史来源已失效或外发许可已撤销，请清空会话后重新提问。')
+                    raise RagError('history_invalid','历史来源已失效或外发许可已撤销，请重新检索与核验；旧回答仅供本地核对，不沿用为发送历史。')
                 history.append({'question':turn['question'],'answer':re.sub(r'\[S\d+\]','',turn['answer'])})
         while history and len(json.dumps(history,ensure_ascii=False))+len(question)>cfg['context_chars']//2:history.pop(0)
         pronoun=bool(re.search(r'(?<!其)[他她它]|该项目|上述|那位|这位|继续|那么',question))
