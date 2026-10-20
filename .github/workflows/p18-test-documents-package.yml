@@ -1,0 +1,45 @@
+name: P18 Test Documents Package
+
+on:
+  push:
+    branches:
+      - p18-test-documents-20261020
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout test-document branch
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install PDF and Word generation libraries
+        run: python -m pip install --disable-pip-version-check python-docx reportlab
+      - name: Create PDF and Word format-converted tests
+        run: python "P18 测试文档/00_使用说明与授权/build_converted_documents.py"
+      - name: Package test documents only
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          root = Path("P18 测试文档")
+          target = Path("P18-test-documents.zip")
+          with ZipFile(target, "w", ZIP_DEFLATED) as z:
+              for p in sorted(root.rglob("*")):
+                  if p.is_file() and not p.is_symlink():
+                      z.write(p, p.as_posix())
+          print(target, target.stat().st_size)
+          PY
+      - name: Upload downloadable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: P18-test-documents
+          path: P18-test-documents.zip
+          if-no-files-found: error
+          retention-days: 14
