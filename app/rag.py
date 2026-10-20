@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request, HTTPRedirectHandler, build_opener
 
 from app.chunking import digest
+from app.egress import fingerprint as permission_fingerprint, allowed, record as permission_record, audit as egress_audit
 
 UNKNOWN = '根据当前可用的文档证据，无法确定。'
 SYSTEM = '''你是文档参考问答助手。仅使用本次证据回答事实问题，历史只帮助理解指代，不能当作证据。
@@ -102,18 +103,6 @@ class DeepSeekClient:
         except (KeyError,ValueError,TypeError,IndexError):raise RagError('api_response','DeepSeek返回格式不符合要求，未发布回答。') from None
 
 
-def permission_fingerprint(doc):
-    return digest({'id':doc['id'],'revision':doc['revision'],'sha256':doc.get('sha256'),'result':doc.get('result')})
-
-
-def allowed(data, doc):
-    try:
-        grants=json.loads((Path(data)/'rag-permissions.json').read_text())
-        grant=grants.get(doc['id'],{})
-        return (grant.get('revision')==doc['revision'] and grant.get('fingerprint')==permission_fingerprint(doc)
-                and grant.get('classification') in {'fictional','deidentified'} and bool(grant.get('reviewer'))
-                and grant.get('allow_external') is True and doc['state']!='deleted')
-    except (OSError,ValueError,TypeError,AttributeError):return False
 
 
 class RagService:
@@ -201,7 +190,8 @@ class RagService:
             # No raw retrieval hits, unauthorized names/text, or client-supplied history in ticket.
             token=secrets.token_urlsafe(32)
             ticket={'at':time.monotonic(),'sid':sid,'version':session['version'],'question':question,
-                    'history':history,'evidence':evidence,'config':cfg,'config_hash':digest(cfg)}
+                    'history':history,'evidence':evidence,'config':cfg,'config_hash':digest(cfg),
+                    'permission_hash':self.permission_hash(evidence)}
             self.tickets[token]=ticket;session['at']=time.monotonic()
             return {'status':'prepared','ticket':token,'session_id':sid,'question':question,'history':history,
                     'evidence':evidence,'blocked_count':skipped,'provider':self.client.label,
@@ -340,7 +330,8 @@ class RagService:
                 'question':draft['question'],'history':deepcopy(draft['history']),'evidence':deepcopy(evidence),
                 'config':deepcopy(draft['config']),'config_hash':draft['config_hash'],
                 'draft_id':draft_id,'selection_version':draft['selection_version'],'turn_id':draft.get('turn_id'),
-                'messages':deepcopy(messages),'messages_hash':digest(messages)}
+                'messages':deepcopy(messages),'messages_hash':digest(messages),
+                'permission_hash':self.permission_hash(evidence)}
             return deepcopy({'status':'prepared','ticket':token,'session_id':draft['sid'],
                 'draft_id':draft_id,'selection_version':draft['selection_version'],
                 'question':draft['question'],'turn_id':draft.get('turn_id'),'history':draft['history'],'evidence':evidence,
@@ -349,11 +340,42 @@ class RagService:
                 'destination':draft['config']['base_url'],'request_endpoint':request_endpoint(draft['config']['base_url']),'model':draft['config']['model'],
                 'notice':'请核对本轮问题、历史和完整证据；仅在明确确认后发送，未自动调用外部模型。'})
 
+    def permission_hash(self, evidence):
+        return digest([permission_record(self.store.DATA,self.store.available(m['document_id']))
+            for item in evidence for m in item.get('members',[item])])
+
+    def audit_request(self, action, ticket=None, code=None):
+        ticket=ticket or {};cfg=ticket.get('config',{})
+        sources=deepcopy(ticket.get('audit_sources',[]))
+        for item in ([] if sources else ticket.get('evidence',[])+ticket.get('audit_history_sources',[])):
+            for m in item.get('members',[item]):
+                try:g=permission_record(self.store.DATA,self.store.get(m['document_id']) if hasattr(self.store,'get') else self.store.available(m['document_id']))
+                except self.store.HTTPException:g={}
+                sources.append(dict({k:m[k] for k in ['document_id','revision','chunk_id']},
+                    classification=g.get('classification'),checks=g.get('checks',{}),fingerprint=g.get('fingerprint')))
+        if action=='egress_allowed':ticket['audit_sources']=deepcopy(sources)
+        egress_audit(self.store.DATA,action,{'request_id':ticket.get('audit_id'),
+            'question_hash':digest(ticket['question']) if ticket.get('question') else None,
+            'history_turns':len(ticket.get('history',[])),'groups':len(ticket.get('evidence',[])),
+            'provider':self.client.label,'messages_hash':ticket.get('messages_hash'),
+            'sources':sources,'model':cfg.get('model'),
+            'request_endpoint':request_endpoint(cfg['base_url']) if cfg.get('base_url') else None,'code':code})
+
     def answer(self, ticket_id, consent):
+        with self.lock:context={'ticket':dict(self.tickets.get(ticket_id,{}),audit_id=secrets.token_hex(16))}
+        try:return self._answer(ticket_id,consent,context)
+        except Exception as exc:
+            ticket=context.get('ticket',{})
+            self.audit_request('send_result' if ticket.get('attempted') else 'egress_blocked',ticket,
+                getattr(exc,'code','internal_error'))
+            raise
+
+    def _answer(self, ticket_id, consent, context):
         if consent is not True:raise RagError('consent_required','请先核对发送范围并明确同意。')
         with self.lock:
             self.prune();ticket=self.tickets.pop(ticket_id,None)
             if not ticket:raise RagError('ticket_expired','发送预览已过期或已使用，请重新准备；未自动重试。')
+            ticket=dict(ticket,audit_id=secrets.token_hex(16));context['ticket']=ticket
             session=self.sessions.get(ticket['sid'])
             if session and session.get('busy'):raise RagError('session_busy','当前会话正在生成回答，请等待完成后重新准备。')
             if not session or session['version']!=ticket['version']:raise RagError('session_changed','会话已变化，请重新准备。')
@@ -364,8 +386,9 @@ class RagService:
                     raise RagError('selection_changed','选择已变化，请重新核对发送内容。')
             if digest(config())!=ticket['config_hash']:raise RagError('config_changed','模型或目标地址已变化，请重新确认发送范围。')
             historical=self.history_evidence(session,ticket['config'],ticket.get('turn_id'))
+            ticket['audit_history_sources']=historical
             with self.store.LOCK:
-                if not self.valid(ticket['evidence']+historical):raise RagError('evidence_stale','证据、外发许可或历史来源已失效，未发送。')
+                if (not self.valid(ticket['evidence']+historical) or self.permission_hash(ticket['evidence'])!=ticket['permission_hash']):raise RagError('evidence_stale','证据、外发许可或历史来源已失效，未发送。')
                 # Store lock serializes admission/reparse/delete through the local API at dispatch.
                 messages=self.messages(ticket['question'],ticket['history'],ticket['evidence'])
                 if ticket.get('draft_id'):
@@ -376,12 +399,16 @@ class RagService:
         # The ticket is consumed and this session reserved; unrelated sessions may proceed.
         # Neither the global RAG lock nor the business-data lock spans network I/O.
         try:
+            self.audit_request('egress_allowed',ticket)
+            self.audit_request('send_attempt',ticket)
+            ticket['attempted']=True
             raw=self.client.complete(messages,ticket['config'])
+            self.audit_request('send_result',ticket,'response_received')
             with self.lock:
                 if self.sessions.get(ticket['sid']) is not session or session['version']!=ticket['version']:
                     raise RagError('session_changed','会话已变化，回答未发布。')
                 with self.store.LOCK:
-                    if not self.valid(ticket['evidence']+historical):raise RagError('evidence_stale','请求期间来源或许可变化，回答未发布；已发送的内容无法撤回。')
+                    if (not self.valid(ticket['evidence']+historical) or self.permission_hash(ticket['evidence'])!=ticket['permission_hash']):raise RagError('evidence_stale','请求期间来源或许可变化，回答未发布；已发送的内容无法撤回。')
                 answer_status,answer,citations=self.validate_answer(raw,ticket['evidence'])
                 session['version']+=1;session['at']=time.monotonic()
                 turn_id=ticket.get('turn_id') or secrets.token_urlsafe(24)
