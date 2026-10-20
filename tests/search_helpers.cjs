@@ -21,7 +21,7 @@ const element=selector=>{
  if(!elements.has(selector))elements.set(selector,{value:'',innerHTML:'',textContent:'',hidden:false,disabled:false,addEventListener(){},setAttribute(){}});
  return elements.get(selector);
 };
-const secondWindow={};vm.runInNewContext(fs.readFileSync('web/search.js','utf8'),{window:secondWindow,document:{querySelector:element}});
+const secondWindow={P18Splitter:{bind(){return {resize(){}};}}};vm.runInNewContext(fs.readFileSync('web/search.js','utf8'),{window:secondWindow,document:{querySelector:element}});
 const controller=secondWindow.P18Search.create({api(){throw new Error('unexpected network');},esc:String,onShow(){}});
 controller.offline('本地服务暂时无法连接');
 assert.equal(element('#semantic-submit').disabled,true);

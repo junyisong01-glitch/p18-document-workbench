@@ -20,6 +20,7 @@
     let records=[],health=null,visible=false,busy=false,hits=[],selected=null,selectedDoc=null,currentHit=null,currentSource=null;
     let searchEpoch=0,previewEpoch=0,queryAbort=null,previewAbort=null,previewPage=0,pageCount=0,scale=1,blob=null,highlighting={pages:[]};
     const metadata=new Map();
+    const layout=$('.retrieval-layout');window.P18Splitter.bind({handle:$('#search-divider'),container:layout,value:360,side:'left',min:260,max:680,reserve:360,apply:w=>layout.style.setProperty('--results-width',w+'px')});
     const key=h=>[h.document_id,h.revision,h.index_token,h.chunk_id].join(':');
     const params=h=>new URLSearchParams({revision:h.revision,index_token:h.index_token,chunk_id:h.chunk_id});
     function release(){if(blob)URL.revokeObjectURL(blob);blob=null;}
