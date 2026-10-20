@@ -184,3 +184,126 @@ API外层status=answered仍表示请求成功处理，新增answer_status表示�
 **合并建议**：在方案A明确限定的完全虚构资料教学原型范围内，测试适配阻断已消除，可以提交用户作合并决定；不等于生产安全验收通过或正式环境可直接部署。PR当前未合并，GitHub未返回CI检查记录，需区分本地验证与远端检查。没有DeepSeek调用、Key读取、运行数据写入或8765—8770服务操作。
 
 十三项清单沿用：1入库、2组织、3整理、4正文、5结构、6参数、7只读片段均保持；8来源/风险保留上述限制；9模型不变；10检索质量阶段收口但非全面达标；11错误处理保留；12严格撤销方案B待办；13本次全量验证完成、真实问答质量/费用仍有限制。
+
+## P18-M3-002-B-001：人工证据选择后端（2026-10-19）
+
+状态：协议及离线测试本地完成，尚未接新版前端；不等于真实模型/浏览器完整链路验收。
+
+### API契约
+
+1. `POST /api/rag/drafts`：输入`question`、可选`session_id`。返回`status=drafted`、`draft_id`、`selection_version=0`、`candidates`、`default_candidate_ids`、`budget`、实际必要历史和本地检索状态。候选包含`candidate_id`、服务器保存的`evidence`、`selectable`、许可原因、召回通道/通道内排名、默认未选原因。没有发送票据，没有DeepSeek调用。`clarify`沿用原协议。
+2. `POST /api/rag/selection`：严格输入`draft_id`、整数`selection_version`及`candidate_ids`。不接受正文、授权状态、历史等额外字段。成功返回`status=prepared`、新的`selection_version`、一次性`ticket`、实际选择的完整`evidence`、准确`messages`、问题/历史/目的地/模型及预算。默认最多8组（既有配置可把限制调低，不能在本接口放宽到9/10组）。
+3. `POST /api/rag/answer`：继续仅接受`ticket`与严格布尔`consent`；只有`true`才能模拟或实际调用所配置客户端。用户需通过后续新版前端核对预览、再逐轮明确确认。本轮未实现前端接线，不能在8771静态页使用新API。
+
+所有POST继续要求同源及`X-P18-Client: workbench`。新接口不授予许可、不写SQLite，不创建永久会话；草稿和票据均为进程内存，逻辑有效期180秒，超期在后续访问时清理。会话继续使用既有30分钟/3–5轮规则；没有身份登录系统。
+
+### 安全与预算行为
+
+- 分别使用现有获准过滤Top20和本地有效候选Top20；不改检索算法或全局默认模式。未授权高排名不会挤掉获准通道证据。
+- 多来源候选按成员当前许可拆分，本地成员不会进入获准组的`members`。去除同一真实身份在两通道的重复出现，不按文件名推定许可。
+- 按已保存的候选身份解析选择；重新检查文档revision、真实chunk/text、索引token/有效状态、许可及历史来源。仅本地ID、未知/跨草稿ID拒绝。
+- 成功收到、且选择版本匹配的新选择会先使同一会话原待发送票据失效。空选择、违规选择、超限选择也不会保留旧可发送票据。晚到的旧版本更新返回`selection_changed`，不会废掉更新后的票据。前端未来必须即时丢弃旧预览并串行同步；服务器无法知道尚未送达的浏览器操作。
+- 超预算返回HTTP409，`detail.code=evidence_budget_exceeded`；`detail.details`含新`selection_version`、`budget`和`reasons`。`budget`字段为`groups/group_limit/message_chars/context_limit/unit`；`reasons`可以同时含`group_limit`和`context_limit`。没有静默删组或截断表格/代码。
+- `message_chars`计算完整待发送messages的Unicode JSON字符数，含系统提示、问题、实际必要历史、全部来源成员、元数据和S编号；不是精确Token或传输字节数。默认字符上限仍20000。默认勾选建议可以跳过超限组，但候选仍保留并显示`default_reason`；人工选择不做自动裁剪。
+- 票据绑定草稿、选择版本、会话版本、配置摘要及messages摘要；发送前检查实际消息与确认快照一致。票据单次消费，发送前后继续原有效性校验及严格三态/引用验证；无关会话不会被网络I/O占用全局RAG锁。
+- 许可撤销到实际发送之间的旧竞态仍存在；没有实现方案B，只允许人工授权的完全虚构资料教学使用，不能承诺发送后撤回。
+
+主要错误码：`draft_expired`、`selection_changed`、`selection_empty`、`selection_unknown`、`selection_forbidden`、`bad_selection`、`evidence_budget_exceeded`，以及原有`session_changed/session_busy/config_changed/evidence_stale/ticket_expired`。已受理的选择错误通过`details.selection_version`提供下一次同步版本；schema错误422不代表选择已被受理。错误不回显密钥或模型完整敏感响应。
+
+### 本次实际测试
+
+全部使用完全虚构内存检索、临时许可/SQLite和捕获客户端。新增`tests/test_rag_selection.py`45项，自动禁止真实DeepSeek客户端及其密钥就绪属性被调用。覆盖选择/消息一致、返回对象篡改隔离、未授权/跨草稿拒绝、旧票据失效、组数/单组/累计上下文预算、历史开销、多来源身份、许可/解析/索引/正文变化、旧版本乱序、会话并发、三态和未知引用及API严格字段。
+
+命令前清除`DEEPSEEK_API_KEY`、`P18_DATA_DIR`、`P18_TEST_LOCAL_EMBEDDINGS`环境覆盖，并设置`P18_SEMANTIC_ENABLED=0 HF_HUB_OFFLINE=1`；未读取原密钥值。
+
+- `.venv/bin/python -m pytest -q tests/test_rag_selection.py tests/test_rag.py tests/test_rag_boundaries.py tests/test_rag_api.py tests/test_rag_search_scope.py`：118通过，0失败，6条依赖弃用警告，0.57秒。
+- `.venv/bin/python -m pytest -q -rs`：207通过，0失败，1跳过，6条依赖弃用警告，15.42秒。跳过真实Qwen生命周期验收；没有模型下载、真实推理或新服务启动。
+- `node tests/qa_demo_state.cjs`16断言、`node tests/search_helpers.cjs`16断言、`node tests/rag_helpers.cjs`6断言通过，diff检查通过；已验收web文件与A提交没有差异。
+
+仍待：新版前端真实API对接/CSP样式兼容、原文GET版本守卫、实际本地Qwen隔离环境及浏览器验收、另行授权的真实DeepSeek测试。旧`prepare`继续兼容原客户端的自动整理规则；新人工流程必须走drafts→selection，不得在新版界面隐式回退旧自动票据。
+
+最终另补草稿容量边界：达到128个草稿时只阻止创建新草稿，既有草稿仍可确认；新增回归已纳入上述207通过。没有改动既有会话/票据上限规则。
+
+## 2026-10-19｜P18-M3-002-B-002 新版前后端接线验收
+
+### 版本、环境与隔离
+
+- 实际GitHub main：`6ddc6f75a1232d4c7417d48c20cf77431d1f215b`，远端同名UI分支仍为`5543e2d4830e340b0e92b9962cd3439255800093`。
+- 远端5543与本地f86是同父提交、同完整树`d65286bd20a9494e358388dee26574fd7c21b189`的两个提交。先将B-001八份有效文件保存为本地`38a7c74`；再核实远端提交对象的完整SHA，普通合并为`c00bb56`，保留两边祖先，不强推、不覆盖前端树。合并中三份记录的追加位置冲突采用包含完整A及B-001结果的本地版本；其他未提交接线修改保持。
+- 独立服务`http://127.0.0.1:8772/`，数据`/private/tmp/p18-qa-8772-20261019-b002`；不复制旧库/旧原件，不操作8765—8770，不读取API Key。`scripts/serve_qa_integration.py`只允许8772与明确标记的新临时目录。
+- 使用已有缓存的Qwen/Qwen3-Embedding-0.6B，版本`97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`及独立Qdrant。仅该隔离进程配置hybrid_dedup，未更改正式默认模式。外部客户端在应用导入前替换为CaptureClient，固定标示模拟，并回显实际选择的第一组证据，不代表模型推理质量。
+
+### 已实现
+
+- 新版页面接`/api/rag/drafts`和`/api/rag/selection`，不使用静态候选替代错误响应，也不回退旧自动prepare。
+- 服务器候选ID/可选标志为唯一依据；仅本地成员可展开并预览，不可勾选外发。勾选不授予许可。串行提交选择版本，立即清除旧票据并关闭确认窗，旧/迟到响应不得覆盖新选择。
+- 容量显示后端完整消息字符数及组数；超限保留勾选，提示原因、实际用量，禁止确认。不静默裁掉人工所选内容。
+- 确认弹窗使用后端快照的问题、必要历史、完整证据及真实来源成员，可展开全部请求消息；只有逐轮勾选同意才请求answer。保留一次性票据、三态回答、发送前后有效性校验。
+- 回答引用和查看依据进入同页右栏。新增`GET /api/documents/{id}/source`及预览/下载可选revision、index_token、chunk_id守卫，锁内核验当前解析、索引和真实片段；旧模块无参数调用保持兼容，旧客户端仅revision调用也校验解析版本。来源读取不要求外发许可，允许本地核对。
+- PDF物理页及Word已有可靠来源映射复用；不能确定页码时不猜测。转换预览缺失时保留有效片段和下载入口。
+- 13份已验收HTML原件逐字节保持；新增构建脚本从参考样式生成同源CSS，不放宽CSP。新界面复用参考壳层、首页和输入框，保持字体/配色/间距及来源图标8px。历史栏标明演示，不建立永久会话。
+
+### 本轮实际测试
+
+- 最终全套：`env -u DEEPSEEK_API_KEY -u P18_DATA_DIR P18_SEMANTIC_ENABLED=0 HF_HUB_OFFLINE=1 .venv/bin/python -m pytest -q -rs`：**217通过、0失败、1跳过，17.10秒，6条依赖弃用警告**。跳过显式真实权重生命周期测试，不把跳过写为通过。早期新增捕获测试两项因误加静态方法self参数失败，已修正测试调用，最终全套上述结果为准。
+- 新增`tests/test_qa_sources.py`7项，含错误版本、片段、索引token、配置与失败状态下的正文/图像/下载阻止；`tests/test_qa_harness.py`3项，含模拟消息快照、规范不足状态、拒绝非验收目录。
+- `node tests/qa_demo_state.cjs`16断言、`node tests/search_helpers.cjs`16断言、`node tests/rag_helpers.cjs`6断言，均通过；live.js语法、脚本编译、13原模板一致及diff检查通过。
+- **实际浏览器**：8772打开文档管理→知识问答→真实Qwen检索→取消“虚构接口与排查”→弹窗仅保留项目片段→人工同意→模拟回答→点击S1→核验真实PDF第1页。完成两次模拟发送；捕获均只有“虚构项目基本信息”片段，没有取消文件正文或`LOCAL_ONLY_8772`标记，真实付费调用**0**。
+- 真实预算边界：独立九页样例产生9个不同片段，页面召回12组；默认8组8260字符，勾选第9组后9组9221字符，尽管字符未超20000，仍因8组限制拒绝，确认按钮禁用；取消第9组后恢复。字符超限及组合预算另由离线协议测试覆盖，浏览器未单独修改全局字符预算。
+- 真实本地接口：选择更新后旧票据`ticket_expired`；强行选本地候选`selection_forbidden`，此前票据也不能使用。
+- 对本轮自建预算样例执行重新解析，revision1→2；旧/source、预览meta/图像、下载均409，页面重新点击旧来源显示“来源版本或索引已失效”。原件和其他三份样例未变。该样例旧许可自然失效，没有继承或自动补授；最终4份均有有效本地索引，只有项目基本信息、接口与排查两份的当前许可有效。
+- 1440×900视口实际检查首页、证据、确认、回答与右栏，未出现控制台错误；最终截图及接口核对报告仅保存在上述隔离目录的`visual/answer-source-1440.png`、`final-acceptance.json`、`protocol-acceptance.json`，不入Git。
+
+### 手工验收与限制
+
+1. 打开`http://127.0.0.1:8772/`→知识问答，输入“虚构项目负责人是谁？”。
+2. 本地列表可看全部真实召回，只有两份当前获准文件可选；取消接口与排查，只保留项目片段，核对数量和确认窗正文。
+3. 明确同意后得到带“模拟回答”标识的证据回显；点击S1或查看检索依据，在右栏核对真实片段/PDF和下载。
+4. 新对话/刷新清空当前会话。原13态设计对照仍可通过`/?qa-preview=01`等入口查看，纯前端模拟与真实本地接线是两条明确区分的入口。
+5. 可重现启动：先在未占用的8772启动`.venv/bin/python scripts/serve_qa_integration.py --data-dir /private/tmp/p18-qa-8772-<新编号>`，再运行`seed_qa_integration.py --data-dir <同目录>`。后者仅允许空库，明确虚构样例许可，不自动批准解析异常或修改已存在库。当前服务已运行，**不要重复启动**。
+
+尚未验收真实DeepSeek回答质量/费用；模拟回显不是智能回答。Word真实转换预览、小屏及长对话本轮未逐一浏览器验收，已有离线版本规则保留；13参考态未重新全量截图比对。8组/字符上限仍要求用户合理选择，不保证正确答案必被选中，字符数不等于token预算。方案B严格撤销并发保证继续暂缓。页面打开后的既有静态内容不是实时撤销通知；每次重新读取来源及发送前后会核验，不声称自动撤回已发送资料或提供生产级权限保证。
+
+## 2026-10-20｜P18-M3-002-C-002 完整离线集成验收
+
+### 保存与环境
+
+- 远端只读核对：main仍为`6ddc6f75a1232d4c7417d48c20cf77431d1f215b`，同名开发分支仍为`5543e2d4830e340b0e92b9962cd3439255800093`。5543已是本地497a4a34的祖先，保留前端和B-001/B-002历史，没有覆盖、强推或合并main。
+- 开工只有已验收C-001的七份预期文件；安全本地提交`2430002963e2ae018ce63df05d4ae69685642401`保存该修复、测试及记录。B-002集成保持既有497a4a34提交。本轮只验收及追加记录，不修改应用代码、算法、页面或权限机制。
+- 8772进程PID94401、目录`/private/tmp/p18-qa-8772-20261019-b002`，未重启本服务或8765—8770。现有4份虚构资料/12片段保留，新增本轮完全虚构`C002_完全虚构容量与失效验收.docx`（1个标题+9个各4042字符的表格片段），仅为预算/撤销/失效测试；不复制/迁移其他数据库。
+- 该新文档通过正常解析/切分/本地索引流程，明确仅对其当前版本作虚构样例授权；撤销和重新解析测试只作用于这个新ID。最后revision2、旧许可失效不继承。原4份资料的ID/版本、原件实际SHA256、提取结果哈希、审核结论逐项一致，原有有效许可仍仅为项目基本信息和接口与排查。
+- 实际`/api/semantic`：provider=local-qwen，Qwen/Qwen3-Embedding-0.6B，revision97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3，1024维、CPU/float32，已加载，external_inference=false，隔离模式hybrid_dedup。观测RSS约1.86GB；单次状态中最近编码0.077秒/24tokens，不能当作整轮问答延迟。候选包含当场新增并真实建立索引的片段，且最终所选正文/ID逐一与当前chunks及index token一致，不是静态列表。
+
+### 九项验收结果
+
+| 项目 | 结果 | 本轮实际证据 |
+|---|---|---|
+|1 真实检索|通过|8772真实Qwen；新文档立即成为有效候选；确认正文、chunk ID、解析版本和index token与后端实际数据匹配|
+|2 取消S2|通过|首轮原S2=接口与排查片段8069b34f-2e49-5e9f-95c9-fa21d3a043a5；取消后只保留项目片段S1，该真实片段ID在准备消息及捕获中均不存在，不依赖编号是否重新分配|
+|3 仅本地保护|通过|浏览器可展开/查看LOCAL_ONLY_8772原文，勾选禁用；强制提交其candidate ID返回selection_forbidden；三次新增捕获均无该正文/文件名，必要历史中也没有|
+|4 确认与实参一致|通过|逐轮导出弹窗完整messages及单独可见的问题、历史、正文；3次实际捕获messages逐字段完全相等，前2轮的分区显示也逐项一致；打开确认窗和改选不增加调用|
+|5 预算|通过|实际默认20000字符/8组：8个长表格=38086字符，只有context_limit；9组=42773字符，group_limit+context_limit；浏览器仍保留8/9个勾选且确认禁用，HTTP同样拒绝；调整为1组才恢复准备，拒绝期间模拟调用增量0|
+|6 旧票据|通过|改选/超限更新使旧票据ticket_expired；未同意consent_required；撤销新样例许可后已准备票据evidence_stale；重新解析后的旧票据亦evidence_stale；这些拒绝不触发模拟客户端|
+|7 模拟引用|通过|浏览器3次模拟回答，首两次S1均对应真实项目片段，第三次S1为新Word表格；模拟客户端直接回显所选证据，后台仍执行三态/真实编号校验，不将此当作模型推理质量|
+|8 原文|通过|PDF右栏PDF·正文·物理第1页，实际第1/1页预览；Word仅显示真实章节/表格1且明确无法确定预览页，未猜页；新样例重解析后旧/source、meta、图像、下载均409，浏览器点击已发布旧引用显示失效、无有效预览|
+|9 多轮|通过|首轮问题“虚构项目负责人是谁？”→追问“那他同时也是项目导师吗？”；重新本地检索/勾选/确认，历史从0轮到1轮；第二轮同意框未勾选、发送按钮禁用，不复用首轮确认|
+
+### 实际捕获边界与结果
+
+捕获点是`scripts/serve_qa_integration.py:CaptureClient.complete(messages, cfg)`入口，对RagService.answer实际传入messages作deepcopy；`/api/test-qa-capture`仅在该隔离工具中导出。本轮不是拦截真实HTTP网络流量，没有运行DeepSeekClient的认证/HTTP序列化，不声称验证了真实请求到达外部服务。
+
+开始时已有2次历史模拟捕获，本轮新增3次（两轮连续问答+1次新样例引用失效验证），最终共5次，真实DeepSeek请求0。检索/勾选/打开确认/拒绝操作均不增加捕获。3次新增消息和浏览器后端确认快照完全相同，未混入原S2、未授权资料或前端自造正文。前2轮完整消息SHA256分别为`8129a669ae44dca84c3974f9b121ba4501ab87c8d5ae4ea58270e761f75b2779`、`bf46ecbb6ac2bb3ea89bbd7e0cc5d7819d9ee0ab7df09e85d9dc6d0ceb0928b7`。
+
+原始捕获、DOM确认导出、核对结果与本地验收脚本仅保存在隔离目录`c002-acceptance/`：`round*-confirm-messages.json`、`message-comparison.json`、`runtime-boundaries.json`、`version-and-data-checks.json`、`final-offline-summary.json`、`budget8-ui.json`、`budget9-ui.json`、`local-only-ui.json`、`stale-citation-ui.json`及截图；不入Git，不携带Key。原用户浏览器页不清空，另开验收标签页。
+
+### 新鲜自动化结果及验收脚本修正
+
+- 本轮重新执行`env -u DEEPSEEK_API_KEY -u P18_DATA_DIR P18_SEMANTIC_ENABLED=0 HF_HUB_OFFLINE=1 .venv/bin/python -m pytest -q -rs`：**217通过、0失败、1跳过，17.36秒，6条依赖弃用警告**。跳过显式真实权重生命周期测试，真实Qwen另由8772实际服务验证；不将跳过改写为通过。
+- JS：source_location16、qa_demo16、search_helpers16、rag_helpers6，共**54项断言通过**。原13HTML/CSS未改，工作区diff检查通过。
+- 初次容量验收脚本错误假设“容量题Top20一定含本地纪要”，出现StopIteration，未完成汇总；只修正隔离脚本，改用负责人题单独核验本地候选，再运行全项通过。Top20不保证所有无关文档出现属于预期边界，未为此修改算法或业务。
+
+### 结论、未验证与后续边界
+
+九项离线证据链要求通过，本轮未发现阻断少量真实API验收的应用缺陷，无业务修复扩展。**M3-002-C具备在单机、人工授权的完全虚构资料范围开展少量真实DeepSeek验收的条件**；不等于真实问答质量/认证/计费/HTTP传输已通过，不等于生产安全。
+
+8772仍强制CaptureClient，设置API Key不会使其自动变为真实客户端；真实客户端环境/Key本机输入/请求数量与费用须下一轮另行明确授权，本轮不切换。Scheme B严格撤销仍未实现；只验证撤销在发送前已完成时被拒绝，不证明最后许可核验到网络发送的竞态窗口为零。已显示历史回答不自动撤回，点击来源会重新核验；已发出的内容无法追回。字符预算不是token预算；Word无法可靠映射仍只保留结构位置，模拟回显不证明模型事实判断正确。真实网络异常/限流/Token与费用等本轮未实际验证（已有离线替身测试不冒充真实结果）。

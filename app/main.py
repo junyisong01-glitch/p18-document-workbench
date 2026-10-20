@@ -13,7 +13,7 @@ import subprocess
 import sys
 import threading
 import uuid
-from typing import Literal
+from typing import Annotated, Literal
 
 import pymupdf as fitz
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Query
@@ -114,10 +114,13 @@ def public(doc, detailed=False):
     decision = doc.get('review_decision') or {}
     result['review_completed'] = (doc['state'] in {'ready', 'held'} and decision.get('revision') == doc['revision'])
     index = index_status(doc['id'])
+    if doc['admission']['eligible']:
+        result['build'] = dict(result['build'], status={'not_started':'waiting','disabled':'waiting','unavailable':'failed'}.get(index['status'],index['status']),
+            reason='index_'+index['status'], message=index['message'], searchable=bool(index.get('searchable')))
     result['index'] = index if detailed else {key: index.get(key) for key in
         ('status', 'searchable', 'count', 'message', 'error', 'error_code', 'updated_at', 'token', 'generation')}
     if detailed:
-        result['chunking'] = chunk_result(doc, include_chunks=False)
+        result['chunking'] = chunk_result(doc, include_chunks=False, index=index)
     if not detailed:
         result.pop("result", None)
     return result
@@ -213,7 +216,7 @@ def write_chunk_run(conn, run):
                  (run['document_id'], json.dumps(run, ensure_ascii=False)))
 
 
-def chunk_result(doc, include_chunks=True):
+def chunk_result(doc, include_chunks=True, index=None):
     # Recalculate rather than trusting stale caller-supplied admission flags.
     sync_admission(doc)
     run = load_chunk_run(doc['id'])
@@ -239,6 +242,10 @@ def chunk_result(doc, include_chunks=True):
         with connect() as conn:
             answer['chunks'] = [json.loads(row[0]) for row in conn.execute(
                 "SELECT body FROM chunks WHERE document_id=? ORDER BY sequence", (doc['id'],))]
+    if not stale and run['status'] == 'complete':
+        # IndexService.snapshot calls this function: never resolve the index here.
+        answer.update(searchable=bool(index and index.get('searchable')),
+                      message='本地切分已完成；'+(index['message'] if index else '可检索性由当前向量索引状态决定。'))
     return answer
 
 
@@ -298,7 +305,7 @@ def run_chunk_job(identifier, generation):
                 return
             run.update(status='complete', count=len(chunks), normalized=normalized,
                        warnings=normalized['warnings'], updated_at=now(), error=None,
-                       message='本地切分完成；尚未向量化或创建索引，当前不可检索。')
+                       message='本地切分完成；可检索性由当前向量索引状态决定。')
             with connect() as conn:
                 conn.execute("DELETE FROM chunks WHERE document_id=?", (identifier,))
                 conn.executemany("INSERT INTO chunks VALUES (?, ?, ?, ?)",
@@ -480,6 +487,17 @@ class RagPrepareBody(BaseModel):
     session_id: str | None = Field(default=None, max_length=100)
 
 
+class RagDraftBody(RagPrepareBody):
+    turn_id: str | None = Field(default=None, min_length=1, max_length=100)
+
+
+class RagSelectionBody(BaseModel):
+    model_config = {"extra": "forbid", "strict": True}
+    draft_id: str = Field(min_length=1, max_length=100)
+    selection_version: int = Field(ge=0)
+    candidate_ids: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(max_length=80)
+
+
 class RagAnswerBody(BaseModel):
     model_config = {"extra": "forbid"}
     ticket: str = Field(min_length=1, max_length=100)
@@ -493,7 +511,7 @@ def rag_call(method, *args):
     try:
         return getattr(RAG_SERVICE, method)(*args)
     except (RagError, EmbeddingError, SemanticError) as error:
-        raise HTTPException(409, {'code':error.code,'message':str(error)})
+        raise HTTPException(409, {'code':error.code,'message':str(error),**({'details':error.details} if getattr(error,'details',None) is not None else {})})
 
 
 @app.get('/api/rag')
@@ -504,6 +522,16 @@ def rag_health():
 @app.post('/api/rag/prepare')
 def rag_prepare(body: RagPrepareBody):
     return rag_call('prepare', body.question, body.session_id)
+
+
+@app.post('/api/rag/drafts')
+def rag_draft(body: RagDraftBody):
+    return rag_call('draft', body.question, body.session_id, body.turn_id)
+
+
+@app.post('/api/rag/selection')
+def rag_selection(body: RagSelectionBody):
+    return rag_call('selection', body.draft_id, body.selection_version, body.candidate_ids)
 
 
 @app.post('/api/rag/answer')
@@ -640,7 +668,7 @@ async def review(identifier: str, request: Request):
 @app.get("/api/documents/{identifier}/chunks")
 def chunks_view(identifier: str):
     with LOCK:
-        return chunk_result(available(identifier))
+        return chunk_result(available(identifier), index=index_status(identifier))
 
 
 @app.post("/api/documents/{identifier}/chunks")
@@ -654,7 +682,7 @@ async def regenerate_chunks(identifier: str, request: Request):
         if body.get('revision') != doc['revision'] or not doc['admission']['eligible']:
             raise HTTPException(409, '当前版本尚未通过入库条件，或解析版本已变化。')
         schedule_chunks(doc, retry_failed=True)
-        return chunk_result(doc)
+        return chunk_result(doc, index=index_status(identifier))
 
 
 @app.post("/api/documents/{identifier}/retry")
@@ -735,10 +763,54 @@ def available(identifier):
     return doc
 
 
-@app.get("/api/documents/{identifier}/file/{variant}")
-def file_download(identifier: str, variant: str):
+def source_guard(doc, revision=None, index_token=None, chunk_id=None):
+    """Optional guards keep legacy previews compatible; new QA supplies all three."""
+    if all(x is None for x in (revision, index_token, chunk_id)):
+        return None
+    if revision is not None and index_token is None and chunk_id is None:
+        if doc['revision'] != revision:
+            raise HTTPException(409, {"code": "source_stale", "message": "来源解析版本已改变。"})
+        return None
+    if any(x is None for x in (revision, index_token, chunk_id)):
+        raise HTTPException(409, {"code": "source_stale", "message": "来源标识不完整，请重新检索。"})
+    service = require_semantic()
+    snap, run = service.snapshot(doc['id']), service.read(doc['id'])
+    if (doc['revision'] != revision or not service.valid(run, snap)
+            or run.get('status') != 'complete' or not service.current_config()
+            or snap['token'] != index_token):
+        raise HTTPException(409, {"code": "source_stale", "message": "来源版本或索引已失效，请重新检索。"})
+    chunk = next((c for c in snap['chunks'] if c['id'] == chunk_id), None)
+    if chunk is None:
+        raise HTTPException(409, {"code": "source_stale", "message": "来源片段已失效，请重新检索。"})
+    return chunk
+
+
+@app.get("/api/documents/{identifier}/source")
+def source_read(identifier: str, revision: int, index_token: str, chunk_id: str):
     with LOCK:
         doc = available(identifier)
+        chunk = source_guard(doc, revision, index_token, chunk_id)
+        return {"source": chunk, "document": public(doc, detailed=True)}
+
+
+@app.get("/api/documents/{identifier}/source/highlight")
+def source_highlight(identifier: str, revision: int, index_token: str, chunk_id: str):
+    """Read-only exact text geometry, with the same current-source guard as preview."""
+    from app.qa_highlight import locate
+    with LOCK:
+        doc = available(identifier)
+        chunk = source_guard(doc, revision, index_token, chunk_id)
+        relative = (doc.get("result") or {}).get("preview", {}).get("original")
+        if not relative:
+            return {"status": "unavailable", "pages": [], "message": "暂无可靠预览位置；以下为真实提取片段。"}
+        return locate(folder_for(identifier) / relative, doc["ext"], chunk)
+
+
+@app.get("/api/documents/{identifier}/file/{variant}")
+def file_download(identifier: str, variant: str, revision: int | None = None, index_token: str | None = None, chunk_id: str | None = None):
+    with LOCK:
+        doc = available(identifier)
+        source_guard(doc, revision, index_token, chunk_id)
         if variant == "original":
             relative = "original" + doc["ext"]
             name = doc["name"]
@@ -751,9 +823,10 @@ def file_download(identifier: str, variant: str):
 
 
 @app.get("/api/documents/{identifier}/preview/{variant}/meta")
-def preview_meta(identifier: str, variant: str):
+def preview_meta(identifier: str, variant: str, revision: int | None = None, index_token: str | None = None, chunk_id: str | None = None):
     with LOCK:
         doc = available(identifier)
+        source_guard(doc, revision, index_token, chunk_id)
         relative = (doc.get("result") or {}).get("preview", {}).get(variant)
         if not relative:
             raise HTTPException(404, "预览尚未生成，可下载原文件查看。")
@@ -762,9 +835,10 @@ def preview_meta(identifier: str, variant: str):
 
 
 @app.get("/api/documents/{identifier}/preview/{variant}/{page}")
-def preview_page(identifier: str, variant: str, page: int, zoom: float = Query(1, ge=1, le=3)):
+def preview_page(identifier: str, variant: str, page: int, zoom: float = Query(1, ge=1, le=3), revision: int | None = None, index_token: str | None = None, chunk_id: str | None = None):
     with LOCK:
         doc = available(identifier)
+        source_guard(doc, revision, index_token, chunk_id)
         relative = (doc.get("result") or {}).get("preview", {}).get(variant)
         if not relative:
             raise HTTPException(404, "预览尚未生成。")
