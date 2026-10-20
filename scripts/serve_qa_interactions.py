@@ -28,7 +28,7 @@ def main():
     from app import main as store
     @store.app.get('/api/test-qa-capture')
     def capture():
-        return {'simulated_calls':len(CaptureClient.requests),'real_paid_calls':0,'messages':CaptureClient.requests}
+        return {'simulated_calls':len(CaptureClient.requests),'real_paid_calls':0,'messages':CaptureClient.requests,'destinations':CaptureClient.destinations}
     @store.app.get('/api/unified-preview')
     def unified_status():
         import hashlib

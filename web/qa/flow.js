@@ -9,5 +9,13 @@
   const refresh=resetSession||['ticket_expired','selection_changed','evidence_stale','config_changed'].includes(code);
   return {refresh,resetSession};
  }
- root.P18QaFlow={steps,expired,sourceView,recovery};
+ function receivingTarget(p){
+  try{
+   const base=p.destination,endpoint=p.request_endpoint;
+   if(typeof base!=='string'||typeof endpoint!=='string'||!base||/[\s\x00-\x1f?#\\]/.test(base))return false;
+   const u=new URL(base);
+   return u.protocol==='https:'&&!!u.hostname&&!u.username&&!u.password&&!u.search&&!u.hash&&endpoint===base.replace(/\/+$/,'')+'/chat/completions';
+  }catch(_){return false;}
+ }
+ root.P18QaFlow={steps,expired,sourceView,recovery,receivingTarget};
 })(typeof window==='undefined'?module.exports:window);

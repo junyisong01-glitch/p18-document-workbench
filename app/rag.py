@@ -29,6 +29,18 @@ class RagError(RuntimeError):
         super().__init__(message); self.code = code; self.details = details
 
 
+def request_endpoint(base_url):
+    """The sole URL construction rule, shared by consent receipts and HTTP dispatch."""
+    try:
+        if not isinstance(base_url,str) or not base_url or any(c.isspace() or ord(c)<32 for c in base_url) or any(c in base_url for c in '?#\\'):raise ValueError()
+        url=urlsplit(base_url)
+        if url.scheme!='https' or not url.hostname or url.username or url.password or url.query or url.fragment:raise ValueError()
+        url.port  # Reject malformed/out-of-range ports before consent or dispatch.
+        return base_url.rstrip('/')+'/chat/completions'
+    except (ValueError,TypeError):
+        raise RagError('rag_destination_invalid','接收地址缺失或无效，已阻止外发，请检查后端HTTPS配置。') from None
+
+
 def config():
     try:
         value={'base_url':os.environ.get('P18_DEEPSEEK_BASE_URL','https://api.deepseek.com').rstrip('/'),
@@ -38,6 +50,7 @@ def config():
                'evidence_count':int(os.environ.get('P18_RAG_EVIDENCE_COUNT','8')),
                'context_chars':int(os.environ.get('P18_RAG_CONTEXT_CHARS','20000')),
                'history_turns':int(os.environ.get('P18_RAG_HISTORY_TURNS','3'))}
+        request_endpoint(value['base_url'])
         url=urlsplit(value['base_url'])
         if (url.scheme!='https' or not url.hostname or url.username or url.password or url.query or url.fragment
             or not 1<=value['timeout']<=120 or not 128<=value['max_tokens']<=4000
@@ -68,7 +81,7 @@ class DeepSeekClient:
         if not key:raise RagError('api_not_configured','尚未配置DeepSeek密钥，文档管理及知识检索仍可使用。')
         body={'model':cfg['model'],'messages':messages,'stream':False,'thinking':{'type':'disabled'},
               'response_format':{'type':'json_object'},'max_tokens':cfg['max_tokens']}
-        req=Request(cfg['base_url']+'/chat/completions',data=json.dumps(body).encode(),
+        req=Request(request_endpoint(cfg['base_url']),data=json.dumps(body).encode(),
                     headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'})
         # No automatic retries (a retry may be billed), no key/body/error-body logging.
         try:
@@ -192,7 +205,7 @@ class RagService:
             self.tickets[token]=ticket;session['at']=time.monotonic()
             return {'status':'prepared','ticket':token,'session_id':sid,'question':question,'history':history,
                     'evidence':evidence,'blocked_count':skipped,'provider':self.client.label,
-                    'configured':self.client.configured,'destination':cfg['base_url'],'model':cfg['model'],
+                    'configured':self.client.configured,'destination':cfg['base_url'],'request_endpoint':request_endpoint(cfg['base_url']),'model':cfg['model'],
                     'notice':'仅在确认后发送以上问题、历史及证据。未授权资料不会发送。'}
 
     @staticmethod
@@ -333,7 +346,7 @@ class RagService:
                 'question':draft['question'],'turn_id':draft.get('turn_id'),'history':draft['history'],'evidence':evidence,
                 'messages':messages,'budget':budget,'expires_in':180,
                 'provider':self.client.label,'configured':self.client.configured,
-                'destination':draft['config']['base_url'],'model':draft['config']['model'],
+                'destination':draft['config']['base_url'],'request_endpoint':request_endpoint(draft['config']['base_url']),'model':draft['config']['model'],
                 'notice':'请核对本轮问题、历史和完整证据；仅在明确确认后发送，未自动调用外部模型。'})
 
     def answer(self, ticket_id, consent):

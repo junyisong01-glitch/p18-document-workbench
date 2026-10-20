@@ -14,7 +14,10 @@ class CaptureClient:
     label = '模拟回答 · 未调用外部API'
     configured = True
     requests = []
+    destinations = []
     def complete(self, messages, cfg):
+        from app.rag import request_endpoint
+        self.destinations.append({'base_url':cfg['base_url'],'request_endpoint':request_endpoint(cfg['base_url']),'model':cfg['model']})
         self.requests.append(deepcopy(messages))
         payload = json.loads(messages[-1]['content'])
         # Deterministic evidence echo validates the wire path, not model reasoning.
