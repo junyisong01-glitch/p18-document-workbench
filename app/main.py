@@ -480,6 +480,10 @@ class RagPrepareBody(BaseModel):
     session_id: str | None = Field(default=None, max_length=100)
 
 
+class RagDraftBody(RagPrepareBody):
+    turn_id: str | None = Field(default=None, min_length=1, max_length=100)
+
+
 class RagSelectionBody(BaseModel):
     model_config = {"extra": "forbid", "strict": True}
     draft_id: str = Field(min_length=1, max_length=100)
@@ -514,8 +518,8 @@ def rag_prepare(body: RagPrepareBody):
 
 
 @app.post('/api/rag/drafts')
-def rag_draft(body: RagPrepareBody):
-    return rag_call('draft', body.question, body.session_id)
+def rag_draft(body: RagDraftBody):
+    return rag_call('draft', body.question, body.session_id, body.turn_id)
 
 
 @app.post('/api/rag/selection')
@@ -780,6 +784,19 @@ def source_read(identifier: str, revision: int, index_token: str, chunk_id: str)
         doc = available(identifier)
         chunk = source_guard(doc, revision, index_token, chunk_id)
         return {"source": chunk, "document": public(doc, detailed=True)}
+
+
+@app.get("/api/documents/{identifier}/source/highlight")
+def source_highlight(identifier: str, revision: int, index_token: str, chunk_id: str):
+    """Read-only exact text geometry, with the same current-source guard as preview."""
+    from app.qa_highlight import locate
+    with LOCK:
+        doc = available(identifier)
+        chunk = source_guard(doc, revision, index_token, chunk_id)
+        relative = (doc.get("result") or {}).get("preview", {}).get("original")
+        if not relative:
+            return {"status": "unavailable", "pages": [], "message": "暂无可靠预览位置；以下为真实提取片段。"}
+        return locate(folder_for(identifier) / relative, doc["ext"], chunk)
 
 
 @app.get("/api/documents/{identifier}/file/{variant}")

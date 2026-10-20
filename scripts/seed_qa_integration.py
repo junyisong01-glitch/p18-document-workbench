@@ -6,14 +6,14 @@ import sys
 import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-def seed(data):
+def seed(data, port=8772):
     import httpx
     import pymupdf as fitz
     from scripts.rag_permissions import grant
     root=Path(data).resolve()
-    if not root.is_relative_to(Path('/private/tmp')) or not root.name.startswith('p18-qa-8772-') or not (root/'.qa-integration-fixture').is_file():
+    if not root.is_relative_to(Path('/private/tmp')) or port not in {8772,8774} or not root.name.startswith(f'p18-qa-{port}-') or not (root/'.qa-integration-fixture').is_file():
         raise ValueError('Only the marked new 8772 fixture directory is allowed.')
-    with httpx.Client(base_url='http://127.0.0.1:8772',timeout=120,headers={'X-P18-Client':'workbench'}) as client:
+    with httpx.Client(base_url=f'http://127.0.0.1:{port}',timeout=120,headers={'X-P18-Client':'workbench'}) as client:
         config=client.get('/api/config');config.raise_for_status()
         if Path(config.json()['data_directory']).resolve()!=root or client.get('/api/documents').json():
             raise ValueError('Data directory mismatch or library is not empty; no changes made.')

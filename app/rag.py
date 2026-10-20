@@ -133,15 +133,20 @@ class RagService:
                 or not any(c['id']==source['chunk_id'] and c['text']==source['text'] for c in snap['chunks'])):return False
         return service.current_config()
 
-    def context(self, question, session_id, cfg):
+    def context(self, question, session_id, cfg, turn_id=None):
         self.prune()
         if session_id and session_id not in self.sessions:raise RagError('session_expired','会话已过期，请清空会话后重新提问。')
         sid=session_id or secrets.token_urlsafe(24)
         session=self.sessions.setdefault(sid,{'at':time.monotonic(),'turns':[],'version':0})
         if session.get('busy'):raise RagError('session_busy','当前会话正在生成回答，请等待完成后再提问。')
+        context_turns=session.get('rounds',session['turns']) if turn_id is not None else session['turns']
+        if turn_id is not None:
+            matches=[i for i,t in enumerate(context_turns) if t.get('turn_id')==turn_id]
+            if not matches:raise RagError('turn_expired','原问题已过期，请重新提问；未发送。')
+            context_turns=context_turns[:matches[0]]
         history=[]
         with self.store.LOCK:
-            for turn in session['turns'][-cfg['history_turns']:]:
+            for turn in context_turns[-cfg['history_turns']:]:
                 # Do not send historical answers derived from now-revoked data.
                 if not self.valid(turn['evidence']):
                     raise RagError('history_invalid','历史来源已失效或外发许可已撤销，请清空会话后重新提问。')
@@ -205,12 +210,18 @@ class RagService:
     def invalidate_session_tickets(self, sid):
         self.tickets={key:value for key,value in self.tickets.items() if value['sid']!=sid}
 
-    def draft(self, question, session_id=None):
+    def draft(self, question, session_id=None, turn_id=None):
         """Return local candidates; neither a selection nor an external request."""
         cfg=config();question=question.strip()
         if not question or len(question)>2000:raise RagError('bad_question','问题长度须为1–2000字符。')
         with self.lock:
-            sid,session,history,query=self.context(question,session_id,cfg)
+            if turn_id is not None:
+                existing_session=self.sessions.get(session_id,{})
+                existing=existing_session.get('rounds',existing_session.get('turns',[]))
+                original=next((t for t in existing if t.get('turn_id')==turn_id),None)
+                if original is None:raise RagError('turn_expired','原问题已过期，请重新提问；未发送。')
+                question=original['question']
+            sid,session,history,query=self.context(question,session_id,cfg,turn_id)
             if query is None:return {'status':'clarify','message':'请说明指的是哪位人员或哪个项目。','session_id':sid}
             if len(self.drafts)>=128:raise RagError('rag_busy','本地候选草稿过多，请稍后重新检索。')
             service=self.store.require_semantic()
@@ -254,14 +265,23 @@ class RagService:
             self.invalidate_session_tickets(sid)
             session['active_draft']=did;session['at']=time.monotonic()
             self.drafts[did]={'at':time.monotonic(),'sid':sid,'version':session['version'],
-                'selection_version':0,'question':question,'history':deepcopy(history),
+                'selection_version':0,'question':question,'turn_id':turn_id,'history':deepcopy(history),
                 'config':deepcopy(cfg),'config_hash':digest(cfg),'candidates':candidates}
             return deepcopy({'status':'drafted','draft_id':did,'session_id':sid,'selection_version':0,
-                'question':question,'history':history,'candidates':list(candidates.values()),
+                'question':question,'turn_id':turn_id,'history':history,'candidates':list(candidates.values()),
                 'default_candidate_ids':defaults,'budget':self.selection_budget(question,history,default_evidence,cfg),
                 'retrieval_mode':authorized.get('retrieval_mode',local.get('retrieval_mode')),
                 'local_retrieval_status':local.get('status'),'expires_in':180,
                 'notice':'候选仅在本地展示；勾选不授予外发许可，确认前不会调用外部模型。'})
+
+    @staticmethod
+    def history_evidence(session, cfg, turn_id=None):
+        turns=session.get('rounds',session['turns']) if turn_id is not None else session['turns']
+        if turn_id is not None:
+            index=next((i for i,t in enumerate(turns) if t.get('turn_id')==turn_id),None)
+            if index is None:raise RagError('turn_expired','原问题已过期，请重新提问。')
+            turns=turns[:index]
+        return [s for turn in turns[-cfg['history_turns']:] for s in turn['evidence']]
 
     def selection(self, draft_id, selection_version, candidate_ids):
         """Resolve opaque server-side identities, invalidate old previews, never trim."""
@@ -291,7 +311,7 @@ class RagService:
             evidence=[]
             for cid in candidate_ids:
                 source=deepcopy(draft['candidates'][cid]['evidence']);source['id']='S'+str(len(evidence)+1);evidence.append(source)
-            historical=[s for turn in session['turns'][-draft['config']['history_turns']:] for s in turn['evidence']]
+            historical=self.history_evidence(session,draft['config'],draft.get('turn_id'))
             with self.store.LOCK:
                 if not self.valid(evidence+historical):raise RagError('evidence_stale','证据、索引、许可或历史来源已变化，请重新检索。',details)
             budget=self.selection_budget(draft['question'],draft['history'],evidence,draft['config'])
@@ -306,11 +326,11 @@ class RagService:
             self.tickets[token]={'at':time.monotonic(),'sid':draft['sid'],'version':draft['version'],
                 'question':draft['question'],'history':deepcopy(draft['history']),'evidence':deepcopy(evidence),
                 'config':deepcopy(draft['config']),'config_hash':draft['config_hash'],
-                'draft_id':draft_id,'selection_version':draft['selection_version'],
+                'draft_id':draft_id,'selection_version':draft['selection_version'],'turn_id':draft.get('turn_id'),
                 'messages':deepcopy(messages),'messages_hash':digest(messages)}
             return deepcopy({'status':'prepared','ticket':token,'session_id':draft['sid'],
                 'draft_id':draft_id,'selection_version':draft['selection_version'],
-                'question':draft['question'],'history':draft['history'],'evidence':evidence,
+                'question':draft['question'],'turn_id':draft.get('turn_id'),'history':draft['history'],'evidence':evidence,
                 'messages':messages,'budget':budget,'expires_in':180,
                 'provider':self.client.label,'configured':self.client.configured,
                 'destination':draft['config']['base_url'],'model':draft['config']['model'],
@@ -330,7 +350,7 @@ class RagService:
                     or draft['selection_version']!=ticket['selection_version']):
                     raise RagError('selection_changed','选择已变化，请重新核对发送内容。')
             if digest(config())!=ticket['config_hash']:raise RagError('config_changed','模型或目标地址已变化，请重新确认发送范围。')
-            historical=[s for t in session['turns'][-ticket['config']['history_turns']:] for s in t['evidence']]
+            historical=self.history_evidence(session,ticket['config'],ticket.get('turn_id'))
             with self.store.LOCK:
                 if not self.valid(ticket['evidence']+historical):raise RagError('evidence_stale','证据、外发许可或历史来源已失效，未发送。')
                 # Store lock serializes admission/reparse/delete through the local API at dispatch.
@@ -351,9 +371,17 @@ class RagService:
                     if not self.valid(ticket['evidence']+historical):raise RagError('evidence_stale','请求期间来源或许可变化，回答未发布；已发送的内容无法撤回。')
                 answer_status,answer,citations=self.validate_answer(raw,ticket['evidence'])
                 session['version']+=1;session['at']=time.monotonic()
-                session['turns']=(session['turns']+[{'question':ticket['question'],'answer':answer,'evidence':ticket['evidence']}])[-ticket['config']['history_turns']:]
+                turn_id=ticket.get('turn_id') or secrets.token_urlsafe(24)
+                replacement={'turn_id':turn_id,'question':ticket['question'],'answer':answer,'evidence':ticket['evidence']}
+                rounds=session.setdefault('rounds',list(session['turns']))
+                if ticket.get('turn_id'):
+                    index=next((i for i,t in enumerate(rounds) if t.get('turn_id')==turn_id),None)
+                    if index is None:raise RagError('turn_expired','原问题已过期，回答未发布。')
+                    rounds[index]=replacement
+                else:session['rounds']=(rounds+[replacement])[-32:]
+                session['turns']=session['rounds'][-ticket['config']['history_turns']:]
                 return {'status':'answered','answer_status':answer_status,'answer':answer,'citations':citations,'evidence':ticket['evidence'],
-                        'session_id':ticket['sid'],'provider':self.client.label,
+                        'session_id':ticket['sid'],'turn_id':turn_id,'provider':self.client.label,
                         'notice':'仅核验引用身份及有效性，不保证回答事实正确；重要结论请核对原文。'}
         finally:
             with self.lock:

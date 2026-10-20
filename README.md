@@ -276,3 +276,14 @@ API返回 `retrieval_mode`，混合结果另有 `fusion_score`；`score`始终�
 
 工具会拒绝未标记目录/非空库；仅生成完全虚构PDF，显式授予其中测试资料许可，不自动通过异常复核，不自动下载模型。仅该验收进程设置hybrid_dedup，正式默认不变。不要在服务已经运行时重复启动。
 完整操作、结果与局限见[接线验收记录](docs/rag-validation.md)。原13态设计预览仍使用`?qa-preview=01`等入口，与真实本地业务流程分开。
+
+
+### P18-M3-002-D 隔离交互预览（模拟模型）
+
+独立开发分支中可用8774，绝不使用正式数据目录：
+
+```sh
+env -u DEEPSEEK_API_KEY .venv/bin/python scripts/serve_qa_interactions.py --data-dir /private/tmp/p18-qa-8774-新目录
+```
+
+页面地址 http://127.0.0.1:8774/ 。首次新建的标记空库可用`seed(data, port=8774)`生成虚构验收样例（scripts/seed_qa_integration.py）；拒绝非空库和不匹配目录。使用本地已缓存Qwen，DeepSeek仅模拟回显，外部推理被禁用，不需要Key。原文栏可拖动；可靠PDF文字可高亮；同问题重新生成后用回答版本选择器查看旧答。版本仅页面会话内保存，必要追问历史使用最新回答，刷新清空。具体测试、限制及修改文件见[交互验收记录](docs/qa-interactions-validation.md)。
