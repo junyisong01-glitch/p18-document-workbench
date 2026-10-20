@@ -29,6 +29,14 @@ def main():
     @store.app.get('/api/test-qa-capture')
     def capture():
         return {'simulated_calls':len(CaptureClient.requests),'real_paid_calls':0,'messages':CaptureClient.requests}
+    @store.app.get('/api/unified-preview')
+    def unified_status():
+        import hashlib
+        root=Path(__file__).resolve().parents[1]
+        files=['web/index.html','web/search.js','web/unified.css','web/qa/live.js','web/qa/live.css']
+        fingerprint=hashlib.sha256(b''.join((root/name).read_bytes() for name in files)).hexdigest()
+        return {'ui_version':'P18-UI-001','port':8774,'data_directory':str(data),
+                'provider_mode':'offline_capture','external_requests_enabled':False,'source_fingerprint':fingerprint}
     import uvicorn
     uvicorn.run(store.app,host='127.0.0.1',port=8774,workers=1)
 

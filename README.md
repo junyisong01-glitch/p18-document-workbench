@@ -287,3 +287,10 @@ env -u DEEPSEEK_API_KEY .venv/bin/python scripts/serve_qa_interactions.py --data
 ```
 
 页面地址 http://127.0.0.1:8774/ 。首次新建的标记空库可用`seed(data, port=8774)`生成虚构验收样例（scripts/seed_qa_integration.py）；拒绝非空库和不匹配目录。使用本地已缓存Qwen，DeepSeek仅模拟回显，外部推理被禁用，不需要Key。原文栏可拖动；可靠PDF文字可高亮；同问题重新生成后用回答版本选择器查看旧答。版本仅页面会话内保存，必要追问历史使用最新回答，刷新清空。具体测试、限制及修改文件见[交互验收记录](docs/qa-interactions-validation.md)。
+
+
+### 8774 三模块统一隔离测试入口（P18-UI-001）
+
+打开仓库根目录 `启动隔离测试工作台.command`，随后在Mac浏览器访问 **http://127.0.0.1:8774/**。三个模块使用同一现有虚构库；知识问答明确为模拟回答，不需输入Key、不产生外部推理费用。终端保持运行。入口核对实际服务与数据目录，未知端口占用会拒绝，不会关闭其他服务。此工具仅适用于已有标记的8774验收库，不创建或迁移正式数据。
+
+验收详情及限制见 [docs/unified-ui-validation.md](docs/unified-ui-validation.md)。正式启动方式不变，勿以此入口替代正式工作台。
