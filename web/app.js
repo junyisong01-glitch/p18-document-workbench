@@ -101,7 +101,7 @@ async function openDetail(id, preserve=false) {
     const doc=await api(`/api/documents/${id}`);
     if(request!==detailRequest) return;
     const resetReview=!preserve || current?.revision!==doc.revision;
-    ragUI?.hide();document.body.dataset.view='documents';$('#nav-rag').classList.remove('active');current=doc;if(!preserve)page=1;searchUI?.hide();$('#search-view').hidden=true;$('#nav-search').classList.remove('active');$('#nav-documents').classList.add('active');$('#current-page').textContent='文档管理';
+    ragUI?.hide();document.body.dataset.view='documents';$('#nav-rag').classList.remove('active');current=doc;window.P18ExternalPermission?.render(doc,()=>openDetail(doc.id,true));if(!preserve)page=1;searchUI?.hide();$('#search-view').hidden=true;$('#nav-search').classList.remove('active');$('#nav-documents').classList.add('active');$('#current-page').textContent='文档管理';
     if(resetReview){$('#reviewer').value='';$('#review-note').value='';}
     $('#list-view').hidden=true;$('#detail-view').hidden=false;
     $('#detail-name').textContent=doc.name;

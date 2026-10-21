@@ -119,6 +119,8 @@ def public(doc, detailed=False):
             reason='index_'+index['status'], message=index['message'], searchable=bool(index.get('searchable')))
     result['index'] = index if detailed else {key: index.get(key) for key in
         ('status', 'searchable', 'count', 'message', 'error', 'error_code', 'updated_at', 'token', 'generation')}
+    from app.egress import status as permission_status
+    result['external_permission'] = permission_status(DATA, doc)
     if detailed:
         result['chunking'] = chunk_result(doc, include_chunks=False, index=index)
     if not detailed:
@@ -481,6 +483,36 @@ def semantic_search(body: SearchBody):
         raise HTTPException(503, {'code': exc.code, 'message': str(exc)}) from exc
 
 
+class ExternalPermissionBody(BaseModel):
+    model_config = {"extra":"forbid", "strict":True}
+    revision: int = Field(ge=1)
+    fingerprint: str = Field(min_length=64,max_length=64)
+    classification: Literal['fictional','public_verified'] | None = None
+    checks: dict[str,bool] = Field(default_factory=dict)
+
+
+@app.post('/api/documents/{identifier}/external-permission')
+def grant_external_permission(identifier: str, body: ExternalPermissionBody):
+    return change_external_permission(identifier,body,False)
+
+
+@app.post('/api/documents/{identifier}/external-permission/revoke')
+def revoke_external_permission(identifier: str, body: ExternalPermissionBody):
+    return change_external_permission(identifier,body,True)
+
+
+def change_external_permission(identifier, body, revoke):
+    from app.egress import update, audit, CHECKS
+    with LOCK:
+        doc=available(identifier)
+        try:return update(DATA,doc,body.revision,body.fingerprint,body.classification,body.checks,revoke)
+        except ValueError as exc:
+            code=str(exc)
+            audit(DATA,'permission_blocked',{'document_id':identifier,'revision':body.revision,'code':code,
+                'classification':body.classification,'checks':{k:body.checks.get(k) for k in CHECKS}})
+            raise HTTPException(409,{'code':code,'message':'授权条件未满足或文档版本已变化，请重新核对当前文档及全部三项确认。'}) from None
+
+
 class RagPrepareBody(BaseModel):
     model_config = {"extra": "forbid"}
     question: str = Field(min_length=1, max_length=2000)
@@ -509,8 +541,20 @@ def rag_call(method, *args):
     from app.embedding import EmbeddingError
     from app.semantic import SemanticError
     try:
-        return getattr(RAG_SERVICE, method)(*args)
+        result = getattr(RAG_SERVICE, method)(*args)
+        if method in {'prepare','selection'}:
+            RAG_SERVICE.audit_request('egress_prepared' if result.get('status')=='prepared' else 'egress_blocked',
+                result,result.get('status'))
+        return result
     except (RagError, EmbeddingError, SemanticError) as error:
+        if method!='answer':
+            context={}
+            if method=='selection':
+                with RAG_SERVICE.lock:
+                    draft=RAG_SERVICE.drafts.get(args[0],{})
+                    context={'question':draft.get('question'),'evidence':[draft['candidates'][cid]['evidence']
+                        for cid in args[2] if cid in draft.get('candidates',{})]}
+            RAG_SERVICE.audit_request('egress_blocked',context,error.code)
         raise HTTPException(409, {'code':error.code,'message':str(error),**({'details':error.details} if getattr(error,'details',None) is not None else {})})
 
 

@@ -308,3 +308,15 @@ P18-UI-002：8774三模块现在使用固定全局图标导航。问答左栏为
 操作员须先从当前文档详情/候选取得文档ID和解析版本，核对完全虚构及授权范围后，按既有 `scripts/rag_permissions.py --help` 指引填写 `--data-dir`、`--document-id`、`--revision`、`--reviewer`、`--classification fictional` 与 `--confirm-external`。不要使用其他环境的数据路径。文档重新解析或替换后应重新人工核验许可；许可后重新检索，生成前仍须逐轮确认。本轮不会自动执行该操作。
 
 8774为真实本地Qwen＋模拟证据回显服务，不代表DeepSeek回答质量；新文件未获准时，不应把其他获准片段当作该文件的答案。整合验收见 [INT-002记录](docs/integration-validation.md)。
+
+### 本机文档外发审核（独立分支待审）
+
+文档详情的“外发权限”支持完全虚构资料或经人工核对的公开资料（`public_verified`），三项检查全选后由后端按ID/解析版本/内容指纹授权。无口令或身份认证，明确为本机未认证人工操作，不自动核实公开来源；默认仅本地，不批量授权。撤销、逐轮预览/实际接收地址确认及来源核验保持。记录保存在当前SQLite的external_permissions/external_audit，首次写入自动创建，不改变原索引。详见[实现、验收及回退边界](docs/external-permission-validation.md)。
+
+只用全新虚构资料预览（模拟模型，真实外部调用被阻止）：
+
+```sh
+.venv/bin/python scripts/serve_permission_preview.py --data-dir /private/tmp/p18-permission-preview-8776 --port 8776
+```
+
+在Mac访问 `http://127.0.0.1:8776/`。此脚本拒绝正式/未标记旧目录及8765—8775端口，不复制任何正式数据，不读取密钥。真实部署须另行授权；方案B严格撤销仍为后续待办。

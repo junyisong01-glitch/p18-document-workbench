@@ -4,7 +4,9 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>P18 · 文档工作台</title>
   <link rel="stylesheet" href="style.css?v=20261017-semantic-ui"><link rel="stylesheet" href="/static/ui-tokens.css?v=20261020-int002"><link rel="stylesheet" href="/static/unified.css?v=20261020-int002">
+  <link rel="stylesheet" href="/static/external-permission.css">
   <script src="app.js?v=20261020-int002" defer></script>
+  <script src="/static/external-permission.js" defer></script>
   <script src="/static/splitter.js?v=20261020-int002" defer></script>
   <script src="/static/qa/sessions.js?v=20261020-int002" defer></script>
   <script src="/static/source-preview.js?v=20261020-int002" defer></script>
@@ -74,11 +76,25 @@
       <button id="back" class="text-button back">← 返回文档资料库</button>
       <div class="detail-heading"><div><h1 id="detail-name"></h1><div id="detail-meta" class="subtitle"></div></div><button id="detail-delete" class="danger-outline">删除文档</button></div>
       <div id="detail-status" class="notice"></div>
+      <section class="external-permission" aria-labelledby="external-heading"><h2 id="external-heading">外发权限</h2><div class="external-body"><div class="external-row"><span id="external-badge" class="external-badge"></span><button id="external-review" class="primary">审核外发资格</button><button id="external-revoke" class="secondary" disabled>撤销外发许可</button></div><p id="external-description"></p><p id="external-inline-status" role="status"></p></div></section>
       <div id="preview-warnings"></div>
       <div class="review-layout"><aside class="issues-panel"><div class="issues-title"><h2>检查与复核</h2><span id="issue-count"></span></div><div id="issues"></div><div id="admission-summary"></div><div id="review-actions" hidden><p>请按类别核对原文。确认有错或无法判断时，整份暂不入库；当前不支持排除局部内容。</p><div id="review-checks"></div><label class="review-field">审核人（必填）<input id="reviewer" type="text" maxlength="80" placeholder="姓名或工号" required></label><p class="subtitle">审核人为人工填写，未经登录身份验证。</p><label class="review-field">审核备注（选填；暂不入库时建议说明原因）<textarea id="review-note" maxlength="2000" rows="3"></textarea></label><button class="primary" id="accept">确认内容可用</button><button class="secondary" id="hold">无法判断，暂不入库</button><button class="secondary" id="incorrect">确认有误，暂不入库</button></div><div id="review-history"></div></aside><div class="comparison"><div class="comparison-head"><h2>内容比对</h2><span>原文与实际提取结果</span></div><div class="panes"><section class="pane"><div class="pane-toolbar"><select id="left-kind" aria-label="左侧查看内容"><option value="original">原文件预览</option><option value="converted">转换副本预览</option><option value="extracted">实际提取结果</option><option value="chunks">切分结果</option></select><a id="left-download" class="text-button">下载文件 ↗</a></div><div class="pager"><button id="page-prev" aria-label="上一页">←</button><span id="page-label">—</span><select id="preview-zoom" aria-label="预览放大"><option value="1">适应宽度</option><option value="1.5">150%</option><option value="2">200%</option><option value="3">300%</option></select><button id="reparse">重新解析</button><button id="page-next" aria-label="下一页">→</button></div><p id="preview-note" class="preview-note"></p><div id="left-content" class="pane-content"></div></section><section class="pane"><div class="pane-toolbar"><select id="right-kind" aria-label="右侧查看内容"><option value="extracted">实际提取结果</option><option value="chunks">切分结果</option><option value="original">原文件预览</option><option value="converted">转换副本预览</option></select><span id="text-count"></span></div><div id="right-content" class="pane-content"></div></section></div></div></div>
     </section>
   </main>
 
+  <dialog id="external-review-dialog" class="external-dialog" aria-labelledby="external-review-title">
+    <header><h2 id="external-review-title">外发授权审核</h2><button id="external-close" class="icon-button" aria-label="关闭外发审核">×</button></header>
+    <p id="external-document"></p><fieldset><legend>文档类别 *</legend>
+      <label><input type="radio" name="external-classification" value="fictional">完全虚构资料（例如：测试样例、模拟数据）</label>
+      <label><input type="radio" name="external-classification" value="public_verified">经人工核对的公开资料（例如：公开标准、开源文档、公开技术资料）</label>
+    </fieldset><fieldset><legend>内容检查确认 *（必须全部勾选）</legend>
+      <label><input type="checkbox" id="external-no_sensitive_content">已检查是否包含敏感或内部信息，确认本版本无此类内容</label>
+      <label><input type="checkbox" id="external-third_party_terms_checked">已核对公开来源或虚构资料来源，以及第三方外发条件</label>
+      <label><input type="checkbox" id="external-no_restricted_content">确认用于AI辅助分析时不涉及限制性内容，允许发送给第三方模型</label>
+    </fieldset><p class="external-warning">仅适用于本机单人演示。此操作为本机未认证的人工确认，不代表管理员身份已验证或系统已核实公开来源。授权不等于发送；每轮仍需核对实际外发内容和接收地址。</p>
+    <p id="external-error" class="external-error" role="alert"></p><div class="external-actions"><button id="external-cancel" class="secondary">取消</button><button id="external-confirm" class="primary" disabled>确认授权</button></div>
+  </dialog>
+  <dialog id="external-success-dialog" class="external-dialog external-success" aria-labelledby="external-success-title"><div class="success-mark" aria-hidden="true">✓</div><h2 id="external-success-title">外发授权成功</h2><p>已为当前文档版本授予外发许可。<br>在知识问答中重新检索后，可选择获准证据。<br>本次操作已记录审计日志。</p><button id="external-success-ok" class="primary">确定</button></dialog>
   <dialog id="upload-dialog"><form method="dialog" class="modal-heading"><div><h2>上传文档</h2><p>选择一个或多个文件，后台自动排队处理。</p></div><button class="icon-button" aria-label="关闭上传窗口">×</button></form><div class="modal-body"><label class="dropzone" id="dropzone"><span class="upload-symbol">↑</span><strong>将文档拖到这里，或点击选择</strong><span>PDF · DOCX · DOC</span><input id="file-input" type="file" accept=".pdf,.docx,.doc" multiple></label><p class="limits">单个 ≤ 20 MB · 每批 ≤ 20 份 / 100 MB · PDF ≤ 200 页</p><div id="selected-files"></div><p class="upload-boundary">扫描内容暂不识别；解析异常会提示复核。请仅上传有权使用的公开或模拟资料。</p><div id="upload-results" role="status" aria-live="polite"></div><div class="modal-actions"><span id="selection-summary">尚未选择文件</span><button id="upload-submit" class="primary" disabled>开始上传</button></div></div></dialog>
   <dialog id="confirm-dialog"><div class="modal-body"><h2 id="confirm-title"></h2><p id="confirm-body"></p><div class="modal-actions"><button id="confirm-cancel" class="secondary">取消</button><button id="confirm-ok" class="primary">确认</button></div></div></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
