@@ -5,6 +5,7 @@ from copy import deepcopy
 
 import pytest
 from app import egress, main
+from app.rag_context import model_evidence
 from app.rag import RagError, digest
 from test_rag import rig
 from test_external_permission import audit, grant_rig, CHECKS
@@ -106,7 +107,7 @@ def test_success_metadata_snapshot_and_all_phases_correlate(rig,path,monkeypatch
         assert 'UNAUTHORIZED_PRIVATE' not in json.dumps(row)
     payload=json.loads(sent[1]['content'])
     assert payload['question']==p['question'] and payload['history_for_reference_only']==p['history']
-    assert payload['untrusted_evidence']==p['evidence']
+    assert payload['untrusted_evidence']==model_evidence(p['evidence'])
 
 
 def test_selection_edits_failure_and_consumed_ticket_keep_request_id(rig):
