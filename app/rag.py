@@ -108,7 +108,7 @@ class DeepSeekClient:
 class RagService:
     def __init__(self,store,client=None):
         self.store=store;self.client=client or DeepSeekClient()
-        self.sessions={};self.tickets={};self.drafts={};self.lock=threading.RLock()
+        self.sessions={};self.tickets={};self.drafts={};self.receipts={};self.lock=threading.RLock()
 
     def status(self):
         try:cfg=config();error=None
@@ -121,6 +121,7 @@ class RagService:
         now=time.monotonic()
         self.sessions={k:v for k,v in self.sessions.items() if v.get('busy') or now-v['at']<1800}
         self.tickets={k:v for k,v in self.tickets.items() if now-v['at']<180}
+        self.receipts={k:v for k,v in self.receipts.items() if now-v['at']<1800}
         self.drafts={k:v for k,v in self.drafts.items() if now-v['at']<180 and v['sid'] in self.sessions}
         if len(self.sessions)>=64 or len(self.tickets)>=128:raise RagError('rag_busy','本机会话过多，请稍后重试。')
 
@@ -146,26 +147,66 @@ class RagService:
             matches=[i for i,t in enumerate(context_turns) if t.get('turn_id')==turn_id]
             if not matches:raise RagError('turn_expired','原问题已过期，请重新提问；未发送。')
             context_turns=context_turns[:matches[0]]
-        history=[]
+        history=[];history_sources=[];history_grants=[]
         with self.store.LOCK:
             for turn in context_turns[-cfg['history_turns']:]:
                 # Do not send historical answers derived from now-revoked data.
-                if not self.valid(turn['evidence']):
+                provenance=turn.get('provenance',turn['evidence'])
+                if (not self.valid(provenance) or self.permission_hash(provenance)!=turn.get('permission_hash')):
                     raise RagError('history_invalid','历史来源已失效或外发许可已撤销，请重新检索与核验；旧回答仅供本地核对，不沿用为发送历史。')
                 history.append({'question':turn['question'],'answer':re.sub(r'\[S\d+\]','',turn['answer'])})
-        while history and len(json.dumps(history,ensure_ascii=False))+len(question)>cfg['context_chars']//2:history.pop(0)
+                history_sources.append(deepcopy(provenance))
+                history_grants.append(self.permission_records(provenance))
+        while history and len(json.dumps(history,ensure_ascii=False))+len(question)>cfg['context_chars']//2:
+            history.pop(0);history_sources.pop(0);history_grants.pop(0)
+        historical=[source for group in history_sources for source in group]
         pronoun=bool(re.search(r'(?<!其)[他她它]|该项目|上述|那位|这位|继续|那么',question))
         if pronoun and (not history or re.search(r'和|以及|分别|、',history[-1]['question']) or re.search(r'共同负责|两位|多人|分别',history[-1]['answer'])):
-            return sid,session,history,None
+            return sid,session,history,None,historical,digest([g for group in history_grants for g in group])
         # Conservative local query expansion, no second model call or assumed person name.
         query=(history[-1]['question']+'\n追问：'+question) if pronoun else question
-        return sid,session,history,query
+        return sid,session,history,query,historical,digest([g for group in history_grants for g in group])
+
+    def stage(self, method, *args):
+        with self.lock:
+            trace={'audit_id':secrets.token_hex(16),'snapshot_stage':'provisional'}
+            if method=='selection':
+                draft=self.drafts.get(args[0],{})
+                trace.update({k:deepcopy(v) for k,v in draft.items() if k in
+                    {'audit_id','question','history','historical','config','selection_version'}})
+                trace['evidence']=[deepcopy(draft['candidates'][cid]['evidence'])
+                    for cid in args[2] if isinstance(cid,str) and cid in draft.get('candidates',{})] if isinstance(args[2],list) else []
+            result={}
+            try:
+                result=getattr(self,'_'+method)(*args,trace=trace)
+                internal=self.tickets.get(result.get('ticket')) or self.drafts.get(result.get('draft_id')) or trace
+                trace=internal
+                self.audit_request('egress_prepared' if result['status']=='prepared' else
+                    'egress_drafted' if result['status']=='drafted' else 'egress_blocked',internal,result['status'])
+                result['request_id']=internal['audit_id']
+                return result
+            except Exception as exc:
+                self.tickets.pop(result.get('ticket'),None)
+                self.drafts.pop(result.get('draft_id'),None)
+                self.audit_request('egress_blocked',trace,getattr(exc,'code','internal_error'))
+                raise
 
     def prepare(self, question, session_id=None):
+        return self.stage('prepare',question,session_id)
+
+    def draft(self, question, session_id=None, turn_id=None):
+        return self.stage('draft',question,session_id,turn_id)
+
+    def selection(self, draft_id, selection_version, candidate_ids):
+        return self.stage('selection',draft_id,selection_version,candidate_ids)
+
+    def _prepare(self, question, session_id=None, *, trace):
         cfg=config();question=question.strip()
+        trace.update(config=deepcopy(cfg),question=question)
         if not question or len(question)>2000:raise RagError('bad_question','问题长度须为1–2000字符。')
         with self.lock:
-            sid,session,history,query=self.context(question,session_id,cfg)
+            sid,session,history,query,historical,history_hash=self.context(question,session_id,cfg)
+            trace.update(history=deepcopy(history),historical=deepcopy(historical))
             if query is None:return {'status':'clarify','message':'请说明指的是哪位人员或哪个项目。','session_id':sid}
             result=self.store.require_semantic().search(query,top_k=20,document_filter=lambda doc:allowed(self.store.DATA,doc))
             evidence=[];seen=set();skipped=0;budget=len(SYSTEM)+len(question)+len(json.dumps(history,ensure_ascii=False))+256
@@ -184,15 +225,20 @@ class RagService:
                     cost=len(json.dumps(source,ensure_ascii=False))
                     if len(evidence)>=cfg['evidence_count'] or budget+cost>cfg['context_chars']:continue
                     source['id']='S'+str(len(evidence)+1);evidence.append(source);budget+=cost
-                if evidence and not self.valid(evidence):raise RagError('evidence_stale','检索证据已变化，请重新检索。')
+                if evidence and (not self.valid(evidence+historical) or self.permission_hash(historical)!=history_hash):raise RagError('evidence_stale','检索证据已变化，请重新检索。')
+                permissions,audit_sources=self.permission_snapshot(evidence+historical)
+                provenance=self.provenance(evidence+historical)
+                provenance_hash=self.permission_hash(provenance)
             if not evidence:
                 return {'status':'no_evidence','message':'没有当前有效、获准且能完整放入本轮上下文的证据，未调用外部模型。'+UNKNOWN,'session_id':sid}
             # No raw retrieval hits, unauthorized names/text, or client-supplied history in ticket.
             token=secrets.token_urlsafe(32)
             ticket={'at':time.monotonic(),'sid':sid,'version':session['version'],'question':question,
                     'history':history,'evidence':evidence,'config':cfg,'config_hash':digest(cfg),
-                    'permission_hash':self.permission_hash(evidence)}
-            self.tickets[token]=ticket;session['at']=time.monotonic()
+                    'permission_hash':permissions,'audit_sources':audit_sources,'provenance':provenance,'provenance_hash':provenance_hash,'historical':deepcopy(historical),
+                    'audit_id':trace['audit_id'],'snapshot_stage':'final'}
+            ticket['messages']=self.messages(question,history,evidence);ticket['messages_hash']=digest(ticket['messages'])
+            self.tickets[token]=ticket;self.remember(token,ticket);session['at']=time.monotonic()
             return {'status':'prepared','ticket':token,'session_id':sid,'question':question,'history':history,
                     'evidence':evidence,'blocked_count':skipped,'provider':self.client.label,
                     'configured':self.client.configured,'destination':cfg['base_url'],'request_endpoint':request_endpoint(cfg['base_url']),'model':cfg['model'],
@@ -213,9 +259,10 @@ class RagService:
     def invalidate_session_tickets(self, sid):
         self.tickets={key:value for key,value in self.tickets.items() if value['sid']!=sid}
 
-    def draft(self, question, session_id=None, turn_id=None):
+    def _draft(self, question, session_id=None, turn_id=None, *, trace):
         """Return local candidates; neither a selection nor an external request."""
         cfg=config();question=question.strip()
+        trace.update(config=deepcopy(cfg),question=question)
         if not question or len(question)>2000:raise RagError('bad_question','问题长度须为1–2000字符。')
         with self.lock:
             if turn_id is not None:
@@ -223,8 +270,9 @@ class RagService:
                 existing=existing_session.get('rounds',existing_session.get('turns',[]))
                 original=next((t for t in existing if t.get('turn_id')==turn_id),None)
                 if original is None:raise RagError('turn_expired','原问题已过期，请重新提问；未发送。')
-                question=original['question']
-            sid,session,history,query=self.context(question,session_id,cfg,turn_id)
+                question=original['question'];trace['question']=question
+            sid,session,history,query,historical,history_hash=self.context(question,session_id,cfg,turn_id)
+            trace.update(history=deepcopy(history),historical=deepcopy(historical))
             if query is None:return {'status':'clarify','message':'请说明指的是哪位人员或哪个项目。','session_id':sid}
             if len(self.drafts)>=128:raise RagError('rag_busy','本地候选草稿过多，请稍后重新检索。')
             service=self.store.require_semantic()
@@ -232,7 +280,7 @@ class RagService:
             authorized=service.search(query,top_k=20,document_filter=lambda doc:allowed(self.store.DATA,doc))
             local=service.search(query,top_k=20)
             fields=['document_id','document_name','chunk_id','revision','index_token','text','section','sources','risk']
-            candidates={};seen=set();defaults=[];default_evidence=[]
+            candidates={};candidate_permissions={};seen=set();defaults=[];default_evidence=[]
             from app.retrieval import duplicate_key
             with self.store.LOCK:
                 for lane,result in [('authorized',authorized),('local',local)]:
@@ -264,12 +312,16 @@ class RagService:
                                     candidate['default_selected']=True
                             else:reason='local_only'
                             candidate['default_reason']=reason;candidates[cid]=candidate
+                            if selectable:candidate_permissions[cid]=self.permission_hash([source])
             did=secrets.token_urlsafe(32)
             self.invalidate_session_tickets(sid)
             session['active_draft']=did;session['at']=time.monotonic()
             self.drafts[did]={'at':time.monotonic(),'sid':sid,'version':session['version'],
                 'selection_version':0,'question':question,'turn_id':turn_id,'history':deepcopy(history),
-                'config':deepcopy(cfg),'config_hash':digest(cfg),'candidates':candidates}
+                'config':deepcopy(cfg),'config_hash':digest(cfg),'candidates':candidates,
+                'historical':deepcopy(historical),'permission_hash':history_hash,
+                'candidate_permissions':candidate_permissions,
+                'audit_id':trace['audit_id'],'snapshot_stage':'provisional'}
             return deepcopy({'status':'drafted','draft_id':did,'session_id':sid,'selection_version':0,
                 'question':question,'turn_id':turn_id,'history':history,'candidates':list(candidates.values()),
                 'default_candidate_ids':defaults,'budget':self.selection_budget(question,history,default_evidence,cfg),
@@ -277,16 +329,7 @@ class RagService:
                 'local_retrieval_status':local.get('status'),'expires_in':180,
                 'notice':'候选仅在本地展示；勾选不授予外发许可，确认前不会调用外部模型。'})
 
-    @staticmethod
-    def history_evidence(session, cfg, turn_id=None):
-        turns=session.get('rounds',session['turns']) if turn_id is not None else session['turns']
-        if turn_id is not None:
-            index=next((i for i,t in enumerate(turns) if t.get('turn_id')==turn_id),None)
-            if index is None:raise RagError('turn_expired','原问题已过期，请重新提问。')
-            turns=turns[:index]
-        return [s for turn in turns[-cfg['history_turns']:] for s in turn['evidence']]
-
-    def selection(self, draft_id, selection_version, candidate_ids):
+    def _selection(self, draft_id, selection_version, candidate_ids, *, trace):
         """Resolve opaque server-side identities, invalidate old previews, never trim."""
         with self.lock:
             self.prune();draft=self.drafts.get(draft_id)
@@ -301,6 +344,7 @@ class RagService:
             # even when the new selection is empty, forbidden, or over budget.
             self.invalidate_session_tickets(draft['sid'])
             draft['selection_version']+=1;draft['at']=session['at']=time.monotonic()
+            trace['selection_version']=draft['selection_version']
             details={'selection_version':draft['selection_version']}
             if digest(config())!=draft['config_hash']:raise RagError('config_changed','配置已变化，请重新检索。',details)
             if (not isinstance(candidate_ids,list) or len(candidate_ids)>80
@@ -314,9 +358,13 @@ class RagService:
             evidence=[]
             for cid in candidate_ids:
                 source=deepcopy(draft['candidates'][cid]['evidence']);source['id']='S'+str(len(evidence)+1);evidence.append(source)
-            historical=self.history_evidence(session,draft['config'],draft.get('turn_id'))
+            historical=draft['historical']
             with self.store.LOCK:
-                if not self.valid(evidence+historical):raise RagError('evidence_stale','证据、索引、许可或历史来源已变化，请重新检索。',details)
+                if (not self.valid(evidence+historical) or self.permission_hash(historical)!=draft['permission_hash']
+                    or any(self.permission_hash([draft['candidates'][cid]['evidence']])!=draft['candidate_permissions'][cid] for cid in candidate_ids)):raise RagError('evidence_stale','证据、索引、许可或历史来源已变化，请重新检索。',details)
+                permissions,audit_sources=self.permission_snapshot(evidence+historical)
+                provenance=self.provenance(evidence+historical)
+                provenance_hash=self.permission_hash(provenance)
             budget=self.selection_budget(draft['question'],draft['history'],evidence,draft['config'])
             violations=[]
             if budget['groups']>budget['group_limit']:violations.append('group_limit')
@@ -331,7 +379,9 @@ class RagService:
                 'config':deepcopy(draft['config']),'config_hash':draft['config_hash'],
                 'draft_id':draft_id,'selection_version':draft['selection_version'],'turn_id':draft.get('turn_id'),
                 'messages':deepcopy(messages),'messages_hash':digest(messages),
-                'permission_hash':self.permission_hash(evidence)}
+                'permission_hash':permissions,'audit_sources':audit_sources,'provenance':provenance,'provenance_hash':provenance_hash,'historical':deepcopy(historical),
+                'audit_id':trace['audit_id'],'snapshot_stage':'final'}
+            self.remember(token,self.tickets[token])
             return deepcopy({'status':'prepared','ticket':token,'session_id':draft['sid'],
                 'draft_id':draft_id,'selection_version':draft['selection_version'],
                 'question':draft['question'],'turn_id':draft.get('turn_id'),'history':draft['history'],'evidence':evidence,
@@ -340,29 +390,65 @@ class RagService:
                 'destination':draft['config']['base_url'],'request_endpoint':request_endpoint(draft['config']['base_url']),'model':draft['config']['model'],
                 'notice':'请核对本轮问题、历史和完整证据；仅在明确确认后发送，未自动调用外部模型。'})
 
+    @staticmethod
+    def provenance(evidence):
+        # A historical answer may depend on earlier history, not only its own citations.
+        # Keep the union of real source identities; never silently drop that dependency.
+        unique={}
+        for item in evidence:
+            for member in item.get('members',[item]):
+                key=tuple(member[k] for k in ['document_id','revision','index_token','chunk_id'])
+                unique.setdefault(key,deepcopy(member))
+        return list(unique.values())
+
+    def permission_records(self, evidence):
+        return [permission_record(self.store.DATA,self.store.available(m['document_id']))
+            for item in evidence for m in item.get('members',[item])]
+
     def permission_hash(self, evidence):
-        return digest([permission_record(self.store.DATA,self.store.available(m['document_id']))
-            for item in evidence for m in item.get('members',[item])])
+        return digest(self.permission_records(evidence))
+
+    def permission_snapshot(self, evidence):
+        """Caller holds the store lock: digest and audit describe the SAME grant reads."""
+        records=self.permission_records(evidence)
+        members=[m for item in evidence for m in item.get('members',[item])]
+        sources=[dict({k:m[k] for k in ['document_id','revision','chunk_id']},
+            classification=g.get('classification'),checks=deepcopy(g.get('checks',{})),
+            fingerprint=g.get('fingerprint'),grant_id=g.get('grant_id'))
+            for m,g in zip(members,records)]
+        return digest(records),sources
 
     def audit_request(self, action, ticket=None, code=None):
         ticket=ticket or {};cfg=ticket.get('config',{})
         sources=deepcopy(ticket.get('audit_sources',[]))
-        for item in ([] if sources else ticket.get('evidence',[])+ticket.get('audit_history_sources',[])):
+        for item in ([] if 'audit_sources' in ticket else ticket.get('evidence',[])+ticket.get('historical',[])):
             for m in item.get('members',[item]):
                 try:g=permission_record(self.store.DATA,self.store.get(m['document_id']) if hasattr(self.store,'get') else self.store.available(m['document_id']))
                 except self.store.HTTPException:g={}
                 sources.append(dict({k:m[k] for k in ['document_id','revision','chunk_id']},
-                    classification=g.get('classification'),checks=g.get('checks',{}),fingerprint=g.get('fingerprint')))
-        if action=='egress_allowed':ticket['audit_sources']=deepcopy(sources)
-        egress_audit(self.store.DATA,action,{'request_id':ticket.get('audit_id'),
+                    classification=g.get('classification'),checks=g.get('checks',{}),fingerprint=g.get('fingerprint'),grant_id=g.get('grant_id')))
+        egress_audit(self.store.DATA,action,{'request_id':ticket.get('audit_id'),'snapshot_stage':ticket.get('snapshot_stage','provisional'),
+            'selection_version':ticket.get('selection_version'),
+            'permission_hash':ticket.get('permission_hash'),
+            'candidate_count':len(ticket['candidates']) if 'candidates' in ticket else None,
             'question_hash':digest(ticket['question']) if ticket.get('question') else None,
-            'history_turns':len(ticket.get('history',[])),'groups':len(ticket.get('evidence',[])),
+            'history_hash':digest(ticket['history']) if 'history' in ticket else None,
+            'system_hash':digest(SYSTEM),
+            'history_turns':len(ticket['history']) if 'history' in ticket else None,
+            'groups':len(ticket['evidence']) if 'evidence' in ticket else None,
             'provider':self.client.label,'messages_hash':ticket.get('messages_hash'),
             'sources':sources,'model':cfg.get('model'),
             'request_endpoint':request_endpoint(cfg['base_url']) if cfg.get('base_url') else None,'code':code})
 
+    def remember(self, token, ticket):
+        # Bounded metadata-only receipts let expired/consumed preview failures retain correlation.
+        self.receipts[token]={k:deepcopy(ticket[k]) for k in
+            ['at','audit_id','config','messages_hash','snapshot_stage','audit_sources','permission_hash','selection_version'] if k in ticket}
+        while len(self.receipts)>256:self.receipts.pop(next(iter(self.receipts)))
+
     def answer(self, ticket_id, consent):
-        with self.lock:context={'ticket':dict(self.tickets.get(ticket_id,{}),audit_id=secrets.token_hex(16))}
+        with self.lock:context={'ticket':dict(self.tickets.get(ticket_id,self.receipts.get(ticket_id,
+            {'audit_id':secrets.token_hex(16),'snapshot_stage':'unknown'})))}
         try:return self._answer(ticket_id,consent,context)
         except Exception as exc:
             ticket=context.get('ticket',{})
@@ -375,7 +461,8 @@ class RagService:
         with self.lock:
             self.prune();ticket=self.tickets.pop(ticket_id,None)
             if not ticket:raise RagError('ticket_expired','发送预览已过期或已使用，请重新准备；未自动重试。')
-            ticket=dict(ticket,audit_id=secrets.token_hex(16));context['ticket']=ticket
+            context['ticket']=ticket
+            self.audit_request('egress_confirmed',ticket)
             session=self.sessions.get(ticket['sid'])
             if session and session.get('busy'):raise RagError('session_busy','当前会话正在生成回答，请等待完成后重新准备。')
             if not session or session['version']!=ticket['version']:raise RagError('session_changed','会话已变化，请重新准备。')
@@ -385,16 +472,14 @@ class RagService:
                     or draft['selection_version']!=ticket['selection_version']):
                     raise RagError('selection_changed','选择已变化，请重新核对发送内容。')
             if digest(config())!=ticket['config_hash']:raise RagError('config_changed','模型或目标地址已变化，请重新确认发送范围。')
-            historical=self.history_evidence(session,ticket['config'],ticket.get('turn_id'))
-            ticket['audit_history_sources']=historical
+            historical=ticket['historical']
             with self.store.LOCK:
-                if (not self.valid(ticket['evidence']+historical) or self.permission_hash(ticket['evidence'])!=ticket['permission_hash']):raise RagError('evidence_stale','证据、外发许可或历史来源已失效，未发送。')
+                if (not self.valid(ticket['evidence']+historical) or self.permission_hash(ticket['evidence']+historical)!=ticket['permission_hash']):raise RagError('evidence_stale','证据、外发许可或历史来源已失效，未发送。')
                 # Store lock serializes admission/reparse/delete through the local API at dispatch.
                 messages=self.messages(ticket['question'],ticket['history'],ticket['evidence'])
-                if ticket.get('draft_id'):
-                    if digest(messages)!=ticket['messages_hash'] or digest(ticket['messages'])!=ticket['messages_hash']:
-                        raise RagError('selection_changed','发送快照已变化，请重新确认。')
-                    messages=deepcopy(ticket['messages'])
+                if digest(messages)!=ticket['messages_hash'] or digest(ticket['messages'])!=ticket['messages_hash']:
+                    raise RagError('selection_changed','发送快照已变化，请重新确认。')
+                messages=deepcopy(ticket['messages'])
             session['busy']=True
         # The ticket is consumed and this session reserved; unrelated sessions may proceed.
         # Neither the global RAG lock nor the business-data lock spans network I/O.
@@ -408,11 +493,12 @@ class RagService:
                 if self.sessions.get(ticket['sid']) is not session or session['version']!=ticket['version']:
                     raise RagError('session_changed','会话已变化，回答未发布。')
                 with self.store.LOCK:
-                    if (not self.valid(ticket['evidence']+historical) or self.permission_hash(ticket['evidence'])!=ticket['permission_hash']):raise RagError('evidence_stale','请求期间来源或许可变化，回答未发布；已发送的内容无法撤回。')
+                    if (not self.valid(ticket['evidence']+historical) or self.permission_hash(ticket['evidence']+historical)!=ticket['permission_hash']):raise RagError('evidence_stale','请求期间来源或许可变化，回答未发布；已发送的内容无法撤回。')
                 answer_status,answer,citations=self.validate_answer(raw,ticket['evidence'])
                 session['version']+=1;session['at']=time.monotonic()
                 turn_id=ticket.get('turn_id') or secrets.token_urlsafe(24)
-                replacement={'turn_id':turn_id,'question':ticket['question'],'answer':answer,'evidence':ticket['evidence']}
+                replacement={'turn_id':turn_id,'question':ticket['question'],'answer':answer,'evidence':ticket['evidence'],
+                    'provenance':ticket['provenance'],'permission_hash':ticket['provenance_hash']}
                 rounds=session.setdefault('rounds',list(session['turns']))
                 if ticket.get('turn_id'):
                     index=next((i for i,t in enumerate(rounds) if t.get('turn_id')==turn_id),None)

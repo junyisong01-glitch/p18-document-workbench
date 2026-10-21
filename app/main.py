@@ -541,20 +541,8 @@ def rag_call(method, *args):
     from app.embedding import EmbeddingError
     from app.semantic import SemanticError
     try:
-        result = getattr(RAG_SERVICE, method)(*args)
-        if method in {'prepare','selection'}:
-            RAG_SERVICE.audit_request('egress_prepared' if result.get('status')=='prepared' else 'egress_blocked',
-                result,result.get('status'))
-        return result
+        return getattr(RAG_SERVICE, method)(*args)
     except (RagError, EmbeddingError, SemanticError) as error:
-        if method!='answer':
-            context={}
-            if method=='selection':
-                with RAG_SERVICE.lock:
-                    draft=RAG_SERVICE.drafts.get(args[0],{})
-                    context={'question':draft.get('question'),'evidence':[draft['candidates'][cid]['evidence']
-                        for cid in args[2] if cid in draft.get('candidates',{})]}
-            RAG_SERVICE.audit_request('egress_blocked',context,error.code)
         raise HTTPException(409, {'code':error.code,'message':str(error),**({'details':error.details} if getattr(error,'details',None) is not None else {})})
 
 
