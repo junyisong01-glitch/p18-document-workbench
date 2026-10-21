@@ -221,3 +221,99 @@ def test_history_grant_change_during_retrieval_is_not_rebound(rig,path):
             d=rig.rag.draft('虚构新问题',first['session_id'])
             rig.rag.selection(d['draft_id'],0,d['default_candidate_ids'])
     assert exc.value.code=='evidence_stale' and len(rig.provider.requests)==1
+
+
+@pytest.mark.parametrize('path',['prepare','selection'])
+@pytest.mark.parametrize('identifier',['a','b'])
+def test_concurrent_regrant_before_prepared_audit_keeps_bound_snapshot(rig,path,identifier):
+    """A writer acquires store.LOCK after validation, before the prepared audit."""
+    import threading
+    first,_,_=two_rounds(rig)
+    old_grant=egress.record(rig.store.DATA,rig.docs[identifier])['grant_id']
+    entered=threading.Event();finished=threading.Event();errors=[]
+    original=rig.rag.audit_request
+    triggered=[]
+    def writer():
+        try:
+            assert entered.wait(3)
+            with rig.store.LOCK:change_grant(rig,identifier)
+        except BaseException as exc:errors.append(exc)
+        finally:finished.set()
+    worker=threading.Thread(target=writer)
+    worker.start()
+    def interleaved(action,ticket=None,code=None):
+        if action=='egress_prepared' and not triggered:
+            triggered.append(True);entered.set()
+            assert finished.wait(3), 'permission writer must not need the RAG lock'
+        return original(action,ticket,code)
+    rig.rag.audit_request=interleaved
+    try:
+        if path=='prepare':p=rig.rag.prepare('虚构并发问题',first['session_id'])
+        else:
+            d=rig.rag.draft('虚构并发问题',first['session_id'])
+            p=rig.rag.selection(d['draft_id'],0,d['default_candidate_ids'])
+    finally:
+        entered.set();worker.join(3)
+    assert not worker.is_alive() and not errors
+    ticket=rig.rag.tickets[p['ticket']]
+    assert ticket['permission_hash']!=rig.rag.permission_hash(ticket['evidence']+ticket['historical'])
+    assert egress.record(rig.store.DATA,rig.docs[identifier])['grant_id']!=old_grant
+    with pytest.raises(RagError) as exc:rig.rag.answer(p['ticket'],True)
+    assert exc.value.code=='evidence_stale' and len(rig.provider.requests)==1
+    records=[(a,b) for a,b in audit(rig.store.DATA) if b.get('request_id')==p['request_id']]
+    for action,row in records:
+        if row['snapshot_stage']!='final':continue
+        assert row['permission_hash']==ticket['permission_hash']
+        assert row['sources']==ticket['audit_sources']
+        assert all(s['grant_id']==old_grant for s in row['sources'] if s['document_id']==identifier)
+    assert records[-1][0]=='egress_blocked'
+    # A second use is invalid; its metadata-only receipt still describes the old grant.
+    with pytest.raises(RagError):rig.rag.answer(p['ticket'],True)
+    assert audit(rig.store.DATA)[-1][1]['sources']==ticket['audit_sources']
+
+
+@pytest.mark.parametrize('failure',[False,True])
+def test_dispatch_audits_do_not_switch_grants_after_validation(rig,failure):
+    _,_,p=two_rounds(rig)
+    ticket=rig.rag.tickets[p['ticket']]
+    frozen=deepcopy(ticket['audit_sources'])
+    original=rig.rag.audit_request
+    changed=[]
+    def interleaved(action,ticket=None,code=None):
+        if action=='egress_allowed' and not changed:
+            with rig.store.LOCK:change_grant(rig,'a')
+            changed.append(True)
+        return original(action,ticket,code)
+    rig.rag.audit_request=interleaved
+    if failure:
+        def fail(messages,cfg):
+            rig.provider.requests.append(deepcopy(messages))
+            raise RagError('api_timeout','offline timeout')
+        rig.provider.complete=fail
+    # Scheme A's pre-dispatch gap remains; audit identity must still be truthful.
+    with pytest.raises(RagError) as exc:rig.rag.answer(p['ticket'],True)
+    assert exc.value.code==('api_timeout' if failure else 'evidence_stale')
+    rows=[b for a,b in audit(rig.store.DATA) if b.get('request_id')==p['request_id']]
+    assert len(rig.provider.requests)==2
+    assert all(row['sources']==frozen and row['permission_hash']==ticket['permission_hash']
+               for row in rows if row['snapshot_stage']=='final')
+
+
+@pytest.mark.parametrize('path',['prepare','selection'])
+def test_final_audit_never_rereads_permission_records(rig,monkeypatch,path):
+    grant_rig(rig)
+    original=rig.rag.audit_request
+    def frozen_only(action,ticket=None,code=None):
+        if ticket and ticket.get('snapshot_stage')=='final':
+            def forbidden(*args):raise AssertionError('final audit must use frozen grant metadata')
+            with monkeypatch.context() as patch:
+                patch.setattr('app.rag.permission_record',forbidden)
+                return original(action,ticket,code)
+        return original(action,ticket,code)
+    rig.rag.audit_request=frozen_only
+    if path=='prepare':p=rig.rag.prepare('虚构正常问题')
+    else:
+        d=rig.rag.draft('虚构正常问题')
+        p=rig.rag.selection(d['draft_id'],0,d['default_candidate_ids'])
+    assert rig.rag.answer(p['ticket'],True)['status']=='answered'
+    assert len(rig.provider.requests)==1

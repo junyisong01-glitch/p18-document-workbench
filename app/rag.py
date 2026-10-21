@@ -226,7 +226,7 @@ class RagService:
                     if len(evidence)>=cfg['evidence_count'] or budget+cost>cfg['context_chars']:continue
                     source['id']='S'+str(len(evidence)+1);evidence.append(source);budget+=cost
                 if evidence and (not self.valid(evidence+historical) or self.permission_hash(historical)!=history_hash):raise RagError('evidence_stale','检索证据已变化，请重新检索。')
-                permissions=self.permission_hash(evidence+historical)
+                permissions,audit_sources=self.permission_snapshot(evidence+historical)
                 provenance=self.provenance(evidence+historical)
                 provenance_hash=self.permission_hash(provenance)
             if not evidence:
@@ -235,7 +235,7 @@ class RagService:
             token=secrets.token_urlsafe(32)
             ticket={'at':time.monotonic(),'sid':sid,'version':session['version'],'question':question,
                     'history':history,'evidence':evidence,'config':cfg,'config_hash':digest(cfg),
-                    'permission_hash':permissions,'provenance':provenance,'provenance_hash':provenance_hash,'historical':deepcopy(historical),
+                    'permission_hash':permissions,'audit_sources':audit_sources,'provenance':provenance,'provenance_hash':provenance_hash,'historical':deepcopy(historical),
                     'audit_id':trace['audit_id'],'snapshot_stage':'final'}
             ticket['messages']=self.messages(question,history,evidence);ticket['messages_hash']=digest(ticket['messages'])
             self.tickets[token]=ticket;self.remember(token,ticket);session['at']=time.monotonic()
@@ -362,7 +362,7 @@ class RagService:
             with self.store.LOCK:
                 if (not self.valid(evidence+historical) or self.permission_hash(historical)!=draft['permission_hash']
                     or any(self.permission_hash([draft['candidates'][cid]['evidence']])!=draft['candidate_permissions'][cid] for cid in candidate_ids)):raise RagError('evidence_stale','证据、索引、许可或历史来源已变化，请重新检索。',details)
-                permissions=self.permission_hash(evidence+historical)
+                permissions,audit_sources=self.permission_snapshot(evidence+historical)
                 provenance=self.provenance(evidence+historical)
                 provenance_hash=self.permission_hash(provenance)
             budget=self.selection_budget(draft['question'],draft['history'],evidence,draft['config'])
@@ -379,7 +379,7 @@ class RagService:
                 'config':deepcopy(draft['config']),'config_hash':draft['config_hash'],
                 'draft_id':draft_id,'selection_version':draft['selection_version'],'turn_id':draft.get('turn_id'),
                 'messages':deepcopy(messages),'messages_hash':digest(messages),
-                'permission_hash':permissions,'provenance':provenance,'provenance_hash':provenance_hash,'historical':deepcopy(historical),
+                'permission_hash':permissions,'audit_sources':audit_sources,'provenance':provenance,'provenance_hash':provenance_hash,'historical':deepcopy(historical),
                 'audit_id':trace['audit_id'],'snapshot_stage':'final'}
             self.remember(token,self.tickets[token])
             return deepcopy({'status':'prepared','ticket':token,'session_id':draft['sid'],
@@ -408,16 +408,25 @@ class RagService:
     def permission_hash(self, evidence):
         return digest(self.permission_records(evidence))
 
+    def permission_snapshot(self, evidence):
+        """Caller holds the store lock: digest and audit describe the SAME grant reads."""
+        records=self.permission_records(evidence)
+        members=[m for item in evidence for m in item.get('members',[item])]
+        sources=[dict({k:m[k] for k in ['document_id','revision','chunk_id']},
+            classification=g.get('classification'),checks=deepcopy(g.get('checks',{})),
+            fingerprint=g.get('fingerprint'),grant_id=g.get('grant_id'))
+            for m,g in zip(members,records)]
+        return digest(records),sources
+
     def audit_request(self, action, ticket=None, code=None):
         ticket=ticket or {};cfg=ticket.get('config',{})
         sources=deepcopy(ticket.get('audit_sources',[]))
-        for item in ([] if sources else ticket.get('evidence',[])+ticket.get('historical',[])):
+        for item in ([] if 'audit_sources' in ticket else ticket.get('evidence',[])+ticket.get('historical',[])):
             for m in item.get('members',[item]):
                 try:g=permission_record(self.store.DATA,self.store.get(m['document_id']) if hasattr(self.store,'get') else self.store.available(m['document_id']))
                 except self.store.HTTPException:g={}
                 sources.append(dict({k:m[k] for k in ['document_id','revision','chunk_id']},
                     classification=g.get('classification'),checks=g.get('checks',{}),fingerprint=g.get('fingerprint'),grant_id=g.get('grant_id')))
-        if action=='egress_allowed':ticket['audit_sources']=deepcopy(sources)
         egress_audit(self.store.DATA,action,{'request_id':ticket.get('audit_id'),'snapshot_stage':ticket.get('snapshot_stage','provisional'),
             'selection_version':ticket.get('selection_version'),
             'permission_hash':ticket.get('permission_hash'),
@@ -434,7 +443,7 @@ class RagService:
     def remember(self, token, ticket):
         # Bounded metadata-only receipts let expired/consumed preview failures retain correlation.
         self.receipts[token]={k:deepcopy(ticket[k]) for k in
-            ['at','audit_id','config','messages_hash','snapshot_stage'] if k in ticket}
+            ['at','audit_id','config','messages_hash','snapshot_stage','audit_sources','permission_hash','selection_version'] if k in ticket}
         while len(self.receipts)>256:self.receipts.pop(next(iter(self.receipts)))
 
     def answer(self, ticket_id, consent):
