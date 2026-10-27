@@ -49,7 +49,7 @@ def test_coordinates_do_not_starve_complete_answer_and_preview_matches_dispatch(
     payload = json.loads(rig.rag.tickets[p['ticket']]['messages'][1]['content'])
     wire_target = next(s for s in payload['untrusted_evidence'] if s['id'] == target['id'])
     assert wire_target['text'] == answer
-    assert wire_target['members'] == [{k:v for k,v in m.items() if k != 'sources'} for m in target['members']]
+    assert wire_target['members'] == [{k:v for k,v in m.items() if k not in {'sources', 'text'}} for m in target['members']]
     assert all('sources' not in s for s in payload['untrusted_evidence'])
     assert 'raw_start' not in json.dumps(payload)
     expected = deepcopy(rig.rag.tickets[p['ticket']]['messages'])
@@ -74,13 +74,68 @@ def test_repeated_files_no_longer_consume_eight_default_slots(rig, path):
     assert len({m['chunk_id'] for m in p['evidence'][0]['members']}) == 8
 
 
+@pytest.mark.parametrize('path', ['prepare', 'selection'])
+@pytest.mark.parametrize('upstream_grouped', [False, True])
+def test_long_duplicate_body_fits_once_with_all_sources_and_exact_dispatch(rig, monkeypatch, path, upstream_grouped):
+    from app.rag import SYSTEM
+    from app.retrieval import groups
+
+    monkeypatch.setenv('P18_RAG_CONTEXT_CHARS', '20000')
+    monkeypatch.setenv('P18_RAG_EVIDENCE_COUNT', '8')
+    body = '虚构验收内容。' * 857  # 5,999 characters, repeated across three sources.
+    install_ranked_fictional_documents(rig, [body] * 3)
+    original = rig.service.search
+    def search(*args, **kwargs):
+        result = original(*args, **kwargs)
+        hits = [dict(hit, kind='text', chunk_config_hash='fictional-config',
+                     table_structure_hash=None, score=.5, order=n,
+                     risk={'incomplete':bool(n), 'issues':[f'fictional warning {n}']})
+                for n, hit in enumerate(result['results'])]
+        result['results'] = groups(hits) if upstream_grouped else hits
+        return result
+    rig.service.search = search
+
+    p = prepare(rig, path, '虚构验收要求是什么？')
+    assert p['status'] == 'prepared' and len(p['evidence']) == 1
+    full = deepcopy(p['evidence'])
+    assert len(full[0]['members']) == 3
+    assert [m['document_id'] for m in full[0]['members']] == list(rig.docs)
+    assert all(m['text'] == body and m['sources'] for m in full[0]['members'])
+    expected = deepcopy(rig.rag.tickets[p['ticket']]['messages'])
+    wire = json.loads(expected[1]['content'])['untrusted_evidence'][0]
+    assert wire['text'] == body
+    assert wire['members'] == [{k:v for k,v in m.items() if k not in {'text', 'sources'}}
+                               for m in full[0]['members']]
+    assert expected[1]['content'].count(body) == 1
+    budget = RagService.selection_budget(p['question'], p['history'], p['evidence'], config())
+    assert budget['message_chars'] == len(json.dumps(expected, ensure_ascii=False)) < 20000
+    if path == 'selection':
+        assert p['budget'] == budget and p['messages'] == expected
+
+    # Reproduce the previous projection, which dropped locators but repeated text.
+    legacy = deepcopy(full)
+    for item in [legacy[0]] + legacy[0]['members']:
+        item.pop('sources')
+    old_messages = [{'role':'system', 'content':SYSTEM}, {'role':'user', 'content':json.dumps({
+        'question':p['question'], 'history_for_reference_only':p['history'],
+        'untrusted_evidence':legacy}, ensure_ascii=False)}]
+    assert len(json.dumps(old_messages, ensure_ascii=False)) > 20000
+    with pytest.raises(RagError) as err:
+        rig.rag.answer(p['ticket'], False)
+    assert err.value.code == 'consent_required' and not rig.provider.requests
+    rig.provider.reply = {'status':'answered', 'answer':'虚构验收内容。[S1]', 'citations':['S1']}
+    result = rig.rag.answer(p['ticket'], True)
+    assert rig.provider.requests == [expected]
+    assert result['citations'] == full == p['evidence']
+
+
+@pytest.mark.parametrize('path', ['prepare', 'selection'])
 @pytest.mark.parametrize('change', ['revoke', 'revision', 'delete', 'index'])
-def test_duplicate_member_stays_bound_to_permission_and_version(rig, change):
+def test_duplicate_member_stays_bound_to_permission_and_version(rig, path, change):
     for key in ['a','b']:
         rig.chunks[key]['text'] = 'Fictional retention: 17 days.'
-    rig.grant(['a','b']);d=rig.rag.draft('日志保留多久？')
-    assert len(d['default_candidate_ids']) == 1
-    p=rig.rag.selection(d['draft_id'],0,d['default_candidate_ids'])
+    rig.grant(['a','b']);p=prepare(rig,path,'日志保留多久？')
+    assert len(p['evidence']) == 1 and len(p['evidence'][0]['members']) == 2
     if change == 'revoke':rig.grant(['a'])
     elif change == 'revision':rig.docs['b']['revision'] += 1
     elif change == 'delete':rig.docs['b']['state'] = 'deleted'
@@ -133,6 +188,20 @@ def test_model_projection_does_not_mutate_full_sources_or_drop_text_and_risks():
     assert wire[0]['members'][0]=={k:v for k,v in full[0]['members'][0].items() if k!='sources'}
 
 
+@pytest.mark.parametrize('different_text', [
+    'Fictional different body.',
+    ' Fictional shared body. ',
+    'Fictional\nshared body.',
+    'Fictional  shared body.',
+])
+def test_model_projection_preserves_every_member_text_when_group_texts_differ(different_text):
+    full = [{'id':'S1', 'text':'Fictional shared body.', 'members':[
+        {'document_id':'a', 'text':'Fictional shared body.'},
+        {'document_id':'b', 'text':different_text}]}]
+    assert model_evidence(full) == full
+
+
+@pytest.mark.parametrize('copies', [1, 3])
 @pytest.mark.parametrize('question,paragraph,reply', [
     ('测试计划包含哪三种主要测试类型？',
      '5. Test Types\nSmoke: basic sanity checks.\nFunctional: expected behavior.\nRegression: rerun after fixes.',
@@ -147,7 +216,7 @@ def test_model_projection_does_not_mutate_full_sources_or_drop_text_and_risks():
      'Fictional project owner: Role Alpha. No home address is specified.',
      {'status':'insufficient_evidence','answer':'资料里没有住址信息。','citations':[]}),
 ])
-def test_real_client_wire_and_answer_validation_with_offline_http_fixture(rig,monkeypatch,question,paragraph,reply):
+def test_real_client_wire_and_answer_validation_with_offline_http_fixture(rig,monkeypatch,copies,question,paragraph,reply):
     """Declared fixture responses test transport/validation, NOT model reasoning.
 
     Local Qwen retrieval quality is measured separately in the isolated browser
@@ -155,7 +224,16 @@ def test_real_client_wire_and_answer_validation_with_offline_http_fixture(rig,mo
     """
     from app.rag import DeepSeekClient, UNKNOWN
     monkeypatch.setenv('DEEPSEEK_API_KEY','fictional-offline-test-value')
-    rig.chunks['b']['text']=paragraph;rig.grant(['b']);rig.rag.client=DeepSeekClient()
+    rig.chunks['b']['text'] = paragraph
+    authorized = ['b']
+    for n in range(1, copies):
+        identifier = f'duplicate-{n}'
+        rig.docs[identifier] = dict(deepcopy(rig.docs['b']), id=identifier,
+                                    name=identifier+'.docx', sha256=identifier)
+        rig.chunks[identifier] = {'id':'chunk-'+identifier, 'document_id':identifier, 'text':paragraph}
+        authorized.append(identifier)
+    rig.grant(authorized)
+    rig.rag.client=DeepSeekClient()
     draft=rig.rag.draft(question)
     p=rig.rag.selection(draft['draft_id'],0,draft['default_candidate_ids'])
     captured=[]
@@ -168,7 +246,11 @@ def test_real_client_wire_and_answer_validation_with_offline_http_fixture(rig,mo
     def transport(request,timeout):
         payload=json.loads(request.data)
         assert payload['messages']==p['messages']
-        assert paragraph in json.loads(payload['messages'][1]['content'])['untrusted_evidence'][0]['text']
+        wire = json.loads(payload['messages'][1]['content'])['untrusted_evidence'][0]
+        assert wire['text'] == paragraph
+        if copies > 1:
+            assert len(wire['members']) == copies
+            assert all('text' not in member for member in wire['members'])
         assert request.full_url==p['request_endpoint']
         assert payload['stream'] is False and payload['thinking']=={'type':'disabled'}
         assert 'UNAUTHORIZED_PRIVATE' not in json.dumps(payload)

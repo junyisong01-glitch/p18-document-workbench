@@ -35,15 +35,21 @@ def evidence_groups(hits):
 
 
 def model_evidence(evidence):
-    """Full text and source identities go to the model, drawing coordinates do not.
+    """Send shared text once, with every source identity but no drawing coordinates.
 
     Full locators remain in server tickets, consent evidence and returned
     citations for version-checked original previews. Exact wire messages are
     separately previewed, hashed, budgeted and compared again before dispatch.
+    Members without text use their group's text. Only exactly equal strings
+    share it; differing originals keep every member's full text.
     """
     result = deepcopy(evidence)
     for group in result:
         group.pop('sources', None)
-        for member in group.get('members', []):
+        members = group.get('members', [])
+        shared_text = members and all(member['text'] == group['text'] for member in members)
+        for member in members:
             member.pop('sources', None)
+            if shared_text:
+                member.pop('text')
     return result
