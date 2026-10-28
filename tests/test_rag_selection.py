@@ -5,6 +5,7 @@ import json
 import threading
 
 import pytest
+from app.rag_context import model_evidence
 from app.rag import RagError, DeepSeekClient, UNKNOWN
 from app import main
 from test_rag import rig
@@ -50,7 +51,7 @@ def test_selected_preview_equals_captured_request_and_only_confirm_sends(rig):
     result=rig.rag.answer(p['ticket'],True)
     assert rig.provider.requests==[expected['messages']]
     body=json.loads(rig.provider.requests[0][1]['content'])
-    assert body['untrusted_evidence']==expected['evidence']
+    assert body['untrusted_evidence']==model_evidence(expected['evidence'])
     assert [s['document_id'] for s in body['untrusted_evidence']]==['b']
     assert result['citations']==expected['evidence']
     assert expected['budget']['message_chars']==len(json.dumps(expected['messages'],ensure_ascii=False))

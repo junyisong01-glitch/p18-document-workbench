@@ -5,6 +5,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+from app.rag_context import model_evidence
 from app.rag import RagError,SYSTEM,config
 from app.retrieval import bm25,fuse,groups
 from test_rag import rig  # reuse the fictional per-test store/client fixture
@@ -42,7 +43,7 @@ def test_hybrid_dedup_sources_survive_rag_and_permission_recheck(rig,monkeypatch
     rig.provider.reply={'status':'answered','answer':'林晓岚。[S1]','citations':['S1']}
     result=rig.rag.answer(p['ticket'],True)
     payload=json.loads(rig.provider.requests[0][1]['content'])
-    assert payload['untrusted_evidence']==p['evidence']
+    assert payload['untrusted_evidence']==model_evidence(p['evidence'])
     assert result['citations']==[source]
     assert 'secret.docx' not in json.dumps(payload)
     if revoke_representative:assert 'a.docx' not in json.dumps(payload)

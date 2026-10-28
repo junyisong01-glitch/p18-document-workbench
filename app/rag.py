@@ -13,6 +13,7 @@ from urllib.request import Request, HTTPRedirectHandler, build_opener
 
 from app.chunking import digest
 from app.egress import fingerprint as permission_fingerprint, allowed, record as permission_record, audit as egress_audit
+from app.rag_context import evidence_groups, model_evidence
 
 UNKNOWN = '根据当前可用的文档证据，无法确定。'
 SYSTEM = '''你是文档参考问答助手。仅使用本次证据回答事实问题，历史只帮助理解指代，不能当作证据。
@@ -209,9 +210,9 @@ class RagService:
             trace.update(history=deepcopy(history),historical=deepcopy(historical))
             if query is None:return {'status':'clarify','message':'请说明指的是哪位人员或哪个项目。','session_id':sid}
             result=self.store.require_semantic().search(query,top_k=20,document_filter=lambda doc:allowed(self.store.DATA,doc))
-            evidence=[];seen=set();skipped=0;budget=len(SYSTEM)+len(question)+len(json.dumps(history,ensure_ascii=False))+256
+            evidence=[];seen=set();skipped=0
             with self.store.LOCK:
-                for hit in result['results']:
+                for hit in evidence_groups(result['results']):
                     members=[]
                     for member in hit.get('members',[hit]):
                         if member['chunk_id'] in seen:continue
@@ -222,9 +223,10 @@ class RagService:
                     if not members:continue
                     source=dict(members[0])
                     if len(members)>1:source['members']=members
-                    cost=len(json.dumps(source,ensure_ascii=False))
-                    if len(evidence)>=cfg['evidence_count'] or budget+cost>cfg['context_chars']:continue
-                    source['id']='S'+str(len(evidence)+1);evidence.append(source);budget+=cost
+                    source['id']='S'+str(len(evidence)+1)
+                    budget=self.selection_budget(question,history,evidence+[source],cfg)
+                    if budget['groups']>budget['group_limit'] or budget['message_chars']>budget['context_limit']:continue
+                    evidence.append(source)
                 if evidence and (not self.valid(evidence+historical) or self.permission_hash(historical)!=history_hash):raise RagError('evidence_stale','检索证据已变化，请重新检索。')
                 permissions,audit_sources=self.permission_snapshot(evidence+historical)
                 provenance=self.provenance(evidence+historical)
@@ -248,7 +250,7 @@ class RagService:
     def messages(question, history, evidence):
         return [{'role':'system','content':SYSTEM},{'role':'user','content':json.dumps({
             'question':question,'history_for_reference_only':history,
-            'untrusted_evidence':evidence},ensure_ascii=False)}]
+            'untrusted_evidence':model_evidence(evidence)},ensure_ascii=False)}]
 
     @classmethod
     def selection_budget(cls, question, history, evidence, cfg):
@@ -284,7 +286,7 @@ class RagService:
             from app.retrieval import duplicate_key
             with self.store.LOCK:
                 for lane,result in [('authorized',authorized),('local',local)]:
-                    for rank,hit in enumerate(result['results'],1):
+                    for rank,hit in enumerate(evidence_groups(result['results']),1):
                         partitions={True:[],False:[]}
                         for member in hit.get('members',[hit]):
                             identity=tuple(member[k] for k in ['document_id','revision','index_token','chunk_id'])

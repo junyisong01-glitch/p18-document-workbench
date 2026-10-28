@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import time
 from contextlib import closing
 from copy import deepcopy
 
@@ -21,6 +22,15 @@ def audit(data):
 @pytest.mark.parametrize('category',['fictional','public_verified'])
 def test_grant_and_revoke_real_api(client,category):
     d=wait(client,upload(client)['id']);url=f"/api/documents/{d['id']}/external-permission"
+    # ready is published before asynchronous chunk preparation finishes; its
+    # updated_at write is unrelated to permission mutation. Freeze the baseline
+    # only once this fictional fixture's workers are quiescent.
+    for _ in range(200):
+        with main.LOCK:
+            settled=d['id'] not in main.ACTIVE and d['id'] not in main.CHUNK_ACTIVE
+        if settled:break
+        time.sleep(.01)
+    assert settled
     original=deepcopy(main.get(d['id']))
     assert not d['external_permission']['allowed']
     assert client.post(url,headers=HEADERS,json=body(d,category)).json()['allowed'] is True
