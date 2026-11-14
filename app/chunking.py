@@ -9,7 +9,8 @@ import os
 import re
 import uuid
 
-METHOD = 'local-rules-v3'
+METHOD = 'local-rules-word-e1'
+LEGACY_METHOD = 'local-rules-v3'
 
 
 def configuration():
@@ -27,9 +28,20 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
-def fingerprint(doc):
+def _content_fingerprint(doc):
     return digest({'revision': doc['revision'], 'result': doc.get('result'),
                    'incomplete': doc.get('admission', {}).get('incomplete'), 'quality': doc.get('quality')})
+
+
+TABLE_CONTEXT_METHOD = 'word-table-local-context-e2'
+
+
+def fingerprint(doc):
+    content = _content_fingerprint(doc)
+    if doc.get('ext') in {'.docx', '.doc'} and any(
+            b.get('kind') == 'table' for b in doc.get('result', {}).get('blocks', [])):
+        return digest({'content': content, 'word_table_context': TABLE_CONTEXT_METHOD})
+    return content
 
 
 def tidy(text):
@@ -45,6 +57,8 @@ CODE = re.compile(r'^\s*(?:```|~~~|(?:async\s+)?def\s+\w+\s*\(|class\s+\w+|funct
 def source_for(doc, block, start=0, end=None):
     src = {'block_id': block.get('id'), 'label': block.get('label', '文档级来源'),
            'variant': 'converted' if doc['ext'] == '.doc' else 'original'}
+    for key in ('sheet','row_start','row_end'):
+        if key in block: src[key]=block[key]
     if block.get('preview_pages'):
         src['preview_pages'] = block['preview_pages']
     if block.get('page') is not None:
@@ -97,7 +111,7 @@ def units_from(doc):
             part_code = (code_like or inside_fence or CODE.search(text)) if block.get('kind') == 'page' else code_like
             if not text.strip() and not inside_fence:
                 continue
-            is_heading = (not inside_fence and not part_code and (block.get('heading_level') is not None or (len(text) < 100 and '\n' not in text and HEADING.match(text))))
+            is_heading = (not inside_fence and not part_code and (block.get('heading_level') is not None or (len(text) < 100 and '\n' not in text and HEADING.match(text) and not (doc['ext'] in {'.docx','.doc'} and re.match(r'^(?:19|20)\d{2}\s+年', text)))))
             if is_heading:
                 section = text.strip()
             if text.lstrip().startswith(('```', '~~~')):
@@ -172,7 +186,9 @@ def split_text(text, target):
     return spans
 
 
-def prepare(doc, config):
+def _prepare_legacy(doc, config):
+    if doc.get('ext') == '.xlsx' and doc.get('result',{}).get('excel_parser_version'):
+        return prepare_excel(doc,config)
     units, warnings = units_from(doc)
     target, overlap = config['target_chars'], config['overlap_chars']
     normalized = {'units': units, 'warnings': warnings}
@@ -248,7 +264,7 @@ def prepare(doc, config):
                 pending = dict(part, text=prefix+part['text'], kind='text',
                                sources=(previous['sources'][-1:] if prefix else [])+part['sources'], overlap_chars=len(prefix.rstrip('\n')))
     flush()
-    generation = digest({'document': doc['id'], 'revision': doc['revision'], 'input': fingerprint(doc), 'config': config})
+    generation = digest({'document': doc['id'], 'revision': doc['revision'], 'input': _content_fingerprint(doc), 'config': config})
     for order, chunk in enumerate(chunks, 1):
         chunk.update(id=str(uuid.uuid5(uuid.NAMESPACE_URL, f'p18:{generation}:{order}')),
                      document_id=doc['id'], revision=doc['revision'], order=order,
@@ -259,4 +275,153 @@ def prepare(doc, config):
     risk['preparation_warnings'] = normalized['warnings']
     if not chunks:
         raise ValueError('提取结果没有可切分内容，请核对原文或重新解析。')
+    return normalized, chunks
+
+
+def prepare_excel(doc, config):
+    """Pack whole field-labelled records; source positions stay outside searchable text."""
+    blocks = (doc.get('result') or {}).get('blocks', [])
+    normalized = {'units': blocks, 'warnings': []}
+    chunks, batch, key = [], [], None
+    def flush():
+        if not batch: return
+        title = f"文档：{doc['name']}；工作表：{batch[0]['sheet']}"
+        text = title + '\n' + '\n'.join(b['text'] for b in batch)
+        risk = {'incomplete': any(c.get('warning') for b in batch for c in b.get('cells',[])),
+                'quality': 'review' if any(b.get('review_required') for b in batch) else 'clear',
+                'review_required': any(b.get('review_required') for b in batch),
+                'issues': [x for x in doc['result'].get('issues',[]) if x.get('block') in {b['id'] for b in batch}],
+                'preparation_warnings': [], 'preview_warnings': []}
+        chunks.append(dict(kind='table' if batch[0]['kind'] in {'excel_record','excel_summary'} else 'text',
+            text=text, section=batch[0]['sheet'], sources=[dict(source_for(doc,b),cells=[c['coordinate'] for c in b.get('cells',[])]) for b in batch],
+            table_id=batch[0].get('table_id'), risk=risk, overlap_chars=0,
+            records=[{'block_id':b['id'],'text':b['text'],'row':b['row_start']} for b in batch]))
+        batch.clear()
+    for b in blocks:
+        current = (b['sheet'], b.get('table_id'), b['kind'])
+        if batch and (key != current or sum(len(x['text'])+1 for x in batch)+len(b['text'])+len(doc['name'])+len(b['sheet'])+12 > config['target_chars']): flush()
+        key = current
+        batch.append(b)
+    flush()
+    generation = digest({'document':doc['id'],'revision':doc['revision'],'input':fingerprint(doc),'config':config})
+    for order,c in enumerate(chunks,1):
+        c.update(id=str(uuid.uuid5(uuid.NAMESPACE_URL,f'p18:{generation}:{order}')),document_id=doc['id'],revision=doc['revision'],order=order,
+                 method=config['method'],config=config)
+    if not chunks: raise ValueError('没有可切分的Excel记录。')
+    return normalized,chunks
+
+
+
+def _prepare_word_e1(doc, config):
+    """E1: attach orphan Word headings to their own content; no table-note expansion.
+
+    Mechanism reference: Docling Core HierarchicalChunker heading scope and
+    content-only emission (48c57f17260c370f8ac7d2f8bcacb0e83c17fd80).
+    Implemented against P18 sources; no third-party source code copied.
+    """
+    if doc['ext'] not in {'.docx', '.doc'}:
+        return _prepare_legacy(doc, config)
+    # Reserve space for an actual heading without changing the total budget.
+    max_heading = max([len(b.get('text','')) + 2 for b in doc.get('result',{}).get('blocks',[]) if b.get('heading_level') is not None or (len(b.get('text','')) < 100 and HEADING.match(b.get('text','')))] + [0])
+    legacy_config = dict(config, target_chars=max(40, config['target_chars'] - min(max_heading, config['target_chars']//3)))
+    normalized, original = _prepare_legacy(doc, legacy_config)
+    blocks = doc.get('result', {}).get('blocks', [])
+    nonempty = [b for b in blocks if b.get('text', '').strip()]
+    first = nonempty[0] if nonempty and nonempty[0]['kind'] == 'paragraph' else None
+    # Only headings identified from structure/numbering, never a length filter.
+    headings = {u['text'].strip() for u in normalized['units'] if u['kind'] == 'heading'}
+    path_by_block, stack = {}, []
+    for block in blocks:
+        raw = block.get('text', '').strip()
+        if raw in headings:
+            level = block.get('heading_level') or 1
+            stack = [(n, title) for n, title in stack if n < level]
+            stack.append((level, raw))
+        path_by_block[block['id']] = [title for _, title in stack]
+    output, navigation = [], []
+    for index, chunk in enumerate(original):
+        title = chunk['text'].strip()
+        sources = chunk['sources']
+        is_document_title = bool(first and first.get('heading_level') is None and first['text'].strip() not in headings and title == first['text'].strip()
+                                 and {x['block_id'] for x in sources} == {first['id']}
+                                 and (first.get('style','').lower() == 'title' or
+                                      re.sub(r'[\s_.-]', '', title) in re.sub(r'[\s_.-]', '', doc.get('name',''))))
+        is_orphan = title in headings and '\n' not in title
+        if is_document_title or is_orphan:
+            navigation.append({'text': chunk['text'], 'sources': sources,
+                               'heading_path': path_by_block.get(sources[0]['block_id'], [])})
+            if is_document_title:
+                continue
+            following = original[index + 1] if index + 1 < len(original) else None
+            if (following and following['section'] == chunk['section']
+                    and following['text'].strip() not in headings
+                    and following['kind'] != 'code'
+                    and len(chunk['text']) + 2 + len(following['text']) <= config['target_chars']):
+                # Each real source retains its own original raw offsets/pages.
+                following['text'] = chunk['text'] + '\n\n' + following['text']
+                following['sources'] = sources + following['sources']
+            continue
+        chunk['heading_path'] = path_by_block.get(sources[0]['block_id'], [])
+        output.append(chunk)
+    # Heading-only documents stay navigable but cannot silently lose all content.
+    if not output:
+        raise ValueError('Word仅包含导航标题，没有可作为事实证据的正文。')
+    generation = digest({'document': doc['id'], 'revision': doc['revision'],
+                         'input': _content_fingerprint(doc), 'config': config, 'word_structure': METHOD})
+    for order, chunk in enumerate(output, 1):
+        chunk.update(order=order, id=str(uuid.uuid5(uuid.NAMESPACE_URL, f'p18:{generation}:{order}')),
+                     method=METHOD, config=config)
+    normalized['navigation'] = navigation
+    return normalized, output
+
+
+def prepare(doc, config):
+    """Attach proven local Word context, keeping original table data and sources.
+
+    Mechanism reference: Docling Core BaseChunker.contextualize and heading
+    scope, commit 48c57f17260c370f8ac7d2f8bcacb0e83c17fd80. No source copied.
+    """
+    normalized, chunks = _prepare_word_e1(doc, config)
+    if doc.get('ext') not in {'.docx', '.doc'}:
+        return normalized, chunks
+    blocks = doc.get('result', {}).get('blocks', [])
+    positions = {b['id']: i for i, b in enumerate(blocks)}
+    for chunk in chunks:
+        if chunk['kind'] != 'table' or chunk.get('repeated_first_row'):
+            continue
+        tables = [blocks[positions[s['block_id']]] for s in chunk['sources']
+                  if s.get('block_id') in positions and blocks[positions[s['block_id']]]['kind'] == 'table']
+        if len(tables) != 1:
+            continue
+        table = tables[0]
+        index = positions[table['id']]
+        context = []
+        heading = (chunk.get('heading_path') or [None])[-1]
+        if heading:
+            title = next((b for b in reversed(blocks[:index])
+                          if b['kind'] == 'paragraph' and b['text'].strip() == heading), None)
+            if title:
+                context.append(title)
+        previous = next((b for b in reversed(blocks[:index]) if b.get('text', '').strip()), None)
+        if (previous and previous['kind'] == 'paragraph'
+                and previous.get('section') == table.get('section')
+                and previous['text'].strip() != heading
+                and re.search(r'单位|如下|下表|明细|(?:表|Table)\s*\d+|[：:]\s*$', previous['text'], re.I)):
+            context.append(previous)
+        present = {s['block_id'] for s in chunk['sources']}
+        context = [b for b in context if b['id'] not in present]
+        if not context:
+            continue
+        original = chunk['text']
+        text = '【表格局部上下文】\n' + '\n'.join(b['text'] for b in context) + '\n【原始表格证据】\n' + original
+        if len(text) > config['target_chars']:
+            normalized['warnings'].append('表格原文与局部上下文超过字符预算，保留原表和原特殊切分策略，未截断单元格或金额。')
+            continue
+        chunk.update(text=text, evidence_text=original, original_table_text=table['text'],
+                     retrieval_context=[dict(text=b['text'], sources=[source_for(doc, b)]) for b in context],
+                     context_method=TABLE_CONTEXT_METHOD)
+        chunk['sources'] += [source_for(doc, b) for b in context]
+        chunk['id'] = str(uuid.uuid5(uuid.NAMESPACE_URL, digest({
+            'base_chunk_id': chunk['id'], 'text': text, 'sources': chunk['sources'],
+            'context_method': TABLE_CONTEXT_METHOD})))
     return normalized, chunks

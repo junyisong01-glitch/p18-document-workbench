@@ -1,0 +1,16 @@
+{
+  "port": 8896,
+  "host": "127.0.0.1",
+  "data_dir": "runtime/demo-v1",
+  "model_cache": ".cache/huggingface/hub",
+  "converter": "",
+  "embedding_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+  "search_mode": "hybrid_dedup",
+  "search_candidates": 20,
+  "top_k": 5,
+  "chunk_target": 500,
+  "chunk_overlap": 50,
+  "semantic_enabled": true,
+  "external_qa_enabled": false,
+  "demo_identity_enabled": false
+}

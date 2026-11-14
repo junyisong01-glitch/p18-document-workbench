@@ -306,6 +306,12 @@ def test_reviewer_required_and_history_append_only(client):
 
 def test_old_review_without_name_stays_completed(client):
     item=upload(client);doc=wait(client,item['id'])
+    # The chunk job saves its own copy of the record; rewriting the document
+    # while it is still running can lose this test's review decision.
+    for _ in range(400):
+        status=client.get(f"/api/documents/{item['id']}/chunks").json()['status']
+        if status not in {'not_started','queued','processing'} and not main.CHUNK_ACTIVE:break
+        time.sleep(.05)
     doc.update(quality='review',review_decision={'revision':1,'outcome':'accepted','checks':{'structure_correct':True}})
     doc['result']['issues']=[{'kind':'table','message':'检查表格'}];main.save(doc)
     main.event(doc,'review_accept')

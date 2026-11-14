@@ -1,0 +1,4 @@
+# Optional DOCX backend for P18. Not installed by default; the app keeps using
+# python-docx unless P18_PARSER=docling is set explicitly.
+# Verified on Python 3.14 / macOS arm64; pulls a large dependency tree.
+docling==2.150.1

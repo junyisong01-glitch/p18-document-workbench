@@ -153,15 +153,23 @@ class IndexService:
                 run.update(status='building', message='正在本地生成向量并写入索引。', updated_at=self.store.now())
                 self.write(run)
             points = []
-            for chunk in snap['chunks']:
-                vector = self.provider.encode([chunk['text']])[0]
-                if len(vector) != self.config['dimension'] or not all(math.isfinite(x) for x in vector):
-                    raise EmbeddingError('embedding_failed', '模型返回向量无效。')
+            # One model call per batch instead of one per chunk; the CPU model
+            # amortises tokenizer and dispatch cost this way.
+            batch_size = max(1, int(os.environ.get('P18_EMBED_BATCH', '8')))
+            chunks = snap['chunks']
+            for start in range(0, len(chunks), batch_size):
+                batch = chunks[start:start + batch_size]
+                vectors = self.provider.encode([chunk['text'] for chunk in batch])
+                if len(vectors) != len(batch):
+                    raise EmbeddingError('embedding_failed', '模型返回向量数量与输入不符。')
+                for chunk, vector in zip(batch, vectors):
+                    if len(vector) != self.config['dimension'] or not all(math.isfinite(x) for x in vector):
+                        raise EmbeddingError('embedding_failed', '模型返回向量无效。')
+                    points.append(self.models.PointStruct(id=self.point_id(snap, chunk), vector=vector,
+                                  payload={'document_id': identifier, 'chunk_id': chunk['id'], 'token': snap['token']}))
                 with self.store.LOCK:
                     if not self._unchanged(identifier, run):
                         return
-                points.append(self.models.PointStruct(id=self.point_id(snap, chunk), vector=vector,
-                              payload={'document_id': identifier, 'chunk_id': chunk['id'], 'token': snap['token']}))
             try:
                 self._delete_document(identifier)
                 with self.vector_lock:

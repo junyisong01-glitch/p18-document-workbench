@@ -111,6 +111,30 @@ class RagService:
         self.store=store;self.client=client or DeepSeekClient()
         self.sessions={};self.tickets={};self.drafts={};self.receipts={};self.lock=threading.RLock()
 
+    def can_read(self, doc):
+        from app.library_api import visible
+        return visible(self.store, doc, evidence=True)
+
+    def external_allowed(self, doc):
+        from app.library_api import external_allowed
+        return external_allowed(self.store, doc) and allowed(self.store.DATA, doc)
+
+    def external_block(self, doc):
+        """Why a document cannot be sent: none | not_visible | not_authorized | policy.
+
+        'policy' means the grant exists but this deployment still refuses it
+        (the experience build only allows public material), which is a very
+        different message from 'you never granted permission'.
+        """
+        from app.library_api import visible
+        if not visible(self.store, doc, evidence=True):
+            return 'not_visible'
+        if self.external_allowed(doc):
+            return 'none'
+        if allowed(self.store.DATA, doc):
+            return 'policy'
+        return 'not_authorized'
+
     def status(self):
         try:cfg=config();error=None
         except RagError as e:cfg={};error=str(e)
@@ -132,10 +156,18 @@ class RagService:
             try:
                 doc=self.store.available(source['document_id']);snap=service.snapshot(doc['id']);run=service.read(doc['id'])
             except self.store.HTTPException:return False
-            if ((require_permission and not allowed(self.store.DATA,doc)) or not service.valid(run,snap) or run['status']!='complete'
+            if (not self.can_read(doc) or (require_permission and not self.external_allowed(doc)) or not service.valid(run,snap) or run['status']!='complete'
                 or snap['token']!=source['index_token'] or doc['revision']!=source['revision']
                 or not any(c['id']==source['chunk_id'] and c['text']==source['text'] for c in snap['chunks'])):return False
         return service.current_config()
+
+    # Only real back-references trigger history expansion. Words like 继续/那么
+    # are ordinary continuations and were causing needless query rewriting.
+    BACK_REFERENCE = re.compile(r'(?<!其)[他她它]|该项目|上述|前述|那位|这位|此人')
+
+    @classmethod
+    def refers_back(cls, question):
+        return bool(cls.BACK_REFERENCE.search(question))
 
     def context(self, question, session_id, cfg, turn_id=None):
         self.prune()
@@ -148,20 +180,28 @@ class RagService:
             matches=[i for i,t in enumerate(context_turns) if t.get('turn_id')==turn_id]
             if not matches:raise RagError('turn_expired','原问题已过期，请重新提问；未发送。')
             context_turns=context_turns[:matches[0]]
-        history=[];history_sources=[];history_grants=[]
+        history=[];history_sources=[];history_grants=[];invalid=[]
         with self.store.LOCK:
             for turn in context_turns[-cfg['history_turns']:]:
                 # Do not send historical answers derived from now-revoked data.
                 provenance=turn.get('provenance',turn['evidence'])
                 if (not self.valid(provenance) or self.permission_hash(provenance)!=turn.get('permission_hash')):
-                    raise RagError('history_invalid','历史来源已失效或外发许可已撤销，请重新检索与核验；旧回答仅供本地核对，不沿用为发送历史。')
+                    invalid.append(turn);continue
                 history.append({'question':turn['question'],'answer':re.sub(r'\[S\d+\]','',turn['answer'])})
                 history_sources.append(deepcopy(provenance))
                 history_grants.append(self.permission_records(provenance))
+            if invalid:
+                # Drop the offending turns so this session can continue; the
+                # caller still learns that history was discarded.
+                for key in ('rounds','turns'):
+                    if isinstance(session.get(key),list):
+                        session[key]=[turn for turn in session[key]
+                                      if not any(turn is bad for bad in invalid)]
+                raise RagError('history_invalid','历史来源已失效或外发许可已撤销，本轮历史已丢弃；请重新检索后再问。')
         while history and len(json.dumps(history,ensure_ascii=False))+len(question)>cfg['context_chars']//2:
             history.pop(0);history_sources.pop(0);history_grants.pop(0)
         historical=[source for group in history_sources for source in group]
-        pronoun=bool(re.search(r'(?<!其)[他她它]|该项目|上述|那位|这位|继续|那么',question))
+        pronoun=self.refers_back(question)
         if pronoun and (not history or re.search(r'和|以及|分别|、',history[-1]['question']) or re.search(r'共同负责|两位|多人|分别',history[-1]['answer'])):
             return sid,session,history,None,historical,digest([g for group in history_grants for g in group])
         # Conservative local query expansion, no second model call or assumed person name.
@@ -209,8 +249,8 @@ class RagService:
             sid,session,history,query,historical,history_hash=self.context(question,session_id,cfg)
             trace.update(history=deepcopy(history),historical=deepcopy(historical))
             if query is None:return {'status':'clarify','message':'请说明指的是哪位人员或哪个项目。','session_id':sid}
-            result=self.store.require_semantic().search(query,top_k=20,document_filter=lambda doc:allowed(self.store.DATA,doc))
-            evidence=[];seen=set();skipped=0
+            result=self.store.require_semantic().search(query,top_k=20,document_filter=lambda doc:self.external_allowed(doc))
+            evidence=[];seen=set();skipped=0;budget_skipped=0
             with self.store.LOCK:
                 for hit in evidence_groups(result['results']):
                     members=[]
@@ -218,21 +258,22 @@ class RagService:
                         if member['chunk_id'] in seen:continue
                         seen.add(member['chunk_id'])
                         doc=self.store.available(member['document_id'])
-                        if not allowed(self.store.DATA,doc):skipped+=1;continue
+                        if not self.external_allowed(doc):skipped+=1;continue
                         members.append({k:member[k] for k in ['document_id','document_name','chunk_id','revision','index_token','text','section','sources','risk']})
                     if not members:continue
                     source=dict(members[0])
                     if len(members)>1:source['members']=members
                     source['id']='S'+str(len(evidence)+1)
                     budget=self.selection_budget(question,history,evidence+[source],cfg)
-                    if budget['groups']>budget['group_limit'] or budget['message_chars']>budget['context_limit']:continue
+                    if budget['groups']>budget['group_limit'] or budget['message_chars']>budget['context_limit']:
+                        budget_skipped+=1;continue
                     evidence.append(source)
                 if evidence and (not self.valid(evidence+historical) or self.permission_hash(historical)!=history_hash):raise RagError('evidence_stale','检索证据已变化，请重新检索。')
                 permissions,audit_sources=self.permission_snapshot(evidence+historical)
                 provenance=self.provenance(evidence+historical)
                 provenance_hash=self.permission_hash(provenance)
             if not evidence:
-                return {'status':'no_evidence','message':'没有当前有效、获准且能完整放入本轮上下文的证据，未调用外部模型。'+UNKNOWN,'session_id':sid}
+                return {'status':'no_evidence','message':'没有当前有效、获准且能完整放入本轮上下文的证据，未调用外部模型。'+UNKNOWN,'session_id':sid,'budget_skipped':budget_skipped}
             # No raw retrieval hits, unauthorized names/text, or client-supplied history in ticket.
             token=secrets.token_urlsafe(32)
             ticket={'at':time.monotonic(),'sid':sid,'version':session['version'],'question':question,
@@ -242,7 +283,7 @@ class RagService:
             ticket['messages']=self.messages(question,history,evidence);ticket['messages_hash']=digest(ticket['messages'])
             self.tickets[token]=ticket;self.remember(token,ticket);session['at']=time.monotonic()
             return {'status':'prepared','ticket':token,'session_id':sid,'question':question,'history':history,
-                    'evidence':evidence,'blocked_count':skipped,'provider':self.client.label,
+                    'evidence':evidence,'blocked_count':skipped,'budget_skipped':budget_skipped,'provider':self.client.label,
                     'configured':self.client.configured,'destination':cfg['base_url'],'request_endpoint':request_endpoint(cfg['base_url']),'model':cfg['model'],
                     'notice':'仅在确认后发送以上问题、历史及证据。未授权资料不会发送。'}
 
@@ -279,8 +320,9 @@ class RagService:
             if len(self.drafts)>=128:raise RagError('rag_busy','本地候选草稿过多，请稍后重新检索。')
             service=self.store.require_semantic()
             # Preserve pre-cutoff authorization: local-only hits cannot starve allowed evidence.
-            authorized=service.search(query,top_k=20,document_filter=lambda doc:allowed(self.store.DATA,doc))
-            local=service.search(query,top_k=20)
+            authorized=service.search(query,top_k=20,document_filter=lambda doc:self.external_allowed(doc))
+            from app.library_api import principal
+            local=service.search(query,top_k=20,document_filter=self.can_read) if principal.get() is not None else service.search(query,top_k=20)
             fields=['document_id','document_name','chunk_id','revision','index_token','text','section','sources','risk']
             candidates={};candidate_permissions={};seen=set();defaults=[];default_evidence=[]
             from app.retrieval import duplicate_key
@@ -294,7 +336,7 @@ class RagService:
                             seen.add(identity)
                             source=deepcopy({k:member[k] for k in fields})
                             doc=self.store.available(source['document_id'])
-                            partitions[bool(allowed(self.store.DATA,doc))].append(source)
+                            partitions[bool(self.external_allowed(doc))].append(source)
                         for selectable,members in partitions.items():
                             if not members:continue
                             source=deepcopy(members[0])
@@ -312,7 +354,12 @@ class RagService:
                                 else:
                                     reason='selected';defaults.append(cid);default_evidence.append(trial)
                                     candidate['default_selected']=True
-                            else:reason='local_only'
+                            else:
+                                block=self.external_block(self.store.available(members[0]['document_id']))
+                                reason='policy_public_only' if block=='policy' else 'local_only'
+                                candidate['permission_reason']=('deployment_policy' if block=='policy'
+                                                                else 'external_permission_required')
+
                             candidate['default_reason']=reason;candidates[cid]=candidate
                             if selectable:candidate_permissions[cid]=self.permission_hash([source])
             did=secrets.token_urlsafe(32)
@@ -486,10 +533,19 @@ class RagService:
         # The ticket is consumed and this session reserved; unrelated sessions may proceed.
         # Neither the global RAG lock nor the business-data lock spans network I/O.
         try:
-            self.audit_request('egress_allowed',ticket)
-            self.audit_request('send_attempt',ticket)
-            ticket['attempted']=True
-            raw=self.client.complete(messages,ticket['config'])
+            from app.egress_gate import gate
+            with gate().sending():
+                # Authoritative re-check inside the gate: a revocation either
+                # completed before this point (and fails here) or is waiting
+                # for this send to finish. No send can start on a stale grant.
+                with self.store.LOCK:
+                    if (not self.valid(ticket['evidence']+historical)
+                        or self.permission_hash(ticket['evidence']+historical)!=ticket['permission_hash']):
+                        raise RagError('evidence_stale','外发许可已撤销或证据已变化，未发送。')
+                self.audit_request('egress_allowed',ticket)
+                self.audit_request('send_attempt',ticket)
+                ticket['attempted']=True
+                raw=self.client.complete(messages,ticket['config'])
             self.audit_request('send_result',ticket,'response_received')
             with self.lock:
                 if self.sessions.get(ticket['sid']) is not session or session['version']!=ticket['version']:
@@ -528,7 +584,10 @@ class RagService:
         state,answer,ids=data['status'],data['answer'],data['citations']
         if not isinstance(state,str) or state not in {'answered','partial','insufficient_evidence'}:
             raise RagError('answer_status','回答状态无效，未发布。')
-        known={s['id']:s for s in evidence};used=re.findall(r'\[([^\]\n]+)\]',answer)
+        known={s['id']:s for s in evidence}
+        # Only S-numbered tokens are citations. Bracketed technical text such as
+        # arr[0] or list[key] must not be read as a citation id.
+        used=re.findall(r'\[(S\d+)\]',answer)
         if any(s not in known for s in ids+used):
             raise RagError('citation_unknown','回答包含未提供的引用编号，未发布。')
         if set(used)!=set(ids):
@@ -539,6 +598,10 @@ class RagService:
             return state,UNKNOWN,[]
         if not ids:
             raise RagError('citation_required','正常或部分回答缺少证据引用，未发布。')
-        if re.search(r'\.(?:pdf|docx?)\b|第\s*\d+\s*页|https?://',answer,re.I):
-            raise RagError('answer_location','回答包含不允许的文件名、页码或网址，未发布。')
+        # Quoting a file name, page or URL that is present in the evidence is
+        # legitimate; inventing one is not.
+        evidence_text='\n'.join(str(source.get('text','')) for source in evidence)
+        locations=re.findall(r'[^\s，。；、)）]+\.(?:pdf|docx?)\b|第\s*\d+\s*页|https?://[^\s，。；、)）]+',answer,re.I)
+        if any(token not in evidence_text for token in locations):
+            raise RagError('answer_location','回答包含证据中没有的文件名、页码或网址，未发布。')
         return state,answer,[known[s] for s in dict.fromkeys(ids)]

@@ -49,6 +49,14 @@ def validate(path, ext):
                     raise ValueError("DOCX 解压内容超过 100 MB 安全限制，请拆分文档。")
         except zipfile.BadZipFile:
             raise ValueError("DOCX 已损坏或格式不匹配，请重新导出。")
+    elif ext == ".xlsx":
+        try:
+            with zipfile.ZipFile(path) as archive:
+                if "xl/workbook.xml" not in archive.namelist(): raise ValueError("文件不是有效的 XLSX。")
+                if len(archive.infolist()) > 10000 or sum(i.file_size for i in archive.infolist()) > 100_000_000:
+                    raise ValueError("XLSX 解压内容超过安全限制，请拆分文件。")
+                if any('vbaProject' in n for n in archive.namelist()): raise ValueError("不支持带宏的工作簿，请另存为无宏 XLSX。")
+        except zipfile.BadZipFile: raise ValueError("XLSX 已损坏、加密或格式不匹配，请重新导出。")
     elif ext == ".doc":
         if not olefile.isOleFile(path):
             raise ValueError("扩展名与实际格式不一致，请上传 Word 97–2003 DOC 文件。")
@@ -59,7 +67,7 @@ def validate(path, ext):
             if len(fib) >= 12 and int.from_bytes(fib[10:12], "little") & 0x8100:
                 raise ValueError("DOC 文件已加密，请自行解密后重新上传。")
     else:
-        raise ValueError("当前仅支持 PDF、DOCX 和 DOC。")
+        raise ValueError("当前支持 PDF、DOCX、DOC 和 XLSX。")
 
 
 def convert(source, target_dir, fmt):
@@ -178,6 +186,49 @@ def parse_word(path):
     return {"blocks": blocks, "issues": issues, "pages": [], "characters": total}
 
 
+def backend():
+    """Resolve P18_PARSER: docling | legacy | auto (docling when installed).
+
+    An explicit docling request never degrades silently. Auto mode falls back to
+    the original extractors when the optional package is absent, and the chosen
+    backend is always recorded in result['parser_version'].
+    """
+    choice = os.environ.get("P18_PARSER", "").strip().lower()
+    if choice not in {"", "docling", "legacy"}:
+        raise ValueError("P18_PARSER 只接受 docling、legacy 或留空。")
+    if choice == "legacy":
+        return "legacy"
+    from app.docling_parser import available
+    if available():
+        return "docling"
+    if choice == "docling":
+        raise ValueError("已配置 P18_PARSER=docling，但当前环境未安装 docling；"
+                         "请安装后重试，或设置 P18_PARSER=legacy。")
+    return "legacy"
+
+
+def parse_word_selected(path, ext):
+    """DOCX/DOC extraction through the resolved backend."""
+    if ext in {".docx", ".doc"} and backend() == "docling":
+        from app.docling_parser import extract_word
+        return extract_word(path)
+    return parse_word(path)
+
+
+def parse_pdf_selected(path):
+    """PDF extraction; Docling must be requested explicitly.
+
+    Auto mode keeps PyMuPDF for PDFs on purpose: Docling's PDF pipeline needs
+    local layout/OCR weights (~500 MB) and costs seconds per page on CPU, which
+    collides with the 180 s per-document worker limit. Set P18_PARSER=docling to
+    use it anyway; the choice is recorded in parser_version.
+    """
+    if os.environ.get("P18_PARSER", "").strip().lower() == "docling" and backend() == "docling":
+        from app.docling_parser import extract_pdf
+        return extract_pdf(path)
+    return parse_pdf(path)
+
+
 def process(folder, ext):
     source = folder / ("original" + ext)
     validate(source, ext)
@@ -186,7 +237,13 @@ def process(folder, ext):
     if ext == ".doc":
         word = convert(source, folder / "converted", "docx")
         result["converted"] = str(word.relative_to(folder))
-    result.update(parse_pdf(source) if ext == ".pdf" else parse_word(word))
+    if ext == '.xlsx':
+        from app.excel_parser import parse_excel
+        result.update(parse_excel(source))
+        result['parser_version']=result['excel_parser_version']
+        if not result['characters']: result['error']='工作簿没有可提取的单元格内容。'
+        return result
+    result.update(parse_pdf_selected(source) if ext == ".pdf" else parse_word_selected(word, ext))
     if ext == ".pdf":
         result["preview"]["original"] = source.name
     else:

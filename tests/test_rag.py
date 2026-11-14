@@ -322,3 +322,59 @@ def test_prompt_and_demo_follow_same_status_protocol(rig):
     payload={'question':'不存在的问题','untrusted_evidence':[]}
     response=json.loads(SimulatedClient().complete([{'content':json.dumps(payload)}],config()))
     assert response=={'status':'insufficient_evidence','answer':UNKNOWN,'citations':[]}
+
+
+def test_external_block_separates_policy_from_missing_grant(rig):
+    doc = rig.docs['a']
+    assert rig.rag.external_block(doc) == 'not_authorized'
+    rig.grant(['a'])
+    assert rig.rag.external_block(doc) == 'none'
+    original = rig.rag.external_allowed
+    rig.rag.external_allowed = lambda document: False          # deployment policy refuses
+    try:
+        assert rig.rag.external_block(doc) == 'policy'
+    finally:
+        rig.rag.external_allowed = original
+
+
+def test_answer_validation_distinguishes_quotes_from_inventions():
+    evidence = [{'id': 'S1', 'document_id': 'd', 'revision': 1, 'chunk_id': 'c',
+                 'text': '规格 https://example.com/spec 第3页 manual.pdf'}]
+
+    def check(answer):
+        raw = json.dumps({'status': 'answered', 'answer': answer, 'citations': ['S1']},
+                         ensure_ascii=False)
+        return RagService.validate_answer(raw, evidence)
+
+    # Bracketed technical text is not a citation id.
+    assert check('数组取值 arr[0] 需要注意 [S1]')[0] == 'answered'
+    # Quoting a link or page that exists in the evidence is legitimate.
+    assert check('参考 https://example.com/spec [S1]')[0] == 'answered'
+    assert check('见第3页 [S1]')[0] == 'answered'
+    for invented in ('参考 https://evil.example/x [S1]', '见第99页 [S1]', '见附件 other.pdf [S1]'):
+        with pytest.raises(RagError) as error:
+            check(invented)
+        assert error.value.code == 'answer_location'
+
+
+def test_back_reference_detection_ignores_ordinary_continuations():
+    assert RagService.refers_back('那他负责什么？')
+    assert RagService.refers_back('该项目进度如何')
+    assert RagService.refers_back('前述接口是谁定的')
+    # 继续/那么 are continuations, not references; they used to force a rewrite.
+    assert not RagService.refers_back('继续讲下一步')
+    assert not RagService.refers_back('那么接口超时怎么处理')
+
+
+def test_invalid_history_is_dropped_so_the_session_can_continue(rig):
+    rig.grant(['a', 'b'])
+    first = rig.rag.prepare('项目负责人是谁？')
+    rig.rag.answer(first['ticket'], True)
+    rig.grant([])                                   # revoke: history is now unusable
+    with pytest.raises(RagError) as error:
+        rig.rag.prepare('第二问', first['session_id'])
+    assert error.value.code == 'history_invalid'
+    # The offending turn is gone, so the next attempt with the same session works.
+    rig.grant(['a', 'b'])
+    second = rig.rag.prepare('第二问', first['session_id'])
+    assert second['status'] == 'prepared' and second['history'] == []

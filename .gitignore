@@ -32,3 +32,20 @@ qdrant_storage/
 *.onnx
 *.pt
 *.pth
+
+# Local review/deployment secrets, source corpora and experiments
+.development/
+.cache/
+.local-*/
+baseline/
+stage*/
+config/qichen-libraries.local.json
+*credentials*
+*登录信息*
+*.docx
+*.doc
+*.xlsx
+*.xls
+*.pdf
+*.zip
+*.jsonl
