@@ -26,7 +26,11 @@ class IndexService:
         self.config_hash = digest(self.config)
         self.collection = 'p18_' + self.config_hash
         self.vector_lock = threading.RLock()
-        self.client = QdrantClient(path=str(store.DATA / 'qdrant'))
+        # QDRANT_URL switches to a real server so several worker processes can
+        # share one index; without it the embedded directory mode is used.
+        url = os.environ.get('P18_QDRANT_URL', '').strip()
+        self.client = QdrantClient(url=url) if url else QdrantClient(path=str(store.DATA / 'qdrant'))
+        self.backend = 'server' if url else 'local'
         if not self.client.collection_exists(self.collection):
             self.client.create_collection(self.collection, vectors_config=models.VectorParams(
                 size=self.config['dimension'], distance=models.Distance.COSINE))

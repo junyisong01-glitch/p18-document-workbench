@@ -49,6 +49,9 @@ def now():
 def connect():
     conn = sqlite3.connect(DB, timeout=15)
     conn.row_factory = sqlite3.Row
+    # Several worker processes share this file; WAL lets readers proceed while
+    # one writer commits, and busy_timeout absorbs short write contention.
+    conn.execute('PRAGMA busy_timeout=5000')
     return conn
 
 
@@ -56,6 +59,7 @@ def initialize():
     DATA.mkdir(parents=True, exist_ok=True)
     (DATA / "files").mkdir(exist_ok=True)
     with connect() as conn:
+        conn.execute('PRAGMA journal_mode=WAL')
         from app.library_store import initialize as initialize_library
         initialize_library(conn)
         conn.execute("CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, body TEXT NOT NULL)")

@@ -61,5 +61,9 @@ import uvicorn
 if __name__=='__main__':
  from app.datasets import install
  application=install(main)
- try:uvicorn.run(application,host='127.0.0.1',port=8896,workers=1)
+ try:
+  workers=int(os.environ.get('P18_WORKERS','1') or 1)
+  if workers!=1:
+   raise SystemExit('多 worker 需要先完成状态外置与 Qdrant 服务化，见 docs/review/ENTERPRISE_PLAN.md')
+  uvicorn.run(application,host='127.0.0.1',port=8896,workers=1)
  finally:os.environ.pop('DEEPSEEK_API_KEY',None)
