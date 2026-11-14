@@ -1,0 +1,17 @@
+{
+  "frozen_before_implementation": false,
+  "corpus": "本地演示库：p18perm.docx（虚构研发规范，1 张表）+ 仅用于流程验证",
+  "note": "这是流程基线，不是质量基线。换成 30 份真实语料后重跑同一批问题才有意义。",
+  "cases": [
+    {"id": "B1", "query": "晨间校准几分钟", "facts": ["晨间", "18"], "allow_no_answer": false},
+    {"id": "B2", "query": "表格里有哪些字段", "facts": ["模式", "时长"], "allow_no_answer": false},
+    {"id": "B3", "query": "这份资料的适用范围是什么", "facts": ["适用范围"], "allow_no_answer": false},
+    {"id": "B4", "query": "资料内容是不是虚构的", "facts": ["虚构"], "allow_no_answer": false},
+    {"id": "B5", "query": "晨间这个模式对应多少", "facts": ["18"], "allow_no_answer": false},
+    {"id": "B6", "query": "校准表里出现了哪些模式", "facts": ["模式"], "allow_no_answer": false},
+    {"id": "B7", "query": "夜间模式的校准时长是多少", "facts": [], "allow_no_answer": true},
+    {"id": "B8", "query": "设备的保修期是多久", "facts": [], "allow_no_answer": true},
+    {"id": "B9", "query": "校准时长的单位是分钟还是小时", "facts": [], "allow_no_answer": true},
+    {"id": "B10", "query": "谁负责维护这份文档", "facts": [], "allow_no_answer": true}
+  ]
+}
