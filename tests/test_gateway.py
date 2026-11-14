@@ -61,3 +61,14 @@ def test_ask_body_is_strict():
     with pytest.raises(ValueError):
         gateway.AskBody(question='')
     assert gateway.AskBody(question='q').mode == 'query'
+
+
+def test_answer_strips_model_thinking_block(monkeypatch):
+    store = Store([{'id': 'a', 'name': 'a.docx'}])
+    monkeypatch.setattr(gateway, 'workspaces', lambda: {'公开': 'slug-public'})
+    monkeypatch.setattr(gateway, 'buckets_for', lambda s, u: ['公开'])
+    monkeypatch.setattr(gateway, 'visible_documents', lambda s, u: {'a.docx': store._docs[0]})
+    monkeypatch.setattr(gateway, '_call', lambda *a, **k: {
+        'textResponse': '<think>internal reasoning</think>18分钟。',
+        'sources': [{'title': 'a.docx'}]})
+    assert gateway.answer(store, {}, '问题')['answer'] == '18分钟。'

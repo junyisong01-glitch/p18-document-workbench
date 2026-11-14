@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -27,6 +28,7 @@ BASE = os.environ.get('P18_ANYTHINGLLM_BASE', 'http://127.0.0.1:3001')
 KEY = os.environ.get('P18_ANYTHINGLLM_KEY', '')
 BUCKETS = ('公开', '内部', '机密', '未分类')
 TIMEOUT = float(os.environ.get('P18_ANYTHINGLLM_TIMEOUT', '180'))
+THINK = re.compile(r'<think>.*?</think>', re.S)
 
 
 class AskBody(BaseModel):
@@ -93,7 +95,7 @@ def answer(store, user, question, mode='query'):
                        {'message': question, 'mode': mode})
         if result.get('error'):
             raise HTTPException(502, f'AnythingLLM: {result["error"]}')
-        texts.append(result.get('textResponse') or '')
+        texts.append(THINK.sub('', result.get('textResponse') or '').strip())
         sources.extend(result.get('sources') or [])
     allowed = visible_documents(store, user)
     kept, dropped = [], 0
@@ -126,6 +128,11 @@ def install(app, store):
         started = time.time()
         try:
             result = answer(store, user, body.question, body.mode)
+        except HTTPException as exc:
+            audit(store.DATA, {'at': started, 'identity': user['identity'],
+                               'question_length': len(body.question), 'status': 'refused',
+                               'code': exc.status_code})
+            raise
         except AnythingLLMError as exc:
             audit(store.DATA, {'at': started, 'identity': user['identity'],
                                'question_length': len(body.question), 'status': 'error'})
