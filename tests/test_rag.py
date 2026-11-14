@@ -355,3 +355,26 @@ def test_answer_validation_distinguishes_quotes_from_inventions():
         with pytest.raises(RagError) as error:
             check(invented)
         assert error.value.code == 'answer_location'
+
+
+def test_back_reference_detection_ignores_ordinary_continuations():
+    assert RagService.refers_back('那他负责什么？')
+    assert RagService.refers_back('该项目进度如何')
+    assert RagService.refers_back('前述接口是谁定的')
+    # 继续/那么 are continuations, not references; they used to force a rewrite.
+    assert not RagService.refers_back('继续讲下一步')
+    assert not RagService.refers_back('那么接口超时怎么处理')
+
+
+def test_invalid_history_is_dropped_so_the_session_can_continue(rig):
+    rig.grant(['a', 'b'])
+    first = rig.rag.prepare('项目负责人是谁？')
+    rig.rag.answer(first['ticket'], True)
+    rig.grant([])                                   # revoke: history is now unusable
+    with pytest.raises(RagError) as error:
+        rig.rag.prepare('第二问', first['session_id'])
+    assert error.value.code == 'history_invalid'
+    # The offending turn is gone, so the next attempt with the same session works.
+    rig.grant(['a', 'b'])
+    second = rig.rag.prepare('第二问', first['session_id'])
+    assert second['status'] == 'prepared' and second['history'] == []

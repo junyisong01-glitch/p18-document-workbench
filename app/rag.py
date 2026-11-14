@@ -161,6 +161,14 @@ class RagService:
                 or not any(c['id']==source['chunk_id'] and c['text']==source['text'] for c in snap['chunks'])):return False
         return service.current_config()
 
+    # Only real back-references trigger history expansion. Words like 继续/那么
+    # are ordinary continuations and were causing needless query rewriting.
+    BACK_REFERENCE = re.compile(r'(?<!其)[他她它]|该项目|上述|前述|那位|这位|此人')
+
+    @classmethod
+    def refers_back(cls, question):
+        return bool(cls.BACK_REFERENCE.search(question))
+
     def context(self, question, session_id, cfg, turn_id=None):
         self.prune()
         if session_id and session_id not in self.sessions:raise RagError('session_expired','后端临时会话已过期，请重新检索与核验；旧问题与回答可以保留。')
@@ -172,20 +180,28 @@ class RagService:
             matches=[i for i,t in enumerate(context_turns) if t.get('turn_id')==turn_id]
             if not matches:raise RagError('turn_expired','原问题已过期，请重新提问；未发送。')
             context_turns=context_turns[:matches[0]]
-        history=[];history_sources=[];history_grants=[]
+        history=[];history_sources=[];history_grants=[];invalid=[]
         with self.store.LOCK:
             for turn in context_turns[-cfg['history_turns']:]:
                 # Do not send historical answers derived from now-revoked data.
                 provenance=turn.get('provenance',turn['evidence'])
                 if (not self.valid(provenance) or self.permission_hash(provenance)!=turn.get('permission_hash')):
-                    raise RagError('history_invalid','历史来源已失效或外发许可已撤销，请重新检索与核验；旧回答仅供本地核对，不沿用为发送历史。')
+                    invalid.append(turn);continue
                 history.append({'question':turn['question'],'answer':re.sub(r'\[S\d+\]','',turn['answer'])})
                 history_sources.append(deepcopy(provenance))
                 history_grants.append(self.permission_records(provenance))
+            if invalid:
+                # Drop the offending turns so this session can continue; the
+                # caller still learns that history was discarded.
+                for key in ('rounds','turns'):
+                    if isinstance(session.get(key),list):
+                        session[key]=[turn for turn in session[key]
+                                      if not any(turn is bad for bad in invalid)]
+                raise RagError('history_invalid','历史来源已失效或外发许可已撤销，本轮历史已丢弃；请重新检索后再问。')
         while history and len(json.dumps(history,ensure_ascii=False))+len(question)>cfg['context_chars']//2:
             history.pop(0);history_sources.pop(0);history_grants.pop(0)
         historical=[source for group in history_sources for source in group]
-        pronoun=bool(re.search(r'(?<!其)[他她它]|该项目|上述|那位|这位|继续|那么',question))
+        pronoun=self.refers_back(question)
         if pronoun and (not history or re.search(r'和|以及|分别|、',history[-1]['question']) or re.search(r'共同负责|两位|多人|分别',history[-1]['answer'])):
             return sid,session,history,None,historical,digest([g for group in history_grants for g in group])
         # Conservative local query expansion, no second model call or assumed person name.
@@ -234,7 +250,7 @@ class RagService:
             trace.update(history=deepcopy(history),historical=deepcopy(historical))
             if query is None:return {'status':'clarify','message':'请说明指的是哪位人员或哪个项目。','session_id':sid}
             result=self.store.require_semantic().search(query,top_k=20,document_filter=lambda doc:self.external_allowed(doc))
-            evidence=[];seen=set();skipped=0
+            evidence=[];seen=set();skipped=0;budget_skipped=0
             with self.store.LOCK:
                 for hit in evidence_groups(result['results']):
                     members=[]
@@ -249,14 +265,15 @@ class RagService:
                     if len(members)>1:source['members']=members
                     source['id']='S'+str(len(evidence)+1)
                     budget=self.selection_budget(question,history,evidence+[source],cfg)
-                    if budget['groups']>budget['group_limit'] or budget['message_chars']>budget['context_limit']:continue
+                    if budget['groups']>budget['group_limit'] or budget['message_chars']>budget['context_limit']:
+                        budget_skipped+=1;continue
                     evidence.append(source)
                 if evidence and (not self.valid(evidence+historical) or self.permission_hash(historical)!=history_hash):raise RagError('evidence_stale','检索证据已变化，请重新检索。')
                 permissions,audit_sources=self.permission_snapshot(evidence+historical)
                 provenance=self.provenance(evidence+historical)
                 provenance_hash=self.permission_hash(provenance)
             if not evidence:
-                return {'status':'no_evidence','message':'没有当前有效、获准且能完整放入本轮上下文的证据，未调用外部模型。'+UNKNOWN,'session_id':sid}
+                return {'status':'no_evidence','message':'没有当前有效、获准且能完整放入本轮上下文的证据，未调用外部模型。'+UNKNOWN,'session_id':sid,'budget_skipped':budget_skipped}
             # No raw retrieval hits, unauthorized names/text, or client-supplied history in ticket.
             token=secrets.token_urlsafe(32)
             ticket={'at':time.monotonic(),'sid':sid,'version':session['version'],'question':question,
@@ -266,7 +283,7 @@ class RagService:
             ticket['messages']=self.messages(question,history,evidence);ticket['messages_hash']=digest(ticket['messages'])
             self.tickets[token]=ticket;self.remember(token,ticket);session['at']=time.monotonic()
             return {'status':'prepared','ticket':token,'session_id':sid,'question':question,'history':history,
-                    'evidence':evidence,'blocked_count':skipped,'provider':self.client.label,
+                    'evidence':evidence,'blocked_count':skipped,'budget_skipped':budget_skipped,'provider':self.client.label,
                     'configured':self.client.configured,'destination':cfg['base_url'],'request_endpoint':request_endpoint(cfg['base_url']),'model':cfg['model'],
                     'notice':'仅在确认后发送以上问题、历史及证据。未授权资料不会发送。'}
 
