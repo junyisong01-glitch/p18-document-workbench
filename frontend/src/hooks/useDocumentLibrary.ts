@@ -6,7 +6,15 @@ export function useDocumentLibrary(){
  const [user,setUser]=useState({identity:'',manager:false,demo:false});
  const [loadState,setLoadState]=useState<'loading'|'ready'|'error'>('loading'),[errorMessage,setErrorMessage]=useState('');
  const reload=useCallback(async()=>{try{const me=await api('/api/library/me');const [d,f,t]=await Promise.all([fetchDocuments(),fetchFolders(),fetchDocTypes()]);setUser(me);setDocuments(d);setFolders(f);setDocTypes(t);setErrorMessage('');setLoadState('ready');}catch(e){setDocuments([]);setErrorMessage(e instanceof Error?e.message:'加载失败');setLoadState('error');}},[]);
- useEffect(()=>{void reload();const timer=setInterval(()=>void reload(),5000);return()=>clearInterval(timer);},[reload]);
+ useEffect(()=>{void reload();},[reload]);
+ // Poll only while something is actually moving. A steady library used to be
+ // re-fetched every 5s per open tab for no reason.
+ const pending=documents.some(d=>['处理中','待建索引','待复核'].includes(d.status));
+ useEffect(()=>{
+  if(!pending)return;
+  const timer=setInterval(()=>void reload(),5000);
+  return()=>clearInterval(timer);
+ },[pending,reload]);
  const addDocument=async(input:NewDocumentInput)=>{await insertDocument(input);await reload();};
  const removeDocument=async(id:string)=>{await deleteDocument(id);await reload();};
  const addFolder=async(input:NewFolderInput)=>{await insertFolder(input);await reload();};
