@@ -20,12 +20,31 @@ MySQL 远程授权和 kvrocks 崩溃；AnythingLLM 是单应用（Electron + 内
 | 生成 API Key（直接写 `api_keys` 表，绕过 UI） | ✅ 可用，`GET /api/v1/workspaces` → 200 |
 | 建 workspace「公开」 | ✅ slug `4790eaa5-221b-4210-8cc6-4c7aa772c27a` |
 | 上传 `zx8.md` + `update-embeddings` | ✅ `[NativeEmbedder] Initialized Xenova/all-MiniLM-L6-v2`，LanceDB 生成 2 条向量 |
-| `POST /api/v1/workspace/{slug}/vector-search` | ❌ 500，日志报 `No OpenAI API key was set` |
-| `POST /api/v1/workspace/{slug}/chat` | ❌ 同上：检索与问答都会先构造 LLM provider |
+| `POST /api/v1/workspace/{slug}/vector-search` | ❌→✅ 一开始 500（缺 LLM），配好 DeepSeek 后 200 |
+| `POST /api/v1/workspace/{slug}/chat` | ❌→✅ 返回「晨间校准需 **18 分钟**」，sources 指向 `zx8.md` |
 
-**结论**：解析—切分—向量化链路已通（本机内置 native embedder，不联网）；检索与
-问答被"必须存在一个 LLM provider"卡住。直接改 `system_settings`（`LLMProvider=ollama`
-等）在本 build 里不生效，官方路径是桌面向导里选模型。
+**端到端已跑通**。App 内配置：LLM = DeepSeek，模型 `deepseek-flash`（日志
+`[DeepSeekLLM] Initialized deepseek-flash with context window 1000000`），
+Embedding = 内置 `Xenova/all-MiniLM-L6-v2`（不联网）。
+
+### 迁移时踩到的三个坑
+
+1. **检索需要先有 LLM**。没配 provider 时 `/vector-search` 和 `/chat` 都直接 500
+   (`No OpenAI API key was set`)，哪怕只是想要纯检索。直接改 `system_settings`
+   写 `LLMProvider` 不生效，必须走桌面向导。
+2. **未挂到 workspace 的文档会被后台清理**。上传后只做 `update-embeddings` 但
+   没进 `workspace_documents` 的文档，会被 `cleanup-orphan-documents` 任务删掉，
+   表现为"之前有向量、重启后 vectorCount=0"。
+3. **相似度阈值默认 0.25，中文会被全部过滤**。内置 MiniLM 是英文模型，中文问答
+   的相似度低于默认阈值，`vector-search` 返回空、`chat` 直接答"没有相关资料"。
+   必须把 workspace 的 `similarityThreshold` 调到 0（本次通过
+   `POST /api/v1/workspace/{slug}/update` 设置）。
+
+### 质量观察
+
+- 回答里带 `<think>…</think>` 块（`deepseek-flash` 的思考内容原样透出），
+  需要在前端或提示词里处理；P18 原实现是显式关闭 thinking 的。
+- 中文检索依赖英文 embedding，命中率天然吃亏。要么换多语 embedding，要么接受。
 
 ## 2. 能力对照
 
