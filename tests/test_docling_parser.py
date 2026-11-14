@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 from docx import Document
 
-from app import docling_word
+from app import docling_parser
 from app.chunking import configuration, prepare
 from app.parser import PARSER_VERSION, parse_word_selected
 
-pytestmark = pytest.mark.skipif(not docling_word.available(), reason='未安装 docling，跳过可选后端测试')
+pytestmark = pytest.mark.skipif(not docling_parser.available(), reason='未安装 docling，跳过可选后端测试')
 
 
 def build(path):
@@ -37,7 +37,7 @@ def build(path):
 
 
 def test_blocks_keep_contract_shape(tmp_path):
-    result = docling_word.extract(build(tmp_path / 'x.docx'))
+    result = docling_parser.extract_word(build(tmp_path / 'x.docx'))
     assert result['characters'] > 0
     assert result['parser_version'].startswith(PARSER_VERSION + '+docling-')
     assert result['pages'] == []
@@ -56,7 +56,7 @@ def test_blocks_keep_contract_shape(tmp_path):
 
 
 def test_merged_cells_are_not_duplicated(tmp_path):
-    result = docling_word.extract(build(tmp_path / 'x.docx'))
+    result = docling_parser.extract_word(build(tmp_path / 'x.docx'))
     merged = [b for b in result['blocks'] if b['kind'] == 'table'][1]['tables'][0]
     assert merged['columns'] == 3
     spanning = next(c for c in merged['cells'] if c['text'] == '横向标题')
@@ -70,7 +70,7 @@ def test_merged_cells_are_not_duplicated(tmp_path):
 
 
 def test_e2_context_still_works_on_docling_blocks(tmp_path):
-    result = docling_word.extract(build(tmp_path / 'x.docx'))
+    result = docling_parser.extract_word(build(tmp_path / 'x.docx'))
     doc = {'id': '3dd7d9cc-ccce-4e9c-a1e2-17e9ec61652b', 'name': '虚构澄星ZX8说明.docx',
            'ext': '.docx', 'revision': 1, 'quality': 'clear', 'state': 'ready',
            'characters': result['characters'], 'result': result}
@@ -84,13 +84,32 @@ def test_e2_context_still_works_on_docling_blocks(tmp_path):
 
 def test_backend_is_opt_in_and_fails_loudly(tmp_path, monkeypatch):
     path = build(tmp_path / 'x.docx')
-    monkeypatch.delenv('P18_PARSER', raising=False)
+    monkeypatch.setenv('P18_PARSER', 'legacy')
     legacy = parse_word_selected(path, '.docx')
     assert 'parser_version' not in legacy and legacy['blocks'][0]['style'] == 'Title'
     monkeypatch.setenv('P18_PARSER', 'docling')
     optional = parse_word_selected(path, '.docx')
     assert optional['parser_version'].startswith(PARSER_VERSION + '+docling-')
     assert optional['blocks'][0]['style'] == 'title'
-    monkeypatch.setattr(docling_word, 'available', lambda: False)
+    monkeypatch.setattr(docling_parser, 'available', lambda: False)
     with pytest.raises(ValueError, match='未安装 docling'):
         parse_word_selected(path, '.docx')
+
+
+def test_pdf_keeps_page_provenance(tmp_path):
+    import pymupdf
+
+    path = tmp_path / 'p.pdf'
+    pdf = pymupdf.open()
+    pdf.new_page().insert_text((40, 60), 'Fictional ZX8 calibration is 18 minutes.', fontsize=12)
+    pdf.new_page().insert_text((40, 60), 'Second page keeps its own text.', fontsize=12)
+    pdf.save(path)
+    pdf.close()
+    try:
+        result = docling_parser.extract_pdf(path)
+    except ValueError as exc:  # no local Docling weights on this machine
+        pytest.skip(f'本地 Docling PDF 模型不可用：{exc}')
+    assert result['characters'] > 0
+    assert [p['page'] for p in result['pages']] == [1, 2]
+    assert {b.get('page') for b in result['blocks']} >= {1, 2}
+    assert result['parser_version'].startswith(PARSER_VERSION + '+docling-')

@@ -33,19 +33,24 @@ cd ..
 
 既有本机演示成绩与本轮源码测试结果分开记录，见docs/review/STATUS.md。已有运行数据不是Git源码的一部分，没有授权数据时无法在其他电脑复现30份库的检索成绩。
 
-## 可选：Docling 解析后端
+## 解析后端：Docling（默认）与原实现
 
-默认仍是 python-docx 解析。安装 `requirements-docling.txt` 后，用 `P18_PARSER=docling` 启动才会切换后端：
+安装 `requirements-docling.txt` 后，`.docx`/`.doc` 默认走 Docling；未安装时自动退回 python-docx，实际使用的后端记录在 `parser_version` 里。
 
 ```sh
 .venv/bin/python -m pip install -r requirements-docling.txt
-P18_PARSER=docling .venv/bin/python scripts/experience.py --local
+P18_PARSER=legacy .venv/bin/python scripts/experience.py --local   # 强制旧解析
+P18_PARSER=docling .venv/bin/python scripts/experience.py --local  # 连 PDF 也用 Docling
 ```
 
-- 只影响 `.docx`/`.doc`；PDF、XLSX 与预览链路不变。
-- 输出仍是同一套 blocks/tables/issues，切分、复核、来源定位和文件库预览不需要改。
+| 格式 | 默认 | 说明 |
+|---|---|---|
+| `.docx`/`.doc` | Docling | 输出仍是同一套 blocks/tables/issues，切分、复核、来源定位、文件库预览不变 |
+| `.pdf` | PyMuPDF | Docling 的 PDF 管线需要约 500 MB 本地权重、CPU 约 2 秒/页，与单文档 180 秒上限冲突；`P18_PARSER=docling` 时才启用，已实测可用 |
+| `.xlsx` | openpyxl | 不替换：Docling 的表格输出没有工作表名、行号和单元格坐标，而这三样是 Excel 预览与行级溯源的产品数据 |
+
 - 合并单元格仍会触发人工复核；Docling 不额外解释合并语义。
-- 配置了 `P18_PARSER=docling` 但未安装时，解析明确失败并提示，不会静默退回旧解析。
+- 显式 `P18_PARSER=docling` 但未安装时，解析明确失败并提示，不会静默降级。
 - 依赖树较大（含 torchvision、opencv 等）；不安装也不影响原流程。
 
 ## 测试与审查

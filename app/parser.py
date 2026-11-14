@@ -186,20 +186,47 @@ def parse_word(path):
     return {"blocks": blocks, "issues": issues, "pages": [], "characters": total}
 
 
-def parse_word_selected(path, ext):
-    """DOCX/DOC extraction; the Docling backend is opt-in and never silent.
+def backend():
+    """Resolve P18_PARSER: docling | legacy | auto (docling when installed).
 
-    Default remains parse_word. P18_PARSER=docling switches backends for this
-    process only; a missing package fails the parse rather than changing quality
-    without telling the reviewer.
+    An explicit docling request never degrades silently. Auto mode falls back to
+    the original extractors when the optional package is absent, and the chosen
+    backend is always recorded in result['parser_version'].
     """
-    if ext in {".docx", ".doc"} and os.environ.get("P18_PARSER", "").strip().lower() == "docling":
-        from app.docling_word import available, extract
-        if not available():
-            raise ValueError("已配置 Docling 解析（P18_PARSER=docling），但当前环境未安装 docling；"
-                             "请安装后重试，或去掉该环境变量。")
-        return extract(path)
+    choice = os.environ.get("P18_PARSER", "").strip().lower()
+    if choice not in {"", "docling", "legacy"}:
+        raise ValueError("P18_PARSER 只接受 docling、legacy 或留空。")
+    if choice == "legacy":
+        return "legacy"
+    from app.docling_parser import available
+    if available():
+        return "docling"
+    if choice == "docling":
+        raise ValueError("已配置 P18_PARSER=docling，但当前环境未安装 docling；"
+                         "请安装后重试，或设置 P18_PARSER=legacy。")
+    return "legacy"
+
+
+def parse_word_selected(path, ext):
+    """DOCX/DOC extraction through the resolved backend."""
+    if ext in {".docx", ".doc"} and backend() == "docling":
+        from app.docling_parser import extract_word
+        return extract_word(path)
     return parse_word(path)
+
+
+def parse_pdf_selected(path):
+    """PDF extraction; Docling must be requested explicitly.
+
+    Auto mode keeps PyMuPDF for PDFs on purpose: Docling's PDF pipeline needs
+    local layout/OCR weights (~500 MB) and costs seconds per page on CPU, which
+    collides with the 180 s per-document worker limit. Set P18_PARSER=docling to
+    use it anyway; the choice is recorded in parser_version.
+    """
+    if os.environ.get("P18_PARSER", "").strip().lower() == "docling" and backend() == "docling":
+        from app.docling_parser import extract_pdf
+        return extract_pdf(path)
+    return parse_pdf(path)
 
 
 def process(folder, ext):
@@ -216,7 +243,7 @@ def process(folder, ext):
         result['parser_version']=result['excel_parser_version']
         if not result['characters']: result['error']='工作簿没有可提取的单元格内容。'
         return result
-    result.update(parse_pdf(source) if ext == ".pdf" else parse_word_selected(word, ext))
+    result.update(parse_pdf_selected(source) if ext == ".pdf" else parse_word_selected(word, ext))
     if ext == ".pdf":
         result["preview"]["original"] = source.name
     else:
