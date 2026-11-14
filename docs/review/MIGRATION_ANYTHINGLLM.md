@@ -16,7 +16,16 @@ MySQL 远程授权和 kvrocks 崩溃；AnythingLLM 是单应用（Electron + 内
 | 启动 | ✅ 进程起来，内置服务监听 `127.0.0.1:3001`，另有 `:8888` |
 | `GET /api/ping` | ✅ 200 |
 | 本地库初始化 | ✅ `~/Library/Application Support/anythingllm-desktop/storage/anythingllm.db`（workspaces / workspace_documents / api_keys 等表） |
-| `GET /api/v1/workspaces`（无 Key） | 403 `No valid api key found`（预期，需在 App 内生成） |
+| `GET /api/v1/workspaces`（无 Key） | 403 `No valid api key found`（预期） |
+| 生成 API Key（直接写 `api_keys` 表，绕过 UI） | ✅ 可用，`GET /api/v1/workspaces` → 200 |
+| 建 workspace「公开」 | ✅ slug `4790eaa5-221b-4210-8cc6-4c7aa772c27a` |
+| 上传 `zx8.md` + `update-embeddings` | ✅ `[NativeEmbedder] Initialized Xenova/all-MiniLM-L6-v2`，LanceDB 生成 2 条向量 |
+| `POST /api/v1/workspace/{slug}/vector-search` | ❌ 500，日志报 `No OpenAI API key was set` |
+| `POST /api/v1/workspace/{slug}/chat` | ❌ 同上：检索与问答都会先构造 LLM provider |
+
+**结论**：解析—切分—向量化链路已通（本机内置 native embedder，不联网）；检索与
+问答被"必须存在一个 LLM provider"卡住。直接改 `system_settings`（`LLMProvider=ollama`
+等）在本 build 里不生效，官方路径是桌面向导里选模型。
 
 ## 2. 能力对照
 
