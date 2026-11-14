@@ -90,3 +90,22 @@ def test_unclassified_not_searchable_and_confidential_not_external(setup):
     assert c.post('/api/documents/unclassified/external-permission',headers=h['admin'],json={}).status_code==403
     # Even a manager gets no implicit content access to a confidential document.
     assert c.get('/api/documents/secret',headers=h['admin']).status_code==404
+
+
+@pytest.mark.parametrize('identity,manager', [('研发部员工', False), ('人力资源总监', False), ('总经理', True)])
+def test_visible_ids_matches_per_document_decisions(setup, identity, manager):
+    import hashlib
+    from app import library_api
+    client, headers, _ = setup
+    with main.connect() as conn:
+        token = library_store.issue_session(conn, identity, manager=manager)
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    user = {'identity': identity, 'manager': manager, 'session_digest': digest,
+            'demo': False, 'expires': 0}
+    marker = library_api.principal.set(user)
+    try:
+        candidates = list(main.all_docs())
+        expected = {doc['id'] for doc in candidates if library_api.visible(main, doc)}
+        assert library_api.visible_ids(main, candidates) == expected
+    finally:
+        library_api.principal.reset(marker)

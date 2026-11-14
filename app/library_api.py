@@ -1,7 +1,8 @@
 """Access boundary for managed libraries; legacy databases remain unchanged."""
 from contextvars import ContextVar
 from dataclasses import asdict
-from fastapi import APIRouter, HTTPException, Request, File, UploadFile, Form
+import json
+from fastapi import APIRouter, HTTPException, Request, Response, File, UploadFile, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from app import library_store
@@ -30,6 +31,34 @@ def visible(store, doc, *, evidence=False):
     if row is None:
         return user['manager'] and not evidence
     return (can_use_as_evidence if evidence else can_view)(row[1], user['identity'])
+
+
+def visible_ids(store, docs):
+    """Visibility for a whole list with one session check and one metadata read.
+
+    Same rules as visible(); only the query pattern changes, which removes two
+    queries per document from every list request.
+    """
+    user = principal.get()
+    if hasattr(store, 'authorize_document'):
+        return {doc['id'] for doc in docs if store.authorize_document(doc, user, evidence=False)}
+    if user is None:
+        return {doc['id'] for doc in docs}
+    with store.connect() as conn:
+        if not library_store.session_by_digest(conn, user['session_digest']):
+            return set()
+        rows = {row[0]: json.loads(row[1])
+                for row in conn.execute('SELECT document_id, body FROM library_metadata')}
+    allowed = set()
+    for doc in docs:
+        meta = rows.get(doc['id'])
+        if meta is None:
+            if user['manager']:
+                allowed.add(doc['id'])
+            continue
+        if can_view(LibraryMetadata(**{**meta, 'viewers': tuple(meta.get('viewers') or ())}), user['identity']):
+            allowed.add(doc['id'])
+    return allowed
 
 
 def external_allowed(store, doc):
@@ -145,10 +174,21 @@ def install(app, store):
             principal.reset(token)
 
     @router.get('/api/library/documents')
-    def list_records():
+    def list_records(response: Response, limit: int | None = None, offset: int = 0):
+        # limit/offset are opt-in: without them the full list is returned, so
+        # existing clients keep working. X-Total-Count always carries the total.
         with store.LOCK:
-            return [library_record(store, d) for d in store.all_docs()
-                    if d['state'] not in {'deleted','deleting','delete_failed','superseded'} and visible(store,d)]
+            candidates = [d for d in store.all_docs()
+                          if d['state'] not in {'deleted','deleting','delete_failed','superseded'}]
+            allowed = visible_ids(store, candidates)
+            visible_docs = [d for d in candidates if d['id'] in allowed]
+            total = len(visible_docs)
+            # Slice before building records: each record costs an index-status
+            # lookup, so a page of 10 should not pay for 1000 documents.
+            page = visible_docs if limit is None else visible_docs[max(0, offset):max(0, offset) + max(0, limit)]
+            records = [library_record(store, d) for d in page]
+        response.headers['X-Total-Count'] = str(total)
+        return records
 
     @router.get('/api/library/catalog/{kind}')
     def catalog(kind: str):

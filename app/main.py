@@ -613,7 +613,9 @@ def config():
 @app.get("/api/documents")
 def documents():
     with LOCK:
-        return sorted([public(d) for d in all_docs() if d["state"] not in {"deleted", "superseded"} and library_api.visible(sys.modules[__name__], d)],
+        candidates = [d for d in all_docs() if d["state"] not in {"deleted", "superseded"}]
+        allowed = library_api.visible_ids(sys.modules[__name__], candidates)
+        return sorted([public(d) for d in candidates if d["id"] in allowed],
                       key=lambda d: d["created_at"], reverse=True)
 
 
