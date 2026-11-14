@@ -240,16 +240,48 @@ class IndexService:
                 self.invalidate(doc['id'])
                 self.schedule(doc['id'])
 
-    def candidates(self, identifier=None, document_filter=None):
+    CANDIDATE_TTL = 2.0
+
+    def _candidate_map(self):
+        """Every valid chunk, cached briefly.
+
+        Rebuilding this map is the dominant cost of a search: one snapshot read
+        per document, all under the store lock. The cache is TTL-based rather
+        than invalidated on write, so a freshly indexed document can take up to
+        CANDIDATE_TTL seconds to appear; that is the trade for concurrency.
+        """
+        now = time.monotonic()
+        lock = getattr(self, '_cache_lock', None)
+        if lock is not None:
+            with lock:
+                cached = getattr(self, '_candidates', None)
+                if cached and now - cached[0] < self.CANDIDATE_TTL:
+                    return cached[1]
         found = {}
-        docs = [self.store.available(identifier)] if identifier else self.store.all_docs()
-        for doc in docs:
-            if document_filter is not None and not document_filter(doc):continue
+        for doc in self.store.all_docs():
             snap, run = self.snapshot(doc['id']), self.read(doc['id'])
             if self.valid(run, snap) and run['status'] == 'complete':
                 for chunk in snap['chunks']:
                     found[self.point_id(snap, chunk)] = (snap, chunk)
+        if lock is not None:
+            with lock:
+                self._candidates = (now, found)
         return found
+
+    def candidates(self, identifier=None, document_filter=None):
+        if identifier is not None:
+            # Single-document lookups are already cheap and must never be stale.
+            doc = self.store.available(identifier)
+            if document_filter is not None and not document_filter(doc):
+                return {}
+            snap, run = self.snapshot(doc['id']), self.read(doc['id'])
+            if not (self.valid(run, snap) and run['status'] == 'complete'):
+                return {}
+            return {self.point_id(snap, chunk): (snap, chunk) for chunk in snap['chunks']}
+        base = self._candidate_map()
+        if document_filter is None:
+            return dict(base)
+        return {key: value for key, value in base.items() if document_filter(value[0]['doc'])}
 
     def _query_vector(self, text):
         """Same text + same config yields the same vector; skip the CPU encode.
