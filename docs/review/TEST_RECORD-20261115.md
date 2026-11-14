@@ -140,3 +140,44 @@ RAG（`test_rag` / `test_rag_api` / `test_rag_boundaries` / `test_rag_selection`
 
 仍然存在的物理事实：已经开始的这一次发送无法召回字节；但它发生在撤销返回之前，
 所以“撤销返回后不会再按旧许可发送”这句话现在是真的。撤销路径实测无死锁（12 ms 返回）。
+
+## 11. 冒烟 / 端到端 / UI 复测（2026-11-15 凌晨）
+
+数据准备：`scripts/seed_demo_data.py`，6 份虚构文档、3 种密级、2 个部门、3 种格式。
+
+| 组 | 文档 | 密级 | 部门 | 可外发 |
+|---|---|---|---|---|
+| 公开 | 虚构ZX8宣传册.docx / 虚构校准手册.pdf / 虚构设备台账.xlsx | 公开 | 研发部 | ✅ 已授权 |
+| 内部-研发 | 虚构研发规范.docx | 内部 | 研发部 | ❌ 策略不允许 |
+| 内部-生产 | 虚构产线作业指导.docx | 内部 | 生产制造部 | ❌ 策略不允许 |
+| 机密 | 虚构工艺参数.docx | 机密 | 研发部（viewers=启辰研发岗位） | ❌ |
+
+### 11.1 端到端业务流程（`scripts/smoke_e2e.py`，18 项，两轮全过）
+
+| 流程 | 断言 |
+|---|---|
+| 认证 | 未登录 401；非管理员上传 403 |
+| 权限矩阵 | admin 5 份 / dev 6 份 / prod 4 份；越权按 ID 取文档 404 |
+| 检索过滤 | dev 检索命中校准资料（Top1 0.46）；其他部门资料不出现 |
+| RAG 候选 | 6 候选，3 个公开可选；内部资料不可选 |
+| 发送门禁 | 未配置模型 409 `api_not_configured`；票据复用 409 `ticket_expired` |
+| 其他 | 网关未启用 404；空问题 422 |
+
+### 11.2 UI（`tests/ui_smoke.cjs`，真实 Chrome + playwright-core，9 项，两轮全过）
+
+登录页渲染 → 表单登录跳转 → 文件表格 5 行 → 文档名可见 → 点击行出详情 →
+检索页输入框 → 检索有结果 → 无 JS 异常 → 无 4xx/5xx 资源。
+
+### 11.3 单元测试稳定性
+
+`test_old_review_without_name_stays_completed` 曾偶发失败：切分任务会用自己那份
+记录覆盖测试刚写入的复核决定。已改为先等切分结束再改写记录。**连续 3 次全量 419 passed。**
+
+### 11.4 复现
+
+```sh
+.venv/bin/python scripts/provision_demo.py      # 账号（含两个部门管理员）
+.venv/bin/python scripts/seed_demo_data.py      # 6 份数据，幂等
+.venv/bin/python scripts/smoke_e2e.py           # 18 项业务流
+NODE_PATH=frontend/node_modules node tests/ui_smoke.cjs   # 9 项 UI
+```
