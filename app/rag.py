@@ -516,10 +516,19 @@ class RagService:
         # The ticket is consumed and this session reserved; unrelated sessions may proceed.
         # Neither the global RAG lock nor the business-data lock spans network I/O.
         try:
-            self.audit_request('egress_allowed',ticket)
-            self.audit_request('send_attempt',ticket)
-            ticket['attempted']=True
-            raw=self.client.complete(messages,ticket['config'])
+            from app.egress_gate import gate
+            with gate().sending():
+                # Authoritative re-check inside the gate: a revocation either
+                # completed before this point (and fails here) or is waiting
+                # for this send to finish. No send can start on a stale grant.
+                with self.store.LOCK:
+                    if (not self.valid(ticket['evidence']+historical)
+                        or self.permission_hash(ticket['evidence']+historical)!=ticket['permission_hash']):
+                        raise RagError('evidence_stale','外发许可已撤销或证据已变化，未发送。')
+                self.audit_request('egress_allowed',ticket)
+                self.audit_request('send_attempt',ticket)
+                ticket['attempted']=True
+                raw=self.client.complete(messages,ticket['config'])
             self.audit_request('send_result',ticket,'response_received')
             with self.lock:
                 if self.sessions.get(ticket['sid']) is not session or session['version']!=ticket['version']:

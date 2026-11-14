@@ -45,6 +45,19 @@ RAG（`test_rag` / `test_rag_api` / `test_rag_boundaries` / `test_rag_selection`
 | I | `prod` 调网关 | 拒绝 | ✅ 409 |
 | J | 未启用网关时调 `/api/gateway/ask` | 路由不存在 | ✅ 404 |
 
+## 3b. RAG 边界用例（补充）
+
+| 用例 | 预期 | 实测 |
+|---|---|---|
+| 空问题 | 拒绝 | ✅ 422 `string_too_short` |
+| 2001 字问题 | 拒绝 | ✅ 422 `string_too_long` |
+| 不存在的草稿 | 拒绝 | ✅ 409 `draft_expired` |
+| 复用已消费票据 | 拒绝 | ✅ 409 `ticket_expired` |
+| 选不可外发候选 | 拒绝 | ✅ 409 `selection_forbidden` |
+| 选择版本不匹配 | 拒绝 | ✅ 409 `selection_changed` |
+| 未勾选同意即发送 | 拒绝 | ✅ 409 `consent_required` |
+| 无密钥发送 | 拒绝 | ✅ 409 `api_not_configured` |
+
 ## 4. RAG 门禁链路（未配置密钥）
 
 | 步骤 | 预期 | 实测 |
@@ -73,11 +86,14 @@ RAG（`test_rag` / `test_rag_api` / `test_rag_boundaries` / `test_rag_selection`
 | D2 | 被拒绝的请求不进审计 | 409 在审计之前抛出 | 已修，记录 `status=refused` |
 | D3 | 「内部」资料不可选时只提示“未获外发许可” | 体验版策略与授权缺失共用一个原因码 | 已修，新增 `policy_public_only` 与独立文案 |
 
-对应提交：`df581bb`（D1/D2）、本次提交（D3）。
+对应提交：`df581bb`（D1/D2）、`24f0e27`（D3）、`26a5190`（D4）、本次（D5）。
+
+| D4 | 答案含 `arr[0]`、原文里的链接或页码时被整条丢弃 | 引用解析吞掉一切方括号；位置检查不分“引用原文”与“编造” | 已修（`26a5190`）：只认 `[S数字]`；位置必须出现在证据原文里 |
+| D5 | 发送与撤权之间存在竞态窗口 | 许可检查在锁内、网络发送在锁外 | 已根修：新增读写门（`app/egress_gate.py`），发送是读者、授予/撤销是写者；撤销会等待在途发送结束后才返回 |
 
 ## 7. 未覆盖（不得声称通过）
 
-- 真实 DeepSeek 问答质量、拒答率、`<think>`、引用正确性
+- 真实 DeepSeek 问答质量、拒答率、引用正确性
 - 30 份真实语料的检索精度与召回
 - 并发、长时间运行、崩溃恢复
 - AnythingLLM 路径（已整体移除）
@@ -92,3 +108,24 @@ RAG（`test_rag` / `test_rag_api` / `test_rag_boundaries` / `test_rag_selection`
 .venv/bin/python scripts/eval_retrieval.py --username dev --password p18-review-2026 \
     --cases tests/fixtures/retrieval_baseline.json       # 检索流程基线
 ```
+
+## 9. 关于“历史来源失效”的说明
+
+`history_invalid` **不是缺陷**，是契约：会话里任何一轮的来源被撤权或索引失效后，
+带着该会话的新提问会被拒绝，而不是悄悄丢掉历史继续答。
+
+理由：静默丢掉历史会让模型在“缺少上一轮上下文”的情况下作答，用户看不出区别。
+前端 `web/qa/flow.js` 已经把它映射为“重置会话”，用户重新检索即可继续。
+
+代价：会话内出现过一次撤权，这轮对话就结束。这是有意的取舍，写进风险边界。
+
+## 10. 撤权竞态现在的保证
+
+新增 `app/egress_gate.py`（读者=发送，写者=授予/撤销）：
+
+- 撤销请求会**等待在途发送结束**再返回；
+- 撤销进行中，新的发送会排队，不会带着旧许可出发；
+- 发送在门内做**最终许可校验**，校外不再有“检查完才发”的窗口。
+
+仍然存在的物理事实：已经开始的这一次发送无法召回字节；但它发生在撤销返回之前，
+所以“撤销返回后不会再按旧许可发送”这句话现在是真的。撤销路径实测无死锁（12 ms 返回）。
