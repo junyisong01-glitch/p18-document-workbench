@@ -41,6 +41,9 @@ def main():
   if not key:print('未输入密钥，改为本地模式。');mode='local'
  env=environment();env.update(P18_DATA_DIR=str(DATA),TMPDIR=str(DATA/'tmp'),PYTHONPATH=str(R/'config/experience_guard')+os.pathsep+str(R),P18_DEEPSEEK_BASE_URL='https://api.deepseek.com',P18_DEEPSEEK_MODEL='deepseek-flash',P18_DEEPSEEK_TIMEOUT='60',P18_DEEPSEEK_MAX_TOKENS='1500',no_proxy='*',NO_PROXY='*')
  if mode=='acceptance':env['P18_EXPERIENCE_ACCEPTANCE']='1'
+ # Explicit operator configuration (gateway target/key, parser backend) passes through;
+ # nothing is defaulted or persisted here.
+ env.update({k:v for k,v in os.environ.items() if k.startswith('P18_') and k not in env})
  log=(DATA/'server.log').open('a')
  proc=subprocess.Popen([str(R/'.venv/bin/python'),'-B',str(R/'scripts/experience_server.py')],cwd=R,env=env,stdin=subprocess.PIPE,stdout=log,stderr=subprocess.STDOUT,text=True,start_new_session=True)
  proc.stdin.write(json.dumps({'api_key':key})+chr(10));proc.stdin.close();key=None;log.close()

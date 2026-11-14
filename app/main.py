@@ -953,3 +953,7 @@ app.mount("/static", StaticFiles(directory=ROOT / "web"), name="static")
 
 from app import library_api
 library_api.install(app, sys.modules[__name__])
+
+if os.environ.get('P18_ANYTHINGLLM_KEY'):
+    from app import gateway
+    gateway.install(app, sys.modules[__name__])
