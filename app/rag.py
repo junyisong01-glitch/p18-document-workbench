@@ -119,6 +119,22 @@ class RagService:
         from app.library_api import external_allowed
         return external_allowed(self.store, doc) and allowed(self.store.DATA, doc)
 
+    def external_block(self, doc):
+        """Why a document cannot be sent: none | not_visible | not_authorized | policy.
+
+        'policy' means the grant exists but this deployment still refuses it
+        (the experience build only allows public material), which is a very
+        different message from 'you never granted permission'.
+        """
+        from app.library_api import visible
+        if not visible(self.store, doc, evidence=True):
+            return 'not_visible'
+        if self.external_allowed(doc):
+            return 'none'
+        if allowed(self.store.DATA, doc):
+            return 'policy'
+        return 'not_authorized'
+
     def status(self):
         try:cfg=config();error=None
         except RagError as e:cfg={};error=str(e)
@@ -321,7 +337,12 @@ class RagService:
                                 else:
                                     reason='selected';defaults.append(cid);default_evidence.append(trial)
                                     candidate['default_selected']=True
-                            else:reason='local_only'
+                            else:
+                                block=self.external_block(self.store.available(members[0]['document_id']))
+                                reason='policy_public_only' if block=='policy' else 'local_only'
+                                candidate['permission_reason']=('deployment_policy' if block=='policy'
+                                                                else 'external_permission_required')
+
                             candidate['default_reason']=reason;candidates[cid]=candidate
                             if selectable:candidate_permissions[cid]=self.permission_hash([source])
             did=secrets.token_urlsafe(32)

@@ -322,3 +322,16 @@ def test_prompt_and_demo_follow_same_status_protocol(rig):
     payload={'question':'不存在的问题','untrusted_evidence':[]}
     response=json.loads(SimulatedClient().complete([{'content':json.dumps(payload)}],config()))
     assert response=={'status':'insufficient_evidence','answer':UNKNOWN,'citations':[]}
+
+
+def test_external_block_separates_policy_from_missing_grant(rig):
+    doc = rig.docs['a']
+    assert rig.rag.external_block(doc) == 'not_authorized'
+    rig.grant(['a'])
+    assert rig.rag.external_block(doc) == 'none'
+    original = rig.rag.external_allowed
+    rig.rag.external_allowed = lambda document: False          # deployment policy refuses
+    try:
+        assert rig.rag.external_block(doc) == 'policy'
+    finally:
+        rig.rag.external_allowed = original
