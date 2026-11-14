@@ -43,6 +43,15 @@ def wait(client,identifier):
         time.sleep(.05)
     raise AssertionError("processing timed out")
 
+def settle(client,identifier):
+    """Wait for the background chunk job: it saves its own copy of the record,
+    so editing the document while it runs can lose the edit or bump revision."""
+    for _ in range(400):
+        status=client.get(f'/api/documents/{identifier}/chunks').json()['status']
+        if status not in {'not_started','queued','processing'} and not main.CHUNK_ACTIVE:return
+        time.sleep(.05)
+    raise AssertionError("chunking did not settle")
+
 
 def test_pdf_upload_real_parse_and_preview(client):
     item=upload(client);doc=wait(client,item['id'])
@@ -278,7 +287,7 @@ def test_preview_failure_goes_to_review_without_losing_text(client):
 
 
 def test_reviewer_required_and_history_append_only(client):
-    item=upload(client);doc=wait(client,item['id'])
+    item=upload(client);doc=wait(client,item['id']);settle(client,item['id'])
     doc.update(state='review',quality='review')
     doc['result']['issues']=[{'kind':'image','message':'图片未识别','page':1}]
     main.save(doc);route=f"/api/documents/{item['id']}/review"
@@ -305,13 +314,7 @@ def test_reviewer_required_and_history_append_only(client):
 
 
 def test_old_review_without_name_stays_completed(client):
-    item=upload(client);doc=wait(client,item['id'])
-    # The chunk job saves its own copy of the record; rewriting the document
-    # while it is still running can lose this test's review decision.
-    for _ in range(400):
-        status=client.get(f"/api/documents/{item['id']}/chunks").json()['status']
-        if status not in {'not_started','queued','processing'} and not main.CHUNK_ACTIVE:break
-        time.sleep(.05)
+    item=upload(client);doc=wait(client,item['id']);settle(client,item['id'])
     doc.update(quality='review',review_decision={'revision':1,'outcome':'accepted','checks':{'structure_correct':True}})
     doc['result']['issues']=[{'kind':'table','message':'检查表格'}];main.save(doc)
     main.event(doc,'review_accept')
