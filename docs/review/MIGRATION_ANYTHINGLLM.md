@@ -46,6 +46,36 @@ Embedding = 内置 `Xenova/all-MiniLM-L6-v2`（不联网）。
   需要在前端或提示词里处理；P18 原实现是显式关闭 thinking 的。
 - 中文检索依赖英文 embedding，命中率天然吃亏。要么换多语 embedding，要么接受。
 
+## 1.5 网关：P18 管身份，AnythingLLM 管检索
+
+AnythingLLM 桌面版没有数据级权限，所以用 P18 做前置网关（`app/gateway.py`）：
+
+```
+浏览器 → P18 (8896) 登录/会话/ACL
+            └─ POST /api/gateway/ask
+                 ├─ 取当前身份可见文档 → 命中哪些密级分区
+                 ├─ 只把请求转发给这些分区对应的 AnythingLLM workspace
+                 ├─ 取回答案
+                 └─ 逐条核对引用：映射不到可见文档的来源直接丢弃
+```
+
+- **路由**：按 `library_metadata.classification` 分桶（公开/内部/机密/未分类），
+  只查该身份确实有可见文档的分区；没有任何分区则 409，不转发。
+- **后置过滤**：AnythingLLM 返回的 `sources` 按文件名匹配 P18 文档并重新判权，
+  不匹配即丢弃并计数（响应里的 `dropped_sources`）。
+- **审计**：`runtime/.../gateway-audit.jsonl` 记录身份、分区、来源数、丢弃数、状态，
+  **不记录问题原文**。
+
+实测（dev = 启辰研发岗位）：
+
+```json
+{"identity":"启辰研发岗位","workspaces":["ad178479-…"],"sources":1,"dropped_sources":0,"status":"ok"}
+→ answer: "18分钟。"  sources: ["p18perm.docx"]
+```
+
+已知缺口：来源身份靠**文件名**匹配，AnythingLLM 不携带 P18 的文档 ID；
+同名文件会误判。要根治，得在上传时把文档 ID 写进 AnythingLLM 的文档元数据。
+
 ## 2. 能力对照
 
 | 能力 | P18 现状 | 迁移后 |
