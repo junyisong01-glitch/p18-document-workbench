@@ -1,0 +1,2 @@
+.p18-datasets{position:fixed;bottom:14px;right:14px;z-index:2000;background:#fff;border:1px solid #dce4ef;border-radius:12px;padding:10px 14px;box-shadow:0 3px 16px #14213d12;color:#17243d;font:13px/1.5 system-ui,sans-serif;max-width:310px}
+.p18-datasets label{display:flex;align-items:center;gap:10px}.p18-datasets select{font:inherit;padding:5px;border:1px solid #dce4ef;border-radius:6px;background:white;color:inherit}.p18-datasets small{display:block;color:#61708a;font-size:11px;margin-top:4px}.p18-datasets [role=status]{display:block;color:#b42318}

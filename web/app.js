@@ -14,6 +14,7 @@ const date = value => new Date(value).toLocaleString('zh-CN', {month:'2-digit',d
 function toast(text) { $('#toast').textContent = text; $('#toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').hidden = true, 4500); }
 async function api(path, options={}) {
   const response = await fetch(path, {...options, headers:{'X-P18-Client':'workbench',...(options.headers || {})}});
+  if(response.status===401){location.replace('/login');throw new Error('登录已失效');}
   const data = await response.json();
   if (!response.ok) {const error=new Error(typeof data.detail==='string'?data.detail:data.detail?.message||'请求未完成，请核对输入或稍后重试。');error.code=data.detail?.code;error.status=response.status;throw error;}
   return data;
@@ -39,8 +40,8 @@ function renderList() {
 async function refresh() {
   if(refreshing)return;refreshing=true;
   try {
-    const [docs,health]=await Promise.all([api('/api/documents'),api('/api/semantic').catch(()=>({enabled:false,error:'当前服务版本较旧，未提供语义能力接口；需要先安全重启，文档管理仍可使用。'}))]);
-    records=docs;semanticHealth=health;$('#list-error').hidden=true;renderList();
+    const [docs,health,library]=await Promise.all([api('/api/documents'),api('/api/semantic').catch(()=>({enabled:false,error:'当前服务版本较旧，未提供语义能力接口；需要先安全重启，文档管理仍可使用。'})),api('/api/library/documents').catch(()=>null)]);
+    records=docs.map(d=>({...d,library_lifecycle:library?.find(m=>m.id===d.id)?.lifecycle}));semanticHealth=health;$('#list-error').hidden=true;renderList();
     $('#library-service-note').textContent=health.enabled?'符合入库条件后自动切分并建立本地索引；只有索引有效才可检索。请在知识检索中核对片段与原文。':(typeof health.error==='string'?health.error:health.error?.message)||(!health.setup?.ready?health.setup?.message:'本地语义检索尚未启用；文档管理可继续使用。请通过原启动入口检查和启用。');
     searchUI?.sync(records,semanticHealth);
     if(current) {
@@ -235,6 +236,9 @@ window.addEventListener('DOMContentLoaded',()=>{
  searchUI=window.P18Search.create({api,esc,onShow(){document.body.dataset.view='search';$('#nav-rag').classList.remove('active');ragUI?.hide();current=null;detailRequest++;previewRequest++;$('#list-view').hidden=true;$('#detail-view').hidden=true;$('#search-view').hidden=false;$('#nav-documents').classList.remove('active');$('#nav-search').classList.add('active');$('#current-page').textContent='知识检索';}});
  searchUI.sync(records,semanticHealth);$('#nav-search').onclick=()=>{searchUI.show();refresh();};
  ragUI=window.P18LiveRag.create({api,esc,onShow(){document.body.dataset.view='qa';searchUI?.hide();current=null;detailRequest++;previewRequest++;$('#list-view').hidden=true;$('#detail-view').hidden=true;$('#search-view').hidden=true;$('#rag-view').hidden=false;$('#nav-documents').classList.remove('active');$('#nav-search').classList.remove('active');$('#nav-rag').classList.add('active');$('#current-page').textContent='知识问答';}});$('#nav-rag').onclick=()=>ragUI.show();
+ const entry=new URLSearchParams(location.search);if(['search','rag'].includes(entry.get('view')))$('#nav-documents').onclick=()=>{location.href='/library/';};if(entry.get('view')==='search')searchUI.show();if(entry.get('view')==='rag')ragUI.show();
+ const documentId=entry.get('document');if(documentId){$('#nav-documents').onclick=()=>{location.href='/library/';};$('#back').onclick=()=>{location.href='/library/';};refresh().then(()=>openDetail(documentId));}
+
 });
 document.addEventListener('click',e=>{const b=e.target.closest('[data-index-retry]');if(b)retryIndex(b.dataset.indexRetry);});
 $('#upload-open').onclick=openUpload;$('#empty-upload').onclick=openUpload;$('#file-input').onchange=e=>chooseFiles(e.target.files);$('#upload-submit').onclick=submitUpload;

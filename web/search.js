@@ -35,12 +35,12 @@
     function renderService(){
       if(!health?.enabled){const error=health?.error;$('#semantic-service').textContent=(typeof error==='string'?error:error?.message)||health?.setup?.message||'本地语义检索未启用，文档管理仍可使用。';}
       else if(health.setup?.ready===false)$('#semantic-service').textContent=health.setup.message+' 文档管理可继续使用。';
-      else {const ready=records.filter(d=>d.index?.searchable).length,building=records.filter(d=>['waiting','building'].includes(d.index?.status)).length,failed=records.filter(d=>d.index?.status==='failed').length;$('#semantic-service').textContent=`本地 Qwen 语义检索 · ${ready} 份可检索${building?` · ${building} 份索引准备中`:''}${failed?` · ${failed} 份索引失败`:''}`;}
+      else {const ready=records.filter(d=>d.index?.searchable && d.library_lifecycle!=='已废止').length,building=records.filter(d=>['waiting','building'].includes(d.index?.status)).length,failed=records.filter(d=>d.index?.status==='failed').length;$('#semantic-service').textContent=`本地 Qwen 语义检索 · ${ready} 份可检索${building?` · ${building} 份索引准备中`:''}${failed?` · ${failed} 份索引失败`:''}`;}
       setBusy(busy);
     }
     function sync(nextRecords,nextHealth){
       records=nextRecords;health=nextHealth;const value=$('#semantic-scope').value;
-      const options='<option value="">全部文档</option>'+records.map(d=>`<option value="${esc(d.id)}">${esc(d.name)} · ${esc(indexLabel(d.index))}</option>`).join('');
+      const options='<option value="">全部文档</option>'+records.map(d=>`<option value="${esc(d.id)}">${esc(d.name)} · ${esc(d.library_lifecycle==='已废止'?'已废止 · 已停用检索':indexLabel(d.index))}</option>`).join('');
       if($('#semantic-scope').innerHTML!==options){$('#semantic-scope').innerHTML=options;$('#semantic-scope').value=records.some(d=>d.id===value)?value:'';}
       const count=hits.length;hits=hits.filter(hit=>hitIsCurrent(hit,records));
       if(count!==hits.length){if(!hits.some(h=>h.chunk_id===selected)){selected=null;resetPreview('来源版本或审核状态已变化，请重新搜索。');}$('#semantic-status').textContent='已移除失效结果，请重新搜索。';renderHits();}

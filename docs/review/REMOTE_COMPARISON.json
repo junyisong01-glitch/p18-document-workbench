@@ -1,0 +1,72 @@
+[
+  {
+    "branch": "origin",
+    "commit": "ee84209849c4512206777ebcddcf7fafcd8db408",
+    "runtime_files_missing_or_different": 78
+  },
+  {
+    "branch": "origin/codex/p18-external-permissions",
+    "commit": "387a70be57e344e325bda3e27a8ee45ee91e5c42",
+    "runtime_files_missing_or_different": 84
+  },
+  {
+    "branch": "origin/codex/p18-m2-002-001-stage1",
+    "commit": "02a6f68895d81863ef5281c6bc04f9517fd8fe80",
+    "runtime_files_missing_or_different": 132
+  },
+  {
+    "branch": "origin/codex/p18-m2-009-010-002-ui",
+    "commit": "17bc5c65b059b3ddc2ba0de6b32460cab29ed4d7",
+    "runtime_files_missing_or_different": 128
+  },
+  {
+    "branch": "origin/codex/p18-m2-009-010-backend",
+    "commit": "f7aec08fd8da571dc5ba213fc34144f448fe913e",
+    "runtime_files_missing_or_different": 130
+  },
+  {
+    "branch": "origin/codex/p18-m3-001-rag",
+    "commit": "e7e835ecda236ba646534aceeec7e855d29f3f6f",
+    "runtime_files_missing_or_different": 117
+  },
+  {
+    "branch": "origin/codex/p18-m3-002-a-qa-ui",
+    "commit": "fbeaf904a39395307cc7f7a89e50c088fd560620",
+    "runtime_files_missing_or_different": 87
+  },
+  {
+    "branch": "origin/codex/p18-rag-fix-001",
+    "commit": "4db3f4145141de73e54c407b6551a756ab1e4f1d",
+    "runtime_files_missing_or_different": 84
+  },
+  {
+    "branch": "origin/codex/p18-rag-natural-language",
+    "commit": "2633cf7e568d3deb25058ef56dc32ab967401cef",
+    "runtime_files_missing_or_different": 78
+  },
+  {
+    "branch": "origin/codex/p18-retrieval-003-isolated",
+    "commit": "dd8574de24af4c65e9db5d9021973b44816f80da",
+    "runtime_files_missing_or_different": 126
+  },
+  {
+    "branch": "origin/codex/p18-stage1-p2-chunking",
+    "commit": "e75dbbd3579777d390dcfca8a8dbe64a7eaaad58",
+    "runtime_files_missing_or_different": 131
+  },
+  {
+    "branch": "origin/docs/p18-m2-decisions-20261016",
+    "commit": "60eab1210ffa5c067c3b8299d5a43a1a4841b124",
+    "runtime_files_missing_or_different": 134
+  },
+  {
+    "branch": "origin/main",
+    "commit": "ee84209849c4512206777ebcddcf7fafcd8db408",
+    "runtime_files_missing_or_different": 78
+  },
+  {
+    "branch": "origin/p18-test-documents-20261020",
+    "commit": "c09c41bc7e162536ec8406ea1e774fefe99dac8e",
+    "runtime_files_missing_or_different": 117
+  }
+]

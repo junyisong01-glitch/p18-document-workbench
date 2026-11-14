@@ -1,333 +1,48 @@
-# P18 文档工作台
+# P18 Demo V1 — 源码审查分支
 
-本地运行的研发文档管理原型。需求以 `开发记录.md` 为准。
+这是当前8896体验版的代码归集，不是生产发布。基于GitHub main ee84209；运行中的Mac工作台没有被覆盖。
 
-## ChatGPT 与 Codex 协作入口
+包含FastAPI后端、React/TypeScript文件库、原生JavaScript检索/问答页面、Excel解析、E2结构切分、Qwen Embedding接口、Qdrant/SQLite、RAG人工证据确认、四岗位和只读双数据源适配。未默认启用任何Reranker或失败的新提示词。
 
-- [项目进度](项目进度.md)：先读，查看已完成、未完成、验证及下一步。
-- [开发记录](开发记录.md)：详细需求、边界与决定历史。
-- [执行方案](执行方案.md)：ChatGPT 讨论后按模板形成任务，用户指定编号交给 Codex。
-- [Codex 协作约定](AGENTS.md)：开工读取记录、按需验证并更新结果。
+**不包含账号密码、API Key、数据库、模型、30份原件、真实ACL、历史试题或测试答案。首次检出是空库，不会自动出现本机的6份或30份资料。**
 
-共同基准为本仓库 `main`，每次读取需注明实际提交 SHA。ChatGPT 需要用户连接 GitHub 并授权此私有仓库；可写时用独立分支和 PR 保存方案，不可写时将方案复制给 Codex。写入方案不自动触发执行，发布也不会自动同步聊天。
+## 本地准备
 
-首次连接后可向 ChatGPT 发送：
-
-> 请读取 junyisong01-glitch/p18-document-workbench 仓库 main 分支最新的《项目进度.md》，按需查看《开发记录.md》和《执行方案.md》，先报告实际读取的提交 SHA，确认当前规则切分第一阶段的本地实现与发布状态、向量化和索引尚未实现，再按进度清单继续讨论。读取失败请明确说明，先不要执行。
-
-代码和记录随提交发布；上传文件、预览、数据库、日志和密钥保留本地。ChatGPT 端读取是否成功，须连接后实际验证。
-
-## 怎样打开
-
-1. 在 Finder 中打开本项目文件夹。
-2. 双击 **启动文档工作台.command**。
-3. 等待浏览器自动打开 **http://127.0.0.1:8765/**。
-
-已经启动时可直接访问该地址。关闭浏览器或启动终端窗口不会删除文档；电脑重启后再双击启动入口。不要双击 `web/index.html` 当作工作台入口：它是网页源文件，无法独立处理文档。误打开时现在会显示引导。
-
-当前机器的环境已经安装。启动入口会检测已运行的工作台，避免重复启动；端口被其他程序占用时明确提示，不会杀死其他进程。运行日志在 `runtime/server.log`。
-
-## 可以体验什么
-
-- 单个或批量上传 PDF / DOCX / DOC，真实解析并持久保存。
-- DOC 转换副本、原文预览与实际提取内容对照；转换预览会注明排版可能变化。
-- 问题页定位、合并单元格等规则提示、分类复核记录、风险标识保留。无异常自动待构建；有异常按类别勾选核对后放行，有误或无法判断则暂不入库。
-- 符合入库条件后自动进行本地规则整理与切分，原始提取结果完整保留。详情两侧的选择框增加“切分结果”，显示真实片段、来源、参数与风险。
-- 已保存待构建请求；切分成功仍不等于可检索，向量化和索引尚未执行。旧版已确认的异常文档需补充一次分类复核。
-- 文件去重、同名替换、失败重试、删除及关联文件清理。
-- `runtime/samples/` 为自行编写的虚构样例，资料库已有用于测试的样例记录。
-
-## 当前边界
-
-- 向量索引、语义检索和问答尚未实现。满足入库条件后自动显示“待构建”，并非可检索；相关完整生命周期待后续模块接入。
-- 仅绑定本机 127.0.0.1，没有团队账号或远程访问部署。当前不调用外部模型，不做 OCR。
-- 质量检查是可解释的规则提示，不保证发现所有错误，不提供准确率评分。
-- Word 预览已修复本机转换程序的中文字体配置，并通过中文正文和表格样例验证；转换仍可能改变排版，请结合原文件下载与实际提取结果核对。
-- 页面视觉尚未最终确认。企业样例尚未到位，模拟测试不等于企业验收。
-- 当前元数据使用 SQLite，解析和预览使用 PyMuPDF、python-docx、LibreOffice。完整架构可在后续阶段调整。
-- PyMuPDF 采用 AGPL / 商业双许可；本项目尚未确定成果许可，后续分发或部署前需核对依赖许可。项目仍限教学原型。
-
-## 模块二第一阶段：本地规则切分
-
-任务编号：P18-M2-002-001。所有片段统一存入本地 SQLite，无项目分类；不调用模型或外部 API。
-
-验收步骤：打开工作台 → 上传文字 PDF / DOCX / DOC → 完成必要复核 → 查看详情 → 在右侧选择“切分结果”。可查看数量、所属章节、完整文本、配置及风险；PDF 来源跳转到真实页码，Word 来源定位到原始提取段落或表格（DOC 对应转换副本），不提供虚构页码。切分状态区分尚未开始、排队、处理中、完成、失败及配置过期。
-
-开发者参数通过启动进程的环境变量配置，无设置页面：
-
-```sh
-P18_CHUNK_TARGET=500 P18_CHUNK_OVERLAP=50 .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8765
-```
-
-长度按 Unicode 字符计算（不是 tokens）；目标范围 80–20000，重叠非负且小于目标的一半。500/50 只是测试初值。重叠仅在同一章节/页的普通正文边界复用能完整容纳的一句，可少于设置值或为零；表格、代码和步骤不强制重叠，允许超过目标长度。
-
-修改环境变量需重启服务。启动时自动检查符合条件的文档，配置或解析结果变化后整批重新切分。服务运行中若检测到旧配置，旧片段不再提供使用，可在“切分结果”点击“重新生成”。同配置、同解析结果的完成请求会复用结果；失败时可重试。算法变化需更新 `app/chunking.py` 的 METHOD 版本，避免复用旧算法结果。完整向量索引重建仍待第 12 项讨论。
-
-数据库仅新增 `chunk_runs`（状态、配置、来源摘要及整理结果）和 `chunks`（片段）。发布时复验审核、解析版本与配置，事务性替换该文档全部片段；删除、替换或撤销入库条件会清理对应结果。原提取内容不覆盖。
-
-已知限制：
-
-- 不自动删除页眉页脚或重复技术条款，也不自动衔接无法确认的跨页正文；PDF 不能可靠恢复双栏顺序。
-- 现有 PDF 表格缺少正文偏移映射，整页保留并附已有表格结构，不猜测删除或重复拼接表格文字。
-- 新版 Word 结构化表格整表保留，避免跨行合并关系被拆断，允许超过目标长度；按关联行组进一步优化尚未实现。历史无单元格结构元数据的长表格仍兼容首行上下文分组。代码按明确围栏、代码样式或明显语法识别，无法保证识别所有语言和函数。
-- 本机 LibreOffice 的 DOC 往返转换样例出现表格压平成普通文字；切分只保留转换后实际提取结果，不恢复或编造行列。需结合原件核对，相关警告会关联到片段。
-- 只读预览已实现；第 7 项编辑/调整等细节尚未完成。AI 参数推荐、向量化、检索、问答、OCR 均不在本次范围内。
-
-## 首次安装或另一台机器
-
-需要 Python 3.12+，以及 LibreOffice 命令行转换工具。
+建议Python3.12、Node20及以上。以下只操作新检出目录，不连接既有8765/8876/8896数据：
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -r requirements-dev.txt -r requirements-semantic.txt
+cd frontend
+npm ci
+npm run build
+cd ..
+.venv/bin/python scripts/prepare_review.py
+.venv/bin/python scripts/experience.py --local
 ```
 
-转换工具优先读取 `SOFFICE_PATH` 环境变量；本机可使用已有的 Codex 打包转换程序；其他机器使用 PATH 中的 `soffice`。未配置时 DOC 转换会明确失败，Word 转换预览不可用；不会假装成功。
+启动默认127.0.0.1:8896；先确认没有占用，禁止在实际运行目录执行上述初始化。已有服务时启动器只打开现有页。依赖安装由审查者在自己环境明确执行，本轮没有安装。
+
+实际检索需要单独准备固定的Qwen/Qwen3-Embedding-0.6B权重，revision `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`，1024维。缓存位置见config/demo-v1.json；本地推理不外发文档。未提供模型时不得宣称索引或检索已通过。DOC/Word预览还需要LibreOffice；通过SOFFICE_PATH指定本机转换器，未捆绑Mac软件。
+
+日常使用：双击“启动P18体验工作台.command”。需要真实AI时使用“启用P18真实AI.command”隐藏输入一次密钥；不会自动提问，但确认发送可能计费。未配置时管理和检索仍可用。禁止把真实企业机密用于外部问答；发送前撤权竞态尚未根治。
+
+## 第二知识库
+
+默认config/qichen-libraries.json禁用。只有独立获得资料访问权后，才在本机填写已有数据目录和逐文档ACL；**不要把真实配置提交Git**。结构见docs/review/DATASETS.md。使用已有向量的只读加载器，不重新向量化，不复制建立第二套索引；两库共享本地Embedding提供者。权限不能从文件夹或客户端岗位字段获得。
+
+既有本机演示成绩与本轮源码测试结果分开记录，见docs/review/STATUS.md。已有运行数据不是Git源码的一部分，没有授权数据时无法在其他电脑复现30份库的检索成绩。
+
+## 测试与审查
 
 ```sh
-# 前台启动，按 Ctrl+C 停止
-.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8765
+.venv/bin/python -m pytest -q tests
+node --test tests/*.cjs
+cd frontend
+npm run typecheck
+npm run build
 ```
 
-不要改为公网监听；团队访问保护尚未实施。
+tests/通过代码构造虚构文档、工作簿和模拟客户端；不会调用真实DeepSeek。scripts/中的历史实验/预览入口保留供参考，不是本版主启动路径。不要运行旧默认8765入口进行本次审查。
 
-## 测试与样例
-
-```sh
-.venv/bin/python -m pip install -r requirements-dev.txt
-.venv/bin/python -m pytest -q
-.venv/bin/python scripts/create_samples.py
-```
-
-样例生成脚本仅使用虚构内容。上传文件、解析副本、SQLite、日志、测试截图和运行环境都在 Git 忽略范围内，不推送 GitHub。
-
-私有仓库：https://github.com/junyisong01-glitch/p18-document-workbench
-
-
-## 本地语义检索后端（P18-M2-009-010 阶段一）
-
-阶段一后端现已接入同一 P18 工作台的“知识检索”页面，提供真实结果及同页原文对照，不生成回答。新服务首次可通过原启动入口选择开启并保存设置；不会替换或自动停止已经运行的旧服务。启用后，符合已有入库条件的当前片段自动排队索引。
-
-安装可选依赖并显式下载官方模型（不上传任何资料）：
-
-```sh
-uv pip install --python .venv/bin/python -r requirements-dev.txt -r requirements-semantic.txt
-.venv/bin/python -m scripts.download_embedding
-```
-
-如没有 uv，可用项目 Python 环境的 pip 安装同一依赖文件。下载约1.2GB权重至 Hugging Face 用户缓存，不进入仓库。默认固定 Qwen/Qwen3-Embedding-0.6B 提交 `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`。运行仅使用本地缓存、禁用远程代码；缓存缺失会失败，不自动下载、不切换外部 API。
-
-启动一个独立数据目录，避免操作现有资料（路径请自行选定）：
-
-```sh
-P18_DATA_DIR=/private/tmp/p18-semantic-demo P18_SEMANTIC_ENABLED=1 .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8767 --workers 1
-```
-
-Qdrant 本地目录锁要求每个数据目录只用一个服务进程，不使用多个 worker；数据库锁失败会明确显示后端未就绪。SQLite 新增 index_runs，Qdrant 存在所选数据目录的 qdrant/。原来的上传、解析、审核与切分接口继续使用；不要把开启新数据目录误认为原资料丢失。现有8765/8766服务本轮未重启或迁移。
-
-接口：
-
-- `GET /api/semantic`：配置、模型是否已加载、最近错误及运行指标，不为健康检查加载权重。
-- `GET /api/documents/{id}/index`：not_started / waiting / building / complete / failed / stale；未满足条件为 blocked，后端禁用为 disabled。仅 complete 且版本有效时 searchable 为 true。
-- `POST /api/documents/{id}/index`：JSON `{"revision": 当前解析版本}`，有效片段的幂等建立或失败重试。复用当前入库和审核规则，不强行放行。
-- `POST /api/search`：JSON `{"query":"付款请求一直没有响应怎么办？","top_k":5}`；可加 `document_id` 限定一份文档。问题最多2000字符，Top-K为1–50，默认5；返回排名、真实余弦相似度、完整片段、版本、来源及风险。没有有效索引时返回 no_index，没有当前有效命中时为 no_results；模型/检索异常返回503和错误分类。
-- 写请求继续要求 `X-P18-Client: workbench`；例如 `curl -H 'X-P18-Client: workbench' -H 'Content-Type: application/json' -d '{"query":"付款请求一直没有响应怎么办？"}' http://127.0.0.1:8767/api/search`。
-
-开发者配置通过环境变量修改并重启：`P18_SEARCH_TOP_K`（默认5），`P18_EMBEDDING_DIMENSION`（默认1024，32–1024），`P18_EMBEDDING_MAX_TOKENS`（默认4096，128–32768），`P18_EMBEDDING_TIMEOUT`（默认180秒，最多600秒），`P18_EMBEDDING_REVISION`（仅完整官方模型提交SHA）。更换版本需先显式下载相应权重。不支持更换其他模型名称或自动外部回退。
-
-CPU float32、最后token池化、归一化和查询英文指令遵循模型用法；文档不添加查询指令。一个独立模型进程串行逐条编码，防止多份文档同时加载权重；超时终止该进程，后续可重试。超长片段明确失败而非截断。失败区分 model_unavailable、embedding_timeout、input_too_long、embedding_failed、index_write_failed 等。
-
-索引按模型与配置哈希隔离集合；文档/切分版本变化使索引失效。先写真实向量，再在 SQLite 核对版本并发布 complete。检索只查询 SQLite 当前有效片段的向量标识，返回前再次核验。清理异步排队，旧向量即使尚未物理删除也不会返回；重启恢复中断任务，完整索引不重复建立。Qdrant 不存第二份正文。此机制是本机单进程可恢复方案，不是跨数据库分布式事务。
-
-复现实测（仅独立虚构样例和临时目录）：
-
-```sh
-.venv/bin/python -m scripts.validate_semantic
-P18_TEST_LOCAL_EMBEDDINGS=1 .venv/bin/python -m pytest -q
-```
-
-普通测试默认跳过真实模型验收；上面命令显式开启后才包含真实权重、持久化和 Top-5 效果验证。实测问题、排名、分数及限制见 [阶段一验证记录](docs/semantic-validation.md)。相似度不是答案正确率；未设经过业务验证的相关性阈值，小规模虚构样例成功不等于企业验收。Qdrant本地模式针对教学原型，不承诺大规模性能。
-
-
-## 语义检索前端与原工作台启动（P18-M2-009-010-002）
-
-双击原来的 `启动文档工作台.command` 即可。服务未运行、依赖及模型已齐全时，首次会显示实际资料目录，并询问是否启用本地知识检索；输入y后保存选择，之后不必重复输入复杂命令。已有运行服务只会检查并复用，绝不自动杀死、切换数据目录或下载模型。
-
-旧服务只有文档接口或未按要求启用时，启动器会明确要求先安全重启，不能把 `/api/config` 健康当成检索已启用。依赖或缓存缺失时，可先启动文档管理；检索页面显示具体原因。安装与模型下载仍按上文手动执行，不调用外部推理API。
-
-**当前机器的服务边界（2026-10-17验收）**：8765为原runtime资料库，8766为此前隔离资料库，两者均未被本任务重启或迁移。8767只用于本任务独立测试目录，运行的是同一套工作台代码，不是第二个正式站点。不要在8767找原有10份资料。
-
-安全接入原资料库：
-
-1. 先审阅本PR并确认正式切换；本轮未执行正式切换。
-2. 确认8765实际使用的原数据目录和PID，经用户确认后安全停止原服务；启动器不会代为执行此操作。
-3. 双击原启动文件，确认显示的仍是原runtime目录，选择启用。首次会只读检查SQLite结构和完整性，并将SQLite一致性快照、files/及已有qdrant/复制到 `runtime/backups/before-semantic-时间标识/`，成功后才启动索引服务。
-4. 核对原文档数、原件哈希和审核记录；新索引只读取当前有效片段，后台状态完成后才显示“可检索”。
-5. 如需回退，可先经确认停止该服务并关闭检索功能继续使用文档管理；若确需恢复备份，必须停止对应实例、保留当前目录并经用户确认后恢复，不能覆盖运行中的SQLite。启动器不自动恢复或删除数据。
-
-运行设置保存在所选数据目录的 `launcher.json`，不会进Git。每个Qdrant目录仅运行一个服务进程。非交互开发可使用 `--enable-semantic` / `--disable-semantic`；运行中状态不同会拒绝自动重启。原启动方式保持不变。
-
-页面用法：点击“知识检索”→输入问题→选择全部文档或一份文档→搜索。左侧显示真实排名、原文片段与相似度，右侧预览选中来源。PDF按可靠物理页定位；Word仅使用可靠转换页关联。无法定位时先显示结构位置，用户可选择“从首页浏览文档（非来源定位）”或下载原文件。长片段可展开，预览适应宽度，不增加复杂缩放设置。知识问答仍未开放。
-
-文档管理区显示真实索引状态；失败且符合条件的文档可“重试索引”。页面忙时约4秒刷新，空闲约10秒，后台约20秒，不会让审核通过或切分完成直接变成可检索。旧缓存片段在文档、索引版本或审核状态变化后移除，点击预览还会重新核验。
-
-独立浏览器验收记录、真实Top-5及未测试边界见 [前端验收记录](docs/semantic-ui-validation.md)。可生成同一组虚构样例：
-
-```sh
-.venv/bin/python -m scripts.create_semantic_ui_samples /private/tmp/p18-ui-samples --include-limit-case
-```
-
-输出目录须不存在；脚本不会覆盖现有资料。通过工作台上传样例后，合并表格需按既有规则复核，超长表格用于验证真实输入上限失败。不要把这些样例当成企业验收。
-
-### 可选混合检索（P18-M2-RETRIEVAL-003，尚未正式启用）
-
-默认仍为原纯向量检索。开发者可在**独立实例**启动前设置：
-
-- `P18_SEARCH_MODE=vector`：原方案及显式回退。
-- `P18_SEARCH_MODE=hybrid`：向量与轻量BM25各取内部候选，等权RRF融合。
-- `P18_SEARCH_MODE=hybrid_dedup`：融合后保守合并相同内容，保留每个来源的版本、风险及原文入口。
-- `P18_SEARCH_CANDIDATES=20`：混合候选数，范围5–50；最终Top-K仍沿用原配置。请求级 `mode` 可覆盖默认，便于隔离评测；不新增普通用户参数面板。
-
-BM25使用中文二元字串/拉丁标识符，k1=1.2、b=0.75；RRF k=60。不混加余弦和词法分数。词法候选仅来自当前有效索引关联的SQLite片段，查询后再次核验版本/审核/token，无需重切分或改向量。词法独有候选的余弦分数也由当前Qdrant实际查询获得，不填写模拟值。该实现按小库扫描，尚无大库性能保证。
-
-API返回 `retrieval_mode`，混合结果另有 `fusion_score`；`score`始终是原始向量相似度，不是RRF分数或正确率。合并结果 `members` 保留各文档、片段、解析版本、token、原始正文、风险和来源，前端可分别打开。失效成员会使缓存组被保守移除，重新搜索可获得当前组。
-
-独立题集在开发前冻结：`tests/fixtures/retrieval_holdout.json`。复现隔离评测：
-
-```sh
-.venv/bin/python scripts/experiments/validate_hybrid.py --port 8768 --cases tests/fixtures/retrieval_holdout.json --output /tmp/p18-holdout-result.json
-```
-
-评测脚本拒绝8765/8766/8767保护端口。当前独立结果存在Top-1退步及无答案风险，**不建议直接替换正式默认方案**。先审阅[验收记录](docs/semantic-ui-validation.md)，再决定下一轮，不自动启用或合并。
-
-## P18-M3-001：DeepSeek RAG 第一阶段（独立分支，未部署正式库）
-
-已有工作台增加知识问答：先在本地检索Top-20，保守整理最多8组完整获准证据；用户逐轮核对问题、最近必要历史和实际文本后，才可请求非流式参考回答。沿用当前vector/hybrid/hybrid_dedup配置，不改变全局默认。引用窗口只显示后端核验编号对应的实际来源，编号核验不等于事实正确。
-
-### 后端配置
-
-仅通过本机后端环境变量读取密钥 `DEEPSEEK_API_KEY`，不要粘贴到聊天、前端、源文件或Git。当前不自动读取.env，也不自动调用API。未配置密钥时文档管理与知识检索不受影响。
-
-| 配置 | 默认及范围 |
-| --- | --- |
-| P18_DEEPSEEK_BASE_URL | https://api.deepseek.com，可配置兼容HTTPS地址；不接受含凭据/查询/片段地址，不跟随重定向 |
-| P18_DEEPSEEK_MODEL | deepseek-flash |
-| P18_DEEPSEEK_TIMEOUT | 60秒，1–120 |
-| P18_DEEPSEEK_MAX_TOKENS | 1500，128–4000 |
-| P18_RAG_EVIDENCE_COUNT | 8，5–10；可用证据不足时不凑数 |
-| P18_RAG_CONTEXT_CHARS | 20000，2000–64000；按完整证据组计预算，不静默截断表格/代码；历史过长时减少整轮 |
-| P18_RAG_HISTORY_TURNS | 3，3–5；仅临时内存，30分钟过期，不建聊天数据库 |
-
-官方依据：[Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/)（2026-10-18核对，deepseek-flash、JSON输出、非流式及thinking disabled）。原文、历史和模型输出均是不可信数据，系统提示禁止执行文档指令；没有工具调用或Agent。真实模型的事实准确性及提示注入抵抗力仍须单独实测。
-
-### 文档外发许可：默认全部无许可
-
-由本机操作者先人工确认文档确为完全虚构或已脱敏，再使用**明确指定的隔离数据目录**操作；不要给现有正式资料批量自动授权：
-
-```sh
-.venv/bin/python scripts/rag_permissions.py --data-dir /绝对路径/隔离数据目录 --document-id 文档UUID --revision 1 --reviewer 人工确认人 --classification fictional --confirm-external
-```
-
-脱敏文档使用`deidentified`；撤销时加`--revoke`。命令只读SQLite，原子写入数据目录内0600权限的`rag-permissions.json`。记录绑定文档UUID、解析版本、原件哈希及提取结果指纹；替换/重解析/删除不继承。人工分类是操作者声明，不是系统自动脱敏或身份认证。许可不改变原人工审核结论，检索仍须通过入库/索引有效性检查。
-
-每轮分两步：`POST /api/rag/prepare`仅本地检索，返回180秒有效的一次性发送预览；`POST /api/rag/answer`必须带明确`consent:true`及对应ticket。未经许可的成员不进入预览或请求；目标地址/模型配置改变须重新确认。发送前再次核验许可、文档及历史证据；返回后再次核验，失效则不发布。请求发送后发生的撤销无法追回已外发内容，因此不能承诺撤回网络中已发送的数据。
-
-连续追问由后端临时会话保存最近3轮有效问题/回答，轻量本地规则用上一问题扩展检索；每轮重新检索，不用历史答案代替证据，也不为指代多调用一次模型。多对象或无上下文时要求澄清；复杂指代仍可能需要显式姓名/项目。历史来源失效/撤销许可时要求清空会话。刷新页面不保存会话ID，页面立即清空，服务器匿名内存最多保留30分钟后清理。
-
-引用用S1等后端编号；校验编号、实际提供文本、当前文档/片段版本和索引token。无效编号、伪造页码/文件名或缺引用的事实回答不发布。回答正文仅作转义文本展示；原文窗口再次核验版本，PDF可靠页码或Word可靠转换页/结构信息，支持Esc关闭、焦点恢复及滚动查看。查看检索依据为只读；勾选候选、保存选择和可选重新生成留第二阶段。
-
-### 免费的本地模拟API验收
-
-`scripts/serve_rag_demo.py`仅用于新隔离目录及新端口，明确标识“模拟API验收（未调用DeepSeek）”，**没有外部HTTP调用**。它是固定虚构样例的测试替身，不代表真实DeepSeek问答质量。
-
-```sh
-.venv/bin/python scripts/serve_rag_demo.py --data-dir /绝对路径/p18-rag-新目录/data --port 8769
-```
-
-不要覆盖已有8769目录，也不要使用8765–8768保护端口。该脚本不自动上传或授权；按正常工作台流程上传完全虚构文档、完成必要复核，再用上面的CLI确认文档许可。真实服务用普通启动器和后端环境配置，不能用demo替代真实API验收。真实调用需要另行明确授权；不自动重试，超时/失败可能已计费。
-
-测试：`.venv/bin/python -m pytest -q`，`node tests/rag_helpers.cjs`。完整本轮结果和浏览器验收见 [RAG验证记录](docs/rag-validation.md)。本轮未提交推送、未部署8765，真实DeepSeek调用0次，付费端到端验收未完成。
-
-
-### RAG回答状态协议（本地修复，运行服务须另行授权更新）
-
-模型响应必须包含status、answer和citations。status为answered/partial时要求有效引用；insufficient_evidence时后端输出规范拒答及空答案引用，保留检索依据供查看，不依赖固定拒答措辞。API以answer_status返回该状态，外层status仍为请求完成状态。拒答中的未知编号/不一致引用仍报错，已知一致引用不作为拒答的事实依据。错误仅返回安全细分码，不保存完整模型响应。该协议不证明答案事实正确，详情见docs/rag-validation.md。
-
-## 新版知识问答界面预览（P18-M3-002-A）
-
-独立运行 `python3 scripts/preview_qa.py --port 8771`，打开 [01首页](http://127.0.0.1:8771/?qa-preview=01)、[04证据选择](http://127.0.0.1:8771/?qa-preview=04)、[10回答结果](http://127.0.0.1:8771/?qa-preview=10)。建议1440×900、100%缩放对照。
-
-这是明确标识的虚构静态预览，不连接知识库、许可文件或DeepSeek，不替代原启动入口。不要把固定演示内容当作真实回答。其余状态待下一批授权；[已验证与限制](docs/qa-design-validation.md)。
-
-第二批已补齐第四版13种状态（仍为虚构前端模拟）。[全部页面开发验收入口](http://127.0.0.1:8771/static/qa/review.html)提供逐页链接；第13号不加入普通问答导航。直接状态地址使用`?qa-preview=01`至`13`。从首页推荐问题可体验模拟检索→勾选证据→模拟确认→固定证据摘录；历史项“项目负责人与导师”进入追问样例。刷新不保存选择/历史，没有真实DeepSeek请求。尚未接入真实后端，详见[第二批验收记录](docs/qa-design-validation.md)。
-
-### 新版问答接线隔离验收（P18-M3-002-B-002）
-
-当前独立预览：[http://127.0.0.1:8772/](http://127.0.0.1:8772/)→知识问答。
-真实本地Qwen检索、后端人工选择及来源校验；回答为清楚标注的捕获模拟，**不调用DeepSeek**。不能据此判断真实模型回答质量。
-
-需要重新创建验收环境时，仅在8772空闲且使用新目录的情况下运行：
-
-```sh
-.venv/bin/python scripts/serve_qa_integration.py --data-dir /private/tmp/p18-qa-8772-新编号
-# 在另一个终端初始化空验收库；不得指向原有用户库
-.venv/bin/python scripts/seed_qa_integration.py --data-dir /private/tmp/p18-qa-8772-新编号
-```
-
-工具会拒绝未标记目录/非空库；仅生成完全虚构PDF，显式授予其中测试资料许可，不自动通过异常复核，不自动下载模型。仅该验收进程设置hybrid_dedup，正式默认不变。不要在服务已经运行时重复启动。
-完整操作、结果与局限见[接线验收记录](docs/rag-validation.md)。原13态设计预览仍使用`?qa-preview=01`等入口，与真实本地业务流程分开。
-
-
-### P18-M3-002-D 隔离交互预览（模拟模型）
-
-独立开发分支中可用8774，绝不使用正式数据目录：
-
-```sh
-env -u DEEPSEEK_API_KEY .venv/bin/python scripts/serve_qa_interactions.py --data-dir /private/tmp/p18-qa-8774-新目录
-```
-
-页面地址 http://127.0.0.1:8774/ 。首次新建的标记空库可用`seed(data, port=8774)`生成虚构验收样例（scripts/seed_qa_integration.py）；拒绝非空库和不匹配目录。使用本地已缓存Qwen，DeepSeek仅模拟回显，外部推理被禁用，不需要Key。原文栏可拖动；可靠PDF文字可高亮；同问题重新生成后用回答版本选择器查看旧答。版本仅页面会话内保存，必要追问历史使用最新回答，刷新清空。具体测试、限制及修改文件见[交互验收记录](docs/qa-interactions-validation.md)。
-
-
-### 8774 三模块统一隔离测试入口（P18-UI-001）
-
-打开仓库根目录 `启动隔离测试工作台.command`，随后在Mac浏览器访问 **http://127.0.0.1:8774/**。三个模块使用同一现有虚构库；知识问答明确为模拟回答，不需输入Key、不产生外部推理费用。终端保持运行。入口核对实际服务与数据目录，未知端口占用会拒绝，不会关闭其他服务。此工具仅适用于已有标记的8774验收库，不创建或迁移正式数据。
-
-验收详情及限制见 [docs/unified-ui-validation.md](docs/unified-ui-validation.md)。正式启动方式不变，勿以此入口替代正式工作台。
-
-
-P18-UI-002：8774三模块现在使用固定全局图标导航。问答左栏为本标签页真实临时会话，可新建和切换，刷新后清空；草稿返回会重新核验，不恢复旧发送同意。检索/原文分隔线支持拖动、方向键和Home/End；窄屏上下排列。仍为真实本地Qwen＋模拟回答，不需要Key、不产生API费用。完整结果与限制见上述统一验收记录的UI002章节。
-
-
-### INT-002：过期恢复与外发许可
-
-后端临时会话闲置30分钟、确认票据/草稿3分钟后可能失效，重启也会清空后端会话。点击“重新检索与核验”即可保留标签页内旧问题、旧回答和版本，再重新检索、选择与人工确认；恢复后的后端会话不带入旧历史，指代问题请补充为完整问题。刷新标签页仍会清空临时会话。不会自动发送、自动重试或复用旧票据。
-
-“本地可检索”不等于“已获准外发”。问答候选先列获准外发通道，再补充全库本地通道，通道内排名不是全库总排名。未获准资料可在本机预览，不能勾选。本页没有授权按钮。方案A仅允许人工核对为完全虚构的资料、问题与必要历史；公开、格式转换或仅脱敏文件不因此自动获准。
-
-操作员须先从当前文档详情/候选取得文档ID和解析版本，核对完全虚构及授权范围后，按既有 `scripts/rag_permissions.py --help` 指引填写 `--data-dir`、`--document-id`、`--revision`、`--reviewer`、`--classification fictional` 与 `--confirm-external`。不要使用其他环境的数据路径。文档重新解析或替换后应重新人工核验许可；许可后重新检索，生成前仍须逐轮确认。本轮不会自动执行该操作。
-
-8774为真实本地Qwen＋模拟证据回显服务，不代表DeepSeek回答质量；新文件未获准时，不应把其他获准片段当作该文件的答案。整合验收见 [INT-002记录](docs/integration-validation.md)。
-
-### 本机文档外发审核（独立分支待审）
-
-文档详情的“外发权限”支持完全虚构资料或经人工核对的公开资料（`public_verified`），三项检查全选后由后端按ID/解析版本/内容指纹授权。无口令或身份认证，明确为本机未认证人工操作，不自动核实公开来源；默认仅本地，不批量授权。撤销、逐轮预览/实际接收地址确认及来源核验保持。记录保存在当前SQLite的external_permissions/external_audit，首次写入自动创建，不改变原索引。详见[实现、验收及回退边界](docs/external-permission-validation.md)。
-
-只用全新虚构资料预览（模拟模型，真实外部调用被阻止）：
-
-```sh
-.venv/bin/python scripts/serve_permission_preview.py --data-dir /private/tmp/p18-permission-preview-8776 --port 8776
-```
-
-在Mac访问 `http://127.0.0.1:8776/`。此脚本拒绝正式/未标记旧目录及8765—8775端口，不复制任何正式数据，不读取密钥。真实部署须另行授权；方案B严格撤销仍为后续待办。
-
-### 自然中文问答的证据装配修复
-
-RAG沿用当前检索模式取得Top20后，复用保守等价规则合并重复来源，保留每个成员的真实身份、版本、原文、风险与许可校验。模型消息只排除本地原文定位树；完整定位仍保留在票据和引用中。容量按确认弹窗可核对的实际完整messages计，不截断所选正文、不自动扩展全文，人工改选超预算仍阻止发送。
-
-修复背景、真实本地Qwen及模拟验证、尚未完成的真实DeepSeek验收见[自然中文问答验收](docs/rag-natural-language-validation.md)。本轮独立预览为http://127.0.0.1:8780/，仅虚构资料和禁止外部HTTP的CaptureClient，不能视为正式8765已升级或真实模型已验收。
-
-
-### PR #11 补修（2026-10-27）
-
-模型消息对完全相同的多来源正文只发送一份，保留各来源身份、版本与风险；正文有差异时保留各自原文。修复重复长正文仍超预算而被整组排除的问题。Python 358 通过、1 跳过，前端 171 项通过；详情见[验收记录](docs/rag-natural-language-validation.md)。原 PR 待复审，未合并、未部署，真实 DeepSeek 请求为 0。
+重点按app/parser.py → excel_parser.py/word_structure.py → chunking.py → semantic.py/retrieval.py → library_policy.py/library_api.py → datasets.py/read_only_index.py → rag.py → scripts/experience_server.py审阅。frontend/src为React源码，web/library/assets为当前构建快照；web/qa和web/search.js是另一组真实使用的页面，不能只交React目录。

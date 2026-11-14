@@ -1,0 +1,10 @@
+{
+  "candidate_files": 207,
+  "prohibited_artifacts_or_hard_secrets": [],
+  "actual_credentials_copied": false,
+  "runtime_data_or_weights_copied": false,
+  "real_acl_copied": false,
+  "scope": "candidate working tree; pattern checks plus explicit allowlist; not an audit of all remote Git history",
+  "test_fixtures": "Generated and mock values are non-production examples, not live credentials",
+  "absolute_runtime_dependencies": []
+}

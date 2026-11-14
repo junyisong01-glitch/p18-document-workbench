@@ -1,0 +1,6 @@
+{
+  "enabled": false,
+  "data_dir": "",
+  "acl": {},
+  "notice": "Code-only review: attach an independently authorized read-only library locally. Do not commit its ACL or documents."
+}

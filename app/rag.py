@@ -111,6 +111,14 @@ class RagService:
         self.store=store;self.client=client or DeepSeekClient()
         self.sessions={};self.tickets={};self.drafts={};self.receipts={};self.lock=threading.RLock()
 
+    def can_read(self, doc):
+        from app.library_api import visible
+        return visible(self.store, doc, evidence=True)
+
+    def external_allowed(self, doc):
+        from app.library_api import external_allowed
+        return external_allowed(self.store, doc) and allowed(self.store.DATA, doc)
+
     def status(self):
         try:cfg=config();error=None
         except RagError as e:cfg={};error=str(e)
@@ -132,7 +140,7 @@ class RagService:
             try:
                 doc=self.store.available(source['document_id']);snap=service.snapshot(doc['id']);run=service.read(doc['id'])
             except self.store.HTTPException:return False
-            if ((require_permission and not allowed(self.store.DATA,doc)) or not service.valid(run,snap) or run['status']!='complete'
+            if (not self.can_read(doc) or (require_permission and not self.external_allowed(doc)) or not service.valid(run,snap) or run['status']!='complete'
                 or snap['token']!=source['index_token'] or doc['revision']!=source['revision']
                 or not any(c['id']==source['chunk_id'] and c['text']==source['text'] for c in snap['chunks'])):return False
         return service.current_config()
@@ -209,7 +217,7 @@ class RagService:
             sid,session,history,query,historical,history_hash=self.context(question,session_id,cfg)
             trace.update(history=deepcopy(history),historical=deepcopy(historical))
             if query is None:return {'status':'clarify','message':'请说明指的是哪位人员或哪个项目。','session_id':sid}
-            result=self.store.require_semantic().search(query,top_k=20,document_filter=lambda doc:allowed(self.store.DATA,doc))
+            result=self.store.require_semantic().search(query,top_k=20,document_filter=lambda doc:self.external_allowed(doc))
             evidence=[];seen=set();skipped=0
             with self.store.LOCK:
                 for hit in evidence_groups(result['results']):
@@ -218,7 +226,7 @@ class RagService:
                         if member['chunk_id'] in seen:continue
                         seen.add(member['chunk_id'])
                         doc=self.store.available(member['document_id'])
-                        if not allowed(self.store.DATA,doc):skipped+=1;continue
+                        if not self.external_allowed(doc):skipped+=1;continue
                         members.append({k:member[k] for k in ['document_id','document_name','chunk_id','revision','index_token','text','section','sources','risk']})
                     if not members:continue
                     source=dict(members[0])
@@ -279,8 +287,9 @@ class RagService:
             if len(self.drafts)>=128:raise RagError('rag_busy','本地候选草稿过多，请稍后重新检索。')
             service=self.store.require_semantic()
             # Preserve pre-cutoff authorization: local-only hits cannot starve allowed evidence.
-            authorized=service.search(query,top_k=20,document_filter=lambda doc:allowed(self.store.DATA,doc))
-            local=service.search(query,top_k=20)
+            authorized=service.search(query,top_k=20,document_filter=lambda doc:self.external_allowed(doc))
+            from app.library_api import principal
+            local=service.search(query,top_k=20,document_filter=self.can_read) if principal.get() is not None else service.search(query,top_k=20)
             fields=['document_id','document_name','chunk_id','revision','index_token','text','section','sources','risk']
             candidates={};candidate_permissions={};seen=set();defaults=[];default_evidence=[]
             from app.retrieval import duplicate_key
@@ -294,7 +303,7 @@ class RagService:
                             seen.add(identity)
                             source=deepcopy({k:member[k] for k in fields})
                             doc=self.store.available(source['document_id'])
-                            partitions[bool(allowed(self.store.DATA,doc))].append(source)
+                            partitions[bool(self.external_allowed(doc))].append(source)
                         for selectable,members in partitions.items():
                             if not members:continue
                             source=deepcopy(members[0])

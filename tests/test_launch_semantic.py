@@ -67,6 +67,7 @@ def test_qdrant_directory_lock_detected(tmp_path):
 
 
 def test_missing_model_keeps_document_management_startable(tmp_path):
+    root=tmp_path/'mock-project';(root/'.venv/bin').mkdir(parents=True);(root/'.venv/bin/python').touch()
     live={'value':False};reply={'config':{'workbench_version':launch.VERSION,'data_directory':str(tmp_path)},'semantic':{'enabled':False}}
     def probe(url):
         return reply if url.endswith(':8767') and live['value'] else None
@@ -77,7 +78,7 @@ def test_missing_model_keeps_document_management_startable(tmp_path):
         assert kwargs['env']['P18_SEMANTIC_ENABLED']=='0'
         live['value']=True
         return Process()
-    with patch.object(launch,'probe',side_effect=probe),patch.object(launch,'check_local_runtime',return_value={'ready':False,'message':'模型缺失'}),patch.object(launch.subprocess,'Popen',side_effect=spawn):
+    with patch.object(launch,'ROOT',root),patch.object(launch,'probe',side_effect=probe),patch.object(launch,'check_local_runtime',return_value={'ready':False,'message':'模型缺失'}),patch.object(launch.subprocess,'Popen',side_effect=spawn):
         launch.launch(data_dir=tmp_path,port=8767,semantic=True)
     saved=json.loads((tmp_path/'launcher.json').read_text())
     assert saved['semantic_enabled'] is True and saved['semantic_prepared'] is False
