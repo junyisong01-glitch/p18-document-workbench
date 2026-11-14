@@ -558,7 +558,10 @@ class RagService:
         state,answer,ids=data['status'],data['answer'],data['citations']
         if not isinstance(state,str) or state not in {'answered','partial','insufficient_evidence'}:
             raise RagError('answer_status','回答状态无效，未发布。')
-        known={s['id']:s for s in evidence};used=re.findall(r'\[([^\]\n]+)\]',answer)
+        known={s['id']:s for s in evidence}
+        # Only S-numbered tokens are citations. Bracketed technical text such as
+        # arr[0] or list[key] must not be read as a citation id.
+        used=re.findall(r'\[(S\d+)\]',answer)
         if any(s not in known for s in ids+used):
             raise RagError('citation_unknown','回答包含未提供的引用编号，未发布。')
         if set(used)!=set(ids):
@@ -569,6 +572,10 @@ class RagService:
             return state,UNKNOWN,[]
         if not ids:
             raise RagError('citation_required','正常或部分回答缺少证据引用，未发布。')
-        if re.search(r'\.(?:pdf|docx?)\b|第\s*\d+\s*页|https?://',answer,re.I):
-            raise RagError('answer_location','回答包含不允许的文件名、页码或网址，未发布。')
+        # Quoting a file name, page or URL that is present in the evidence is
+        # legitimate; inventing one is not.
+        evidence_text='\n'.join(str(source.get('text','')) for source in evidence)
+        locations=re.findall(r'[^\s，。；、)）]+\.(?:pdf|docx?)\b|第\s*\d+\s*页|https?://[^\s，。；、)）]+',answer,re.I)
+        if any(token not in evidence_text for token in locations):
+            raise RagError('answer_location','回答包含证据中没有的文件名、页码或网址，未发布。')
         return state,answer,[known[s] for s in dict.fromkeys(ids)]

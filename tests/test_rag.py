@@ -335,3 +335,23 @@ def test_external_block_separates_policy_from_missing_grant(rig):
         assert rig.rag.external_block(doc) == 'policy'
     finally:
         rig.rag.external_allowed = original
+
+
+def test_answer_validation_distinguishes_quotes_from_inventions():
+    evidence = [{'id': 'S1', 'document_id': 'd', 'revision': 1, 'chunk_id': 'c',
+                 'text': '规格 https://example.com/spec 第3页 manual.pdf'}]
+
+    def check(answer):
+        raw = json.dumps({'status': 'answered', 'answer': answer, 'citations': ['S1']},
+                         ensure_ascii=False)
+        return RagService.validate_answer(raw, evidence)
+
+    # Bracketed technical text is not a citation id.
+    assert check('数组取值 arr[0] 需要注意 [S1]')[0] == 'answered'
+    # Quoting a link or page that exists in the evidence is legitimate.
+    assert check('参考 https://example.com/spec [S1]')[0] == 'answered'
+    assert check('见第3页 [S1]')[0] == 'answered'
+    for invented in ('参考 https://evil.example/x [S1]', '见第99页 [S1]', '见附件 other.pdf [S1]'):
+        with pytest.raises(RagError) as error:
+            check(invented)
+        assert error.value.code == 'answer_location'
