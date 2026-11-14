@@ -110,13 +110,13 @@ def folder_for(identifier):
     return DATA / "files" / identifier
 
 
-def public(doc, detailed=False):
+def public(doc, detailed=False, index=None):
     sync_admission(doc)
     result = dict(doc)
     result['review_pending'] = doc['state'] == 'review'
     decision = doc.get('review_decision') or {}
     result['review_completed'] = (doc['state'] in {'ready', 'held'} and decision.get('revision') == doc['revision'])
-    index = index_status(doc['id'])
+    index = index if index is not None else index_status(doc['id'])
     if doc['admission']['eligible']:
         result['build'] = dict(result['build'], status={'not_started':'waiting','disabled':'waiting','unavailable':'failed'}.get(index['status'],index['status']),
             reason='index_'+index['status'], message=index['message'], searchable=bool(index.get('searchable')))
@@ -615,7 +615,9 @@ def documents():
     with LOCK:
         candidates = [d for d in all_docs() if d["state"] not in {"deleted", "superseded"}]
         allowed = library_api.visible_ids(sys.modules[__name__], candidates)
-        return sorted([public(d) for d in candidates if d["id"] in allowed],
+        visible_docs = [d for d in candidates if d["id"] in allowed]
+        statuses = INDEX_SERVICE.status_many(visible_docs) if INDEX_SERVICE else {}
+        return sorted([public(d, False, statuses.get(d["id"])) for d in visible_docs],
                       key=lambda d: d["created_at"], reverse=True)
 
 

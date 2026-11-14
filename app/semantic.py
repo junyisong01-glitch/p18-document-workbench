@@ -4,6 +4,7 @@ import json
 import math
 import os
 import threading
+import time
 import uuid
 
 from app.chunking import digest
@@ -30,6 +31,8 @@ class IndexService:
             self.client.create_collection(self.collection, vectors_config=models.VectorParams(
                 size=self.config['dimension'], distance=models.Distance.COSINE))
         self.pool = ThreadPoolExecutor(max_workers=1)
+        self._query_cache = {}
+        self._cache_lock = threading.Lock()
         self.active = set()
         self.closed = False
 
@@ -86,6 +89,37 @@ class IndexService:
                     answer.update(status='blocked', message='尚无符合入库条件的有效切分片段。')
             answer['searchable'] = answer['status'] == 'complete'
             return answer
+
+    def status_many(self, documents):
+        """Cheap status for list views: one query, no chunk digest.
+
+        Validity here is run token/config/revision only. The detail endpoint
+        keeps the strict check that re-hashes the chunks, so a tampered chunk
+        still fails there; the list just must not pay that cost per row.
+        """
+        with self.store.LOCK:
+            with self.store.connect() as conn:
+                runs = {row[0]: json.loads(row[1]) for row in
+                        conn.execute('SELECT document_id, body FROM index_runs')}
+            current = self.current_config()
+            out, fallback = {}, []
+            for doc in documents:
+                run = runs.get(doc['id'])
+                if not run:
+                    fallback.append(doc['id'])
+                    continue
+                valid = bool(current and run.get('status') == 'complete'
+                             and run.get('config_hash') == self.config_hash
+                             and run.get('revision') == doc['revision'])
+                answer = dict(run)
+                if not valid:
+                    answer.update(status='stale', count=0,
+                                  message='索引已失效，需满足入库条件并重新建立。')
+                answer['searchable'] = answer['status'] == 'complete'
+                out[doc['id']] = answer
+        for identifier in fallback:
+            out[identifier] = self.status(identifier)
+        return out
 
     def invalidate(self, identifier):
         # Caller holds SQLite/business lock; queue vector cleanup rather than
@@ -217,6 +251,29 @@ class IndexService:
                     found[self.point_id(snap, chunk)] = (snap, chunk)
         return found
 
+    def _query_vector(self, text):
+        """Same text + same config yields the same vector; skip the CPU encode.
+
+        Repeated questions (page reloads, retries, the same query from a demo
+        script) used to pay a full Qwen encode every time.
+        """
+        cache, lock = getattr(self, '_query_cache', None), getattr(self, '_cache_lock', None)
+        config_hash = getattr(self, 'config_hash', None)
+        if cache is None or lock is None or config_hash is None:
+            # Instances built without __init__ (tests, stubs) keep the old path.
+            return self.provider.encode([text], query=True)[0]
+        key = (config_hash, text)
+        with lock:
+            hit = cache.get(key)
+            if hit and time.monotonic() - hit[0] < 300:
+                return hit[1]
+        vector = self.provider.encode([text], query=True)[0]
+        with lock:
+            if len(cache) >= 256:
+                cache.pop(next(iter(cache)))
+            cache[key] = (time.monotonic(), vector)
+        return vector
+
     def search(self, query, identifier=None, top_k=5, mode=None, document_filter=None):
         from app.retrieval import bm25, fuse, groups
         mode = mode or os.environ.get('P18_SEARCH_MODE', 'vector')
@@ -247,7 +304,7 @@ class IndexService:
         candidate_k = max(candidate_k, top_k)
         lexical = bm25(query, [record(snap, chunk, None) for snap, chunk in candidates.values()])[:candidate_k] if mode != 'vector' else []
         lexical_ids = {h['chunk_id'] for h in lexical}
-        vector = self.provider.encode([query], query=True)[0]
+        vector = self._query_vector(query)
         try:
             with self.vector_lock:
                 hits = self.client.query_points(self.collection, query=vector,

@@ -100,14 +100,14 @@ class CatalogBody(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
 
-def library_record(store, doc):
+def library_record(store, doc, index=None):
     row = metadata(store, doc['id'])
     meta = row[1] if row else None
     parsed = doc.get('result') or {}
     issues = [x.get('message','需要核对') for x in parsed.get('issues',[])]
     if doc.get('error'): issues.append(doc['error'])
     if doc.get('state') in {'review','held'} and not issues: issues.append('等待人工复核')
-    searchable = bool(store.index_status(doc['id']).get('searchable'))
+    searchable = bool((index if index is not None else store.index_status(doc['id'])).get('searchable'))
     if not meta: status='待分类'
     elif meta.lifecycle == '已废止': status='已停用检索'
     elif doc['state'] in store.STATES: status='处理中'
@@ -186,7 +186,8 @@ def install(app, store):
             # Slice before building records: each record costs an index-status
             # lookup, so a page of 10 should not pay for 1000 documents.
             page = visible_docs if limit is None else visible_docs[max(0, offset):max(0, offset) + max(0, limit)]
-            records = [library_record(store, d) for d in page]
+            statuses = store.INDEX_SERVICE.status_many(page) if getattr(store, 'INDEX_SERVICE', None) else {}
+            records = [library_record(store, d, index=statuses.get(d['id'])) for d in page]
         response.headers['X-Total-Count'] = str(total)
         return records
 
