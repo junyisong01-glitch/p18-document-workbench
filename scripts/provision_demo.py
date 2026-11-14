@@ -16,6 +16,10 @@ ACCOUNTS = [
     ('admin', 'p18-review-2026', '研发部员工', True),
     ('dev', 'p18-review-2026', '启辰研发岗位', False),
     ('prod', 'p18-review-2026', '启辰生产岗位', False),
+    # One manager per department: the upload path refuses to create a document
+    # its own author could not read, so seeding needs the matching identity.
+    ('mgr_rd', 'p18-review-2026', '启辰研发岗位', True),
+    ('mgr_mfg', 'p18-review-2026', '生产制造部员工', True),
 ]
 
 
