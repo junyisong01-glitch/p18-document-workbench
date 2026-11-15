@@ -55,6 +55,8 @@ export interface TablePreview {
 }
 
 export interface Doc {
+  reviewRequired?: boolean
+  processingStatus?: string
   kbId?: KbId
   id: string
   code: string // 文档编号

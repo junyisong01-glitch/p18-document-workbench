@@ -73,6 +73,8 @@ function toDoc(record: LibraryRecord): Doc {
   const indexed = record.status === '可检索' || !!record.reviewSearchable
   return {
     id: record.id,
+    processingStatus:record.status,
+    reviewRequired:record.status==='待复核'||record.reviewSearchable||!!record.qcIssues.length,
     code: record.code || '',
     title: record.name.replace(/\.[^.]+$/, ''),
     fileName: record.name,

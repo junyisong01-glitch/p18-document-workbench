@@ -21,14 +21,14 @@ export function PipelineRow({ doc }: { doc: Doc }) {
       {PIPELINE_STEPS.map((s, i) => {
         const done = doc.pipeline[s.key]
         const isReview = s.key === 'reviewed'
-        const warn = isReview && !done
+        const warn = isReview && !!doc.reviewRequired && !done
         return (
           <div key={s.key} className="flex items-center">
             {i > 0 && <span className="mx-2 h-px w-4 bg-border" />}
             <div className="flex items-center gap-1.5">
               <span
                 className={`size-1.5 rounded-full ${
-                  warn ? 'bg-[hsl(36_68%_38%)]' : 'bg-[hsl(148_32%_32%)]'
+                  warn ? 'bg-[hsl(36_68%_38%)]' : done ? 'bg-[hsl(148_32%_32%)]' : 'bg-border'
                 }`}
               />
               <span
