@@ -41,7 +41,8 @@ function ValidityBadge({ doc }: { doc: Doc }) {
   )
 }
 
-function ReviewBadge({ reviewed }: { reviewed: boolean }) {
+function ReviewBadge({ reviewed, pending }: { reviewed: boolean; pending?:boolean }) {
+  if(!reviewed&&!pending)return <span className="text-[11px] text-muted-foreground">无需人工复核</span>
   if (reviewed) {
     return (
       <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -58,7 +59,8 @@ function ReviewBadge({ reviewed }: { reviewed: boolean }) {
   )
 }
 
-function IndexBadge() {
+function IndexBadge({doc}:{doc:Doc}) {
+  if(!doc.pipeline.indexed)return <span className="text-[11px] text-muted-foreground">{doc.status==='archived'?'已停用检索':doc.processingStatus||'索引未就绪'}</span>
   return (
     <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
       <span className="size-1.5 rounded-full bg-[hsl(148_32%_32%)]" />
@@ -414,10 +416,10 @@ export default function DocumentsPage() {
                 <ValidityBadge doc={doc} />
               </div>
               <div>
-                <ReviewBadge reviewed={doc.pipeline.reviewed} />
+                <ReviewBadge reviewed={doc.pipeline.reviewed} pending={doc.reviewRequired} />
               </div>
               <div>
-                <IndexBadge />
+                <IndexBadge doc={doc}/>
               </div>
               <div className="flex items-center justify-end gap-0.5">
                 <button
@@ -550,19 +552,19 @@ function DetailDrawer({
               <PipelineRow doc={doc} />
               <div className="flex items-center justify-between border-t border-border/70 pt-3">
                 <span className="text-[11px] text-muted-foreground">复核情况</span>
-                <ReviewBadge reviewed={doc.pipeline.reviewed} />
+                <ReviewBadge reviewed={doc.pipeline.reviewed} pending={doc.reviewRequired} />
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-[11px] text-muted-foreground">索引状态</span>
-                <IndexBadge />
+                <IndexBadge doc={doc}/>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-[11px] text-muted-foreground">有效状态</span>
                 <ValidityBadge doc={doc} />
               </div>
-              {!doc.pipeline.reviewed && (
+              {doc.reviewRequired && !doc.pipeline.reviewed && (
                 <p className="border-t border-dashed border-border pt-3 text-[11px] leading-relaxed text-[hsl(36_60%_30%)]">
-                  该文档的{doc.format === 'xlsx' ? '结构化解析' : '解析'}结果存在复核提示；既有索引已完成，复核完成后按现有流程处理。
+                  该文档的{doc.format === 'xlsx' ? '结构化解析' : '解析'}结果存在复核提示；索引状态见上方，复核完成后按现有流程处理。
                 </p>
               )}
             </div>
@@ -602,7 +604,7 @@ function DetailDrawer({
               下载原文件
             </button>
           </div>
-          {canManage && !doc.pipeline.reviewed && (
+          {canManage && doc.reviewRequired && !doc.pipeline.reviewed && (
             <button
               onClick={onReview}
               className="ease-junyi flex w-full items-center justify-center gap-2 rounded-md border border-[hsl(36_68%_38%/0.5)] bg-[hsl(36_68%_38%/0.07)] px-4 py-2.5 text-[12px] font-medium text-[hsl(36_60%_30%)] transition-colors duration-200 hover:bg-[hsl(36_68%_38%/0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(36_68%_38%)]"
