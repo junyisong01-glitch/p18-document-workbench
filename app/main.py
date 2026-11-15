@@ -513,7 +513,9 @@ def revoke_external_permission(identifier: str, body: ExternalPermissionBody):
 
 def change_external_permission(identifier, body, revoke):
     from app.egress import update, audit, CHECKS
-    with LOCK:
+    from app.egress_gate import gate
+    # Gate first, then data lock: never wait for network completion holding LOCK.
+    with gate().changing(), LOCK:
         doc=available(identifier)
         try:return update(DATA,doc,body.revision,body.fingerprint,body.classification,body.checks,revoke)
         except ValueError as exc:
