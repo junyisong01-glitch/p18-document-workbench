@@ -248,8 +248,8 @@ def test_word_and_legacy_doc_actual_parse_and_chunks(client,tmp_path):
 def test_preview_entry_and_real_saved_text_endpoint(client):
     item=upload(client);wait(client,item['id']);result=wait_chunks(client,item['id'])
     assert 'Test reservation documentation' in result['chunks'][0]['text']
-    assert '<option value="chunks">切分结果</option>' in client.get('/').text
-    assert '/chunks' in client.get('/app.js').text
+    assert 'id="root"' in client.get('/').text
+    assert client.get('/api/documents/'+item['id']+'/chunks').json()['chunks']==result['chunks']
 
 
 def test_inflight_configuration_change_never_publishes_old_result(client,monkeypatch):

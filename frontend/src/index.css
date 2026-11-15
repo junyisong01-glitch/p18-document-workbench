@@ -1,0 +1,147 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* 均易品牌令牌 · 暖纸面档案色系 + 朱砂红信号色 */
+    --background: 44 22% 94%;
+    --foreground: 30 14% 11%;
+    --card: 48 30% 98%;
+    --card-foreground: 30 14% 11%;
+    --popover: 48 30% 98%;
+    --popover-foreground: 30 14% 11%;
+    --primary: 12 74% 42%;
+    --primary-foreground: 44 40% 97%;
+    --secondary: 42 14% 89%;
+    --secondary-foreground: 30 14% 16%;
+    --muted: 42 14% 90%;
+    --muted-foreground: 32 9% 40%;
+    --accent: 12 74% 42%;
+    --accent-foreground: 44 40% 97%;
+    --destructive: 4 72% 40%;
+    --destructive-foreground: 44 40% 97%;
+    --border: 40 13% 83%;
+    --input: 40 13% 76%;
+    --ring: 12 74% 42%;
+    --radius: 0.375rem;
+
+    --sidebar-background: 36 16% 9%;
+    --sidebar-foreground: 42 18% 76%;
+    --sidebar-primary: 12 74% 50%;
+    --sidebar-primary-foreground: 44 40% 97%;
+    --sidebar-accent: 36 12% 15%;
+    --sidebar-accent-foreground: 44 30% 92%;
+    --sidebar-border: 36 10% 18%;
+    --sidebar-ring: 12 74% 50%;
+
+    /* 语义状态色（同温同饱和阶梯派生） */
+    --ok: 148 32% 32%;
+    --warn: 36 68% 38%;
+    --info: 210 30% 36%;
+  }
+
+  .dark {
+    --background: 36 14% 8%;
+    --foreground: 44 24% 90%;
+    --card: 36 12% 11%;
+    --card-foreground: 44 24% 90%;
+    --popover: 36 12% 11%;
+    --popover-foreground: 44 24% 90%;
+    --primary: 12 74% 52%;
+    --primary-foreground: 44 40% 97%;
+    --secondary: 36 10% 16%;
+    --secondary-foreground: 44 24% 90%;
+    --muted: 36 10% 16%;
+    --muted-foreground: 40 10% 58%;
+    --accent: 12 74% 52%;
+    --accent-foreground: 44 40% 97%;
+    --destructive: 4 62% 42%;
+    --destructive-foreground: 44 40% 97%;
+    --border: 36 9% 20%;
+    --input: 36 9% 26%;
+    --ring: 12 74% 52%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family:
+      'Space Grotesk',
+      -apple-system,
+      'PingFang SC',
+      'Hiragino Sans GB',
+      'Noto Sans SC',
+      'Microsoft YaHei',
+      sans-serif;
+  }
+  ::selection {
+    background: hsl(var(--primary) / 0.16);
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family:
+      'Space Grotesk',
+      -apple-system,
+      'PingFang SC',
+      'Hiragino Sans GB',
+      'Noto Sans SC',
+      'Microsoft YaHei',
+      sans-serif;
+  }
+  .font-mono2 {
+    font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  }
+  /* 英文小标签 + 宽字距，配中文副标题的双语品牌样式 */
+  .kicker {
+    @apply font-display text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground;
+  }
+  .hairline-t {
+    border-top: 1px solid hsl(var(--border));
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 4px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+  .ease-junyi {
+    transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  /* 证据片段内的高亮标记 */
+  .evidence-mark {
+    background: linear-gradient(
+      to top,
+      hsl(var(--primary) / 0.22) 0%,
+      hsl(var(--primary) / 0.22) 40%,
+      transparent 40%
+    );
+    border-radius: 1px;
+    padding: 0 1px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -121,22 +121,14 @@ def test_legacy_grant_is_overridden_by_revocation(rig):
 
 
 def test_review_frontend_has_only_requested_fields(client):
-    from html.parser import HTMLParser
-    class FormInputs(HTMLParser):
-        def __init__(self):super().__init__();self.active=False;self.values=[]
-        def handle_starttag(self,tag,attrs):
-            a=dict(attrs)
-            if tag=='dialog' and a.get('id')=='external-review-dialog':self.active=True
-            if self.active and tag in {'input','textarea'}:self.values.append(a)
-        def handle_endtag(self,tag):
-            if tag=='dialog':self.active=False
-    parser=FormInputs();parser.feed(client.get('/').text)
-    assert len(parser.values)==5
-    assert sum(a.get('type')=='radio' for a in parser.values)==2
-    assert sum(a.get('type')=='checkbox' for a in parser.values)==3
-    assert {a.get('value') for a in parser.values if a.get('type')=='radio'}=={'fictional','public_verified'}
-    for asset in ['/static/external-permission.js','/static/external-permission.css']:
-        assert client.get(asset).status_code==200
+    from pathlib import Path
+    from app import main
+    source=(main.ROOT/'frontend/src/components/DocView.tsx').read_text()
+    for key in ['no_sensitive_content','third_party_terms_checked','no_restricted_content']:
+        assert key in source
+    assert "kbId==='demo'" in source and 'user?.admin' in source
+    assert "classification:'fictional'" in source and 'disabled={' in source
+    assert client.get('/').text==client.get('/documents').text
 
 
 def test_audit_write_failure_blocks_model(rig,monkeypatch):

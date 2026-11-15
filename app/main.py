@@ -36,6 +36,7 @@ CHUNK_ACTIVE = {}
 INDEX_SERVICE = None
 SEMANTIC_ERROR = None
 RAG_SERVICE = None
+MANAGED_RAG = {}
 MAX_FILE = 20_000_000
 MAX_BATCH = 100_000_000
 STATES = {"queued", "converting", "parsing"}
@@ -55,6 +56,8 @@ def initialize():
     DATA.mkdir(parents=True, exist_ok=True)
     (DATA / "files").mkdir(exist_ok=True)
     with connect() as conn:
+        from app.library_store import initialize as initialize_library
+        initialize_library(conn)
         conn.execute("CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, body TEXT NOT NULL)")
         conn.execute("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, document_id TEXT, action TEXT, at TEXT, revision INTEGER)")
         if "payload" not in {r[1] for r in conn.execute("PRAGMA table_info(events)")}:
@@ -122,6 +125,7 @@ def public(doc, detailed=False):
     from app.egress import status as permission_status
     result['external_permission'] = permission_status(DATA, doc)
     if detailed:
+        result['review_requirements'] = requirements(doc)
         result['chunking'] = chunk_result(doc, include_chunks=False, index=index)
     if not detailed:
         result.pop("result", None)
@@ -348,6 +352,7 @@ def run_chunk_job(identifier, generation):
 async def lifespan(app):
     global INDEX_SERVICE, SEMANTIC_ERROR, RAG_SERVICE
     initialize()
+    MANAGED_RAG.clear()
     from app.rag import RagService
     RAG_SERVICE = RagService(sys.modules[__name__])
     SEMANTIC_ERROR = None
@@ -478,6 +483,11 @@ def semantic_search(body: SearchBody):
     except ValueError:
         raise HTTPException(503, 'P18_SEARCH_TOP_K 必须为1–50。')
     try:
+        if library_api.principal.get() is not None:
+            if body.document_id and not library_api.visible(sys.modules[__name__], get(body.document_id), evidence=True):
+                raise HTTPException(404, '文档不存在或不可访问')
+            return service.search(body.query.strip(), body.document_id, top_k, mode=body.mode,
+                                  document_filter=lambda d: library_api.visible(sys.modules[__name__], d, evidence=True))
         return service.search(body.query.strip(), body.document_id, top_k, mode=body.mode)
     except (EmbeddingError, SemanticError) as exc:
         raise HTTPException(503, {'code': exc.code, 'message': str(exc)}) from exc
@@ -536,19 +546,39 @@ class RagAnswerBody(BaseModel):
     consent: bool = Field(strict=True)
 
 
+def current_rag():
+    user = library_api.principal.get()
+    if user is None:
+        return RAG_SERVICE
+    from app.rag import RagService
+    from app.library_store import session_by_digest
+    with LOCK, connect() as conn:
+        for key in list(MANAGED_RAG):
+            if not session_by_digest(conn, key):
+                MANAGED_RAG.pop(key, None)
+        if not session_by_digest(conn, user['session_digest']):
+            raise HTTPException(401, '登录会话已失效')
+        key = user['session_digest']
+        if key not in MANAGED_RAG:
+            if len(MANAGED_RAG) >= 64:
+                raise HTTPException(503, '问答会话过多，请稍后重试')
+            MANAGED_RAG[key] = RagService(sys.modules[__name__])
+        return MANAGED_RAG[key]
+
+
 def rag_call(method, *args):
     from app.rag import RagError
     from app.embedding import EmbeddingError
     from app.semantic import SemanticError
     try:
-        return getattr(RAG_SERVICE, method)(*args)
+        return getattr(current_rag(), method)(*args)
     except (RagError, EmbeddingError, SemanticError) as error:
         raise HTTPException(409, {'code':error.code,'message':str(error),**({'details':error.details} if getattr(error,'details',None) is not None else {})})
 
 
 @app.get('/api/rag')
 def rag_health():
-    return RAG_SERVICE.status()
+    return current_rag().status()
 
 
 @app.post('/api/rag/prepare')
@@ -581,7 +611,7 @@ def config():
 @app.get("/api/documents")
 def documents():
     with LOCK:
-        return sorted([public(d) for d in all_docs() if d["state"] not in {"deleted", "superseded"}],
+        return sorted([public(d) for d in all_docs() if d["state"] not in {"deleted", "superseded"} and library_api.visible(sys.modules[__name__], d)],
                       key=lambda d: d["created_at"], reverse=True)
 
 
@@ -619,8 +649,8 @@ async def upload(files: list[UploadFile] = File(...), mode: str = Form("ask"), r
     with LOCK:
         for name, content in loaded:
             ext = Path(name).suffix.lower()
-            if len(content) > MAX_FILE or not content or ext not in {".docx", ".doc", ".pdf"}:
-                responses.append({"name": name, "status": "rejected", "message": "文件为空、超过 20 MB，或不属于 PDF / DOCX / DOC。"})
+            if len(content) > MAX_FILE or not content or ext not in {".docx", ".doc", ".pdf", ".xlsx"}:
+                responses.append({"name": name, "status": "rejected", "message": "文件为空、超过 20 MB，或不属于 PDF / DOCX / DOC / XLSX。"})
                 continue
             digest = hashlib.sha256(content).hexdigest()
             existing = [d for d in all_docs() if d["state"] not in {"deleted", "deleting", "delete_failed", "superseded"}]
@@ -883,19 +913,33 @@ def preview_page(identifier: str, variant: str, page: int, zoom: float = Query(1
         return Response(png, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
+@app.get("/library/")
+def library_page():
+    return FileResponse(ROOT/'web/app/index.html')
+
+
+@app.get('/demo')
+def demo_page():
+    from app import library_store
+    with connect() as conn:
+        if not library_store.demo_enabled(conn): raise HTTPException(404, '未启用演示环境')
+    return FileResponse(ROOT / 'web' / 'demo.html')
+
+
+@app.get("/login")
+@app.get("/documents")
+@app.get("/search")
+@app.get("/qa")
+@app.get("/identity")
 @app.get("/")
 def index():
-    return FileResponse(ROOT / "web" / "index.html")
+    return FileResponse(ROOT/'web/app/index.html')
 
 
-@app.get("/style.css")
-def stylesheet():
-    return FileResponse(ROOT / "web" / "style.css", media_type="text/css")
-
-
-@app.get("/app.js")
-def javascript():
-    return FileResponse(ROOT / "web" / "app.js", media_type="text/javascript")
-
-
+app.mount('/assets', StaticFiles(directory=ROOT/'web/app/assets',check_dir=False),name='unified-assets')
+app.mount("/library/assets", StaticFiles(directory=ROOT / "web" / "library" / "assets", check_dir=False), name="library-assets")
 app.mount("/static", StaticFiles(directory=ROOT / "web"), name="static")
+
+
+from app import library_api
+library_api.install(app, sys.modules[__name__])

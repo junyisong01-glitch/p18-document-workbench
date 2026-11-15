@@ -42,8 +42,11 @@ def confirmed(doc):
 def sync_admission(doc):
     kinds = categories(doc)
     needs_review = bool(kinds) or doc.get('quality') == 'review'
+    excel_warning_mode = (doc.get('ext') == '.xlsx' and (doc.get('result') or {}).get('excel_review_policy') == 'record-warning-v1')
     eligible = (doc['state'] == 'ready' and doc.get('characters', 0) > 0
                 and 'unusable' not in kinds and (not needs_review or confirmed(doc)))
+    if excel_warning_mode and doc['state'] in {'ready','review'} and doc.get('characters',0)>0 and 'unusable' not in kinds:
+        eligible = True  # Explicit user policy: retain review flags; never override held/failed.
     doc['admission'] = {
         'eligible': eligible,
         'categories': [{'code': c, 'label': CATEGORY_LABELS[c]} for c in kinds],
