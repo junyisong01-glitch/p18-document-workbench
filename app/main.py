@@ -56,6 +56,8 @@ def initialize():
     DATA.mkdir(parents=True, exist_ok=True)
     (DATA / "files").mkdir(exist_ok=True)
     with connect() as conn:
+        if os.environ.get('P18_SQLITE_WAL','0') == '1':
+            conn.execute('PRAGMA journal_mode=WAL')
         from app.library_store import initialize as initialize_library
         initialize_library(conn)
         conn.execute("CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, body TEXT NOT NULL)")

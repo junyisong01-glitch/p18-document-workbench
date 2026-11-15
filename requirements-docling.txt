@@ -1,0 +1,3 @@
+# Optional isolated DOCX adapter; never installed by default or auto-enabled.
+# Official PyPI; MIT core, dependencies retain their own licenses.
+docling==2.150.1
