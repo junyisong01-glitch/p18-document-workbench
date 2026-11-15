@@ -1,5 +1,7 @@
 # P18 统一版整合与验收记录（2026-11-15）
 
+后续补充：单进程原生外发许可互斥已在P18-BACKEND-001中适配验证；Docling、AnythingLLM仍未采用。当前结论与适用边界见[后端评估](BACKEND_ADOPTION.md)，以下保留初次整合记录。
+
 ## 唯一版本的含义
 
 GitHub `junyisong01-glitch/p18-document-workbench` 的 main 是唯一维护基线；本机 Demo V1 目录是这份代码的运行副本，统一入口为 `http://127.0.0.1:8896/`。文件、检索、问答、身份页面使用同一个 React 应用，`/library/` 兼容地址也返回它。历史分支、交付 ZIP、旧网页文件和旧工作区保留作追溯与回退，不继续当作当前版维护。
