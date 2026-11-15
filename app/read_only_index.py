@@ -50,6 +50,7 @@ class ReadOnlyIndex(IndexService):
         self.config_hash = digest(self.config)
         self.collection = 'p18_' + self.config_hash
         self.vector_lock = threading.RLock()
+        self._init_query_cache()
         self.client = ReadOnlyVectors(store.DATA, self.collection)
 
     def write(self, *args, **kwargs):

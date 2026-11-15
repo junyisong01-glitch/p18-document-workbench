@@ -47,3 +47,5 @@ tests/通过代码构造虚构文档、工作簿和模拟客户端；不会调�
 重点按app/parser.py → excel_parser.py/word_structure.py → chunking.py → semantic.py/retrieval.py → library_policy.py/library_api.py → datasets.py/read_only_index.py → rag.py → scripts/experience_server.py审阅。frontend/src为React源码，web/app为当前构建快照。历史web/library、web/qa、web/search.js保留供既有测试和回退参考，不是当前使用的另一套工作台；/library/是同一新界面的兼容地址。
 
 整合取舍、验收和回退见[统一版记录](docs/UNIFIED_RELEASE.md)。私有知识库配置、运行数据、模型缓存不在Git中；源码合并不会合并两套知识库。
+
+重复问题向量缓存、问答阻断解释与容量提示的最新整合及禁用方法见[2211fcc择取记录](docs/DELIVERY_2211_INTEGRATION.md)。不采用交付包的密级切库、默认解析切换或造数初始化。

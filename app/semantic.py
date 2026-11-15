@@ -4,6 +4,7 @@ import json
 import math
 import os
 import threading
+import time
 import uuid
 
 from app.chunking import digest
@@ -25,6 +26,7 @@ class IndexService:
         self.config_hash = digest(self.config)
         self.collection = 'p18_' + self.config_hash
         self.vector_lock = threading.RLock()
+        self._init_query_cache()
         self.client = QdrantClient(path=str(store.DATA / 'qdrant'))
         if not self.client.collection_exists(self.collection):
             self.client.create_collection(self.collection, vectors_config=models.VectorParams(
@@ -32,6 +34,31 @@ class IndexService:
         self.pool = ThreadPoolExecutor(max_workers=1)
         self.active = set()
         self.closed = False
+
+    # Adapted from the 2211fcc delivery's _query_vector; cache vectors, never hits/ACL.
+    QUERY_CACHE_TTL = 300
+    QUERY_CACHE_LIMIT = 256
+
+    def _init_query_cache(self):
+        self._query_cache = {}
+        self._cache_lock = threading.Lock()
+
+    def _query_vector(self, text):
+        cache, lock = getattr(self, '_query_cache', None), getattr(self, '_cache_lock', None)
+        config_hash = getattr(self, 'config_hash', None)
+        if os.environ.get('P18_QUERY_VECTOR_CACHE', '1') == '0' or cache is None or lock is None or config_hash is None:
+            return self.provider.encode([text], query=True)[0]
+        key = (config_hash, text)
+        with lock:
+            hit = cache.get(key)
+            if hit and time.monotonic() - hit[0] < self.QUERY_CACHE_TTL:
+                return list(hit[1])
+        vector = self.provider.encode([text], query=True)[0]
+        with lock:
+            if len(cache) >= self.QUERY_CACHE_LIMIT:
+                cache.pop(next(iter(cache)))
+            cache[key] = (time.monotonic(), tuple(vector))
+        return list(vector)
 
     def read(self, identifier):
         with self.store.connect() as conn:
@@ -239,7 +266,7 @@ class IndexService:
         candidate_k = max(candidate_k, top_k)
         lexical = bm25(query, [record(snap, chunk, None) for snap, chunk in candidates.values()])[:candidate_k] if mode != 'vector' else []
         lexical_ids = {h['chunk_id'] for h in lexical}
-        vector = self.provider.encode([query], query=True)[0]
+        vector = self._query_vector(query)
         try:
             with self.vector_lock:
                 hits = self.client.query_points(self.collection, query=vector,

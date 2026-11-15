@@ -119,6 +119,22 @@ class RagService:
         from app.library_api import external_allowed
         return external_allowed(self.store, doc) and allowed(self.store.DATA, doc)
 
+    def external_block(self, doc):
+        """Why a document cannot be sent: none | not_visible | not_authorized | policy.
+
+        'policy' means the grant exists but this deployment still refuses it
+        (the experience build only allows public material), which is a very
+        different message from 'you never granted permission'.
+        """
+        from app.library_api import visible
+        if not visible(self.store, doc, evidence=True):
+            return 'not_visible'
+        if self.external_allowed(doc):
+            return 'none'
+        if allowed(self.store.DATA, doc):
+            return 'policy'
+        return 'not_authorized'
+
     def status(self):
         try:cfg=config();error=None
         except RagError as e:cfg={};error=str(e)
@@ -218,7 +234,7 @@ class RagService:
             trace.update(history=deepcopy(history),historical=deepcopy(historical))
             if query is None:return {'status':'clarify','message':'请说明指的是哪位人员或哪个项目。','session_id':sid}
             result=self.store.require_semantic().search(query,top_k=20,document_filter=lambda doc:self.external_allowed(doc))
-            evidence=[];seen=set();skipped=0
+            evidence=[];seen=set();skipped=0;budget_skipped=0
             with self.store.LOCK:
                 for hit in evidence_groups(result['results']):
                     members=[]
@@ -233,14 +249,15 @@ class RagService:
                     if len(members)>1:source['members']=members
                     source['id']='S'+str(len(evidence)+1)
                     budget=self.selection_budget(question,history,evidence+[source],cfg)
-                    if budget['groups']>budget['group_limit'] or budget['message_chars']>budget['context_limit']:continue
+                    if budget['groups']>budget['group_limit'] or budget['message_chars']>budget['context_limit']:
+                        budget_skipped+=1;continue
                     evidence.append(source)
                 if evidence and (not self.valid(evidence+historical) or self.permission_hash(historical)!=history_hash):raise RagError('evidence_stale','检索证据已变化，请重新检索。')
                 permissions,audit_sources=self.permission_snapshot(evidence+historical)
                 provenance=self.provenance(evidence+historical)
                 provenance_hash=self.permission_hash(provenance)
             if not evidence:
-                return {'status':'no_evidence','message':'没有当前有效、获准且能完整放入本轮上下文的证据，未调用外部模型。'+UNKNOWN,'session_id':sid}
+                return {'status':'no_evidence','message':'没有当前有效、获准且能完整放入本轮上下文的证据，未调用外部模型。'+UNKNOWN,'session_id':sid,'budget_skipped':budget_skipped}
             # No raw retrieval hits, unauthorized names/text, or client-supplied history in ticket.
             token=secrets.token_urlsafe(32)
             ticket={'at':time.monotonic(),'sid':sid,'version':session['version'],'question':question,
@@ -250,7 +267,7 @@ class RagService:
             ticket['messages']=self.messages(question,history,evidence);ticket['messages_hash']=digest(ticket['messages'])
             self.tickets[token]=ticket;self.remember(token,ticket);session['at']=time.monotonic()
             return {'status':'prepared','ticket':token,'session_id':sid,'question':question,'history':history,
-                    'evidence':evidence,'blocked_count':skipped,'provider':self.client.label,
+                    'evidence':evidence,'blocked_count':skipped,'budget_skipped':budget_skipped,'provider':self.client.label,
                     'configured':self.client.configured,'destination':cfg['base_url'],'request_endpoint':request_endpoint(cfg['base_url']),'model':cfg['model'],
                     'notice':'仅在确认后发送以上问题、历史及证据。未授权资料不会发送。'}
 
@@ -321,7 +338,10 @@ class RagService:
                                 else:
                                     reason='selected';defaults.append(cid);default_evidence.append(trial)
                                     candidate['default_selected']=True
-                            else:reason='local_only'
+                            else:
+                                block=self.external_block(self.store.available(members[0]['document_id']))
+                                reason='policy_public_only' if block=='policy' else 'local_only'
+                                candidate['permission_reason']=('deployment_policy' if block=='policy' else 'external_permission_required')
                             candidate['default_reason']=reason;candidates[cid]=candidate
                             if selectable:candidate_permissions[cid]=self.permission_hash([source])
             did=secrets.token_urlsafe(32)
@@ -335,7 +355,7 @@ class RagService:
                 'audit_id':trace['audit_id'],'snapshot_stage':'provisional'}
             return deepcopy({'status':'drafted','draft_id':did,'session_id':sid,'selection_version':0,
                 'question':question,'turn_id':turn_id,'history':history,'candidates':list(candidates.values()),
-                'default_candidate_ids':defaults,'budget':self.selection_budget(question,history,default_evidence,cfg),
+                'default_candidate_ids':defaults,'budget_skipped':sum(c.get('default_reason') in {'group_limit','context_limit'} for c in candidates.values()),'budget':self.selection_budget(question,history,default_evidence,cfg),
                 'retrieval_mode':authorized.get('retrieval_mode',local.get('retrieval_mode')),
                 'local_retrieval_status':local.get('status'),'expires_in':180,
                 'notice':'候选仅在本地展示；勾选不授予外发许可，确认前不会调用外部模型。'})
