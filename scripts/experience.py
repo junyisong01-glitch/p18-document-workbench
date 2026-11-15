@@ -24,8 +24,8 @@ def main():
   if not STATE.exists():raise SystemExit('8896被其他服务占用，未覆盖启动。')
   existing=json.loads(STATE.read_text());owners=subprocess.run(['/usr/sbin/lsof','-nP','-iTCP:8896','-sTCP:LISTEN','-t'],capture_output=True,text=True).stdout.split()
   if owners!=[str(existing['pid'])]:raise SystemExit('8896不是本次体验服务，未覆盖启动。')
-  print('体验版已经运行：http://127.0.0.1:8896/library/')
-  if not(a.local or a.acceptance):subprocess.run(['/usr/bin/open','http://127.0.0.1:8896/library/'])
+  print('体验版已经运行：http://127.0.0.1:8896/')
+  if not(a.local or a.acceptance):subprocess.run(['/usr/bin/open','http://127.0.0.1:8896/'])
   return
  if not DATA.exists()or not(DATA/'workbench.sqlite3').exists():raise SystemExit('统一体验数据尚未准备好。')
  mode='local'
@@ -50,6 +50,6 @@ def main():
   time.sleep(.15)
  else:raise SystemExit('启动超时，请核对日志，勿重复启动。')
  STATE.write_text(json.dumps({'pid':proc.pid,'port':8896,'data_dir':str(DATA),'mode':mode,'api_key_persisted':False,'started_at':time.time()},ensure_ascii=False,indent=2));os.chmod(STATE,0o600)
- print('已启动：http://127.0.0.1:8896/library/；模式：'+mode+'。可关闭此终端，服务继续运行。')
- if not(a.local or a.acceptance):subprocess.run(['/usr/bin/open','http://127.0.0.1:8896/library/'])
+ print('已启动：http://127.0.0.1:8896/；模式：'+mode+'。可关闭此终端，服务继续运行。')
+ if not(a.local or a.acceptance):subprocess.run(['/usr/bin/open','http://127.0.0.1:8896/'])
 if __name__=='__main__':main()

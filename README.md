@@ -1,8 +1,8 @@
-# P18 Demo V1 — 源码审查分支
+# P18 Demo V1 — 统一工作台
 
-这是当前8896体验版的代码归集，不是生产发布。基于GitHub main ee84209；运行中的Mac工作台没有被覆盖。
+本版将文件管理、检索、问答和身份页面统一到一套 React 界面。FastAPI、E2 检索、权限及人工选证据机制继续使用现有实现。唯一维护基线是本仓库 main，体验入口为 http://127.0.0.1:8896/ 。这是本地虚构资料演示版，不是企业生产系统。
 
-包含FastAPI后端、React/TypeScript文件库、原生JavaScript检索/问答页面、Excel解析、E2结构切分、Qwen Embedding接口、Qdrant/SQLite、RAG人工证据确认、四岗位和只读双数据源适配。未默认启用任何Reranker或失败的新提示词。
+包含FastAPI后端、React/TypeScript统一界面、Excel解析、E2结构切分、Qwen Embedding接口、Qdrant/SQLite、RAG人工证据确认、四岗位和只读双数据源适配。未默认启用任何Reranker或失败的新提示词。
 
 **不包含账号密码、API Key、数据库、模型、30份原件、真实ACL、历史试题或测试答案。首次检出是空库，不会自动出现本机的6份或30份资料。**
 
@@ -39,10 +39,11 @@ cd ..
 .venv/bin/python -m pytest -q tests
 node --test tests/*.cjs
 cd frontend
-npm run typecheck
 npm run build
 ```
 
 tests/通过代码构造虚构文档、工作簿和模拟客户端；不会调用真实DeepSeek。scripts/中的历史实验/预览入口保留供参考，不是本版主启动路径。不要运行旧默认8765入口进行本次审查。
 
-重点按app/parser.py → excel_parser.py/word_structure.py → chunking.py → semantic.py/retrieval.py → library_policy.py/library_api.py → datasets.py/read_only_index.py → rag.py → scripts/experience_server.py审阅。frontend/src为React源码，web/library/assets为当前构建快照；web/qa和web/search.js是另一组真实使用的页面，不能只交React目录。
+重点按app/parser.py → excel_parser.py/word_structure.py → chunking.py → semantic.py/retrieval.py → library_policy.py/library_api.py → datasets.py/read_only_index.py → rag.py → scripts/experience_server.py审阅。frontend/src为React源码，web/app为当前构建快照。历史web/library、web/qa、web/search.js保留供既有测试和回退参考，不是当前使用的另一套工作台；/library/是同一新界面的兼容地址。
+
+整合取舍、验收和回退见[统一版记录](docs/UNIFIED_RELEASE.md)。私有知识库配置、运行数据、模型缓存不在Git中；源码合并不会合并两套知识库。

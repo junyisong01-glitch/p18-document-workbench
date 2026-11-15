@@ -125,6 +125,7 @@ def public(doc, detailed=False):
     from app.egress import status as permission_status
     result['external_permission'] = permission_status(DATA, doc)
     if detailed:
+        result['review_requirements'] = requirements(doc)
         result['chunking'] = chunk_result(doc, include_chunks=False, index=index)
     if not detailed:
         result.pop("result", None)
@@ -914,9 +915,7 @@ def preview_page(identifier: str, variant: str, page: int, zoom: float = Query(1
 
 @app.get("/library/")
 def library_page():
-    path = ROOT / 'web' / 'library' / 'index.html'
-    if not path.exists(): raise HTTPException(503, '请先构建文件管理前端')
-    return FileResponse(path)
+    return FileResponse(ROOT/'web/app/index.html')
 
 
 @app.get('/demo')
@@ -928,25 +927,16 @@ def demo_page():
 
 
 @app.get("/login")
-def login_page():
-    return FileResponse(ROOT / "web" / "login.html")
-
-
+@app.get("/documents")
+@app.get("/search")
+@app.get("/qa")
+@app.get("/identity")
 @app.get("/")
 def index():
-    return FileResponse(ROOT / "web" / "index.html")
+    return FileResponse(ROOT/'web/app/index.html')
 
 
-@app.get("/style.css")
-def stylesheet():
-    return FileResponse(ROOT / "web" / "style.css", media_type="text/css")
-
-
-@app.get("/app.js")
-def javascript():
-    return FileResponse(ROOT / "web" / "app.js", media_type="text/javascript")
-
-
+app.mount('/assets', StaticFiles(directory=ROOT/'web/app/assets',check_dir=False),name='unified-assets')
 app.mount("/library/assets", StaticFiles(directory=ROOT / "web" / "library" / "assets", check_dir=False), name="library-assets")
 app.mount("/static", StaticFiles(directory=ROOT / "web"), name="static")
 

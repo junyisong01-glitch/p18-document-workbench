@@ -5,8 +5,8 @@ from test_workbench import client, upload, wait
 
 def test_frontend_assets_and_capability_metadata(client):
     html=client.get('/').text
-    assert 'id="nav-search"' in html and 'id="semantic-form"' in html
-    assert 'id="semantic-preview-content"' in html
+    assert 'id="root"' in html and '/assets/' in html
+    assert client.get('/search').text==html
     asset=client.get('/static/search.js')
     assert asset.status_code==200 and 'hitIsCurrent' in asset.text
     info=client.get('/api/config').json()

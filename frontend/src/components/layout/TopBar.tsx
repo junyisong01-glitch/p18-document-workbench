@@ -1,8 +1,0 @@
-import {Search,LogOut} from 'lucide-react';
-import {useState} from 'react';
-import IdentityPicker from './IdentityPicker';
-import {api} from '@/lib/documentStore';
-export default function TopBar({identity,onSearchSubmit,demo=false}:{demo?:boolean;identity:string;onSearchSubmit:(q:string)=>void}){
- const [query,setQuery]=useState(''),[error,setError]=useState('');
- return <header className="flex items-center justify-between flex-wrap gap-6 rounded-2xl border border-line bg-white px-6 py-4 shadow-card"><form className="flex flex-1 max-w-[560px] gap-2" onSubmit={e=>{e.preventDefault();onSearchSubmit(query.trim());}}><label className="flex flex-1 items-center gap-3 border border-line rounded-xl px-4"><Search size={18}/><input aria-label="搜索文档" className="w-full h-11 outline-none" placeholder="搜索文档名称、编号…" value={query} onChange={e=>setQuery(e.target.value)}/></label><button className="px-5 rounded-xl bg-blue-600 text-white">搜索</button></form><div className="flex items-center gap-4">{demo?<div className="flex items-center gap-4 text-sm text-ink-muted"><span className="whitespace-nowrap">当前身份（模拟）</span><span aria-hidden="true" className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-600 text-lg font-semibold text-white ring-4 ring-blue-50">{identity.slice(0,1)}</span><IdentityPicker identity={identity}/></div>:<span className="text-sm">{identity}</span>}<button className="flex gap-2 text-sm text-ink-muted" onClick={async()=>{try{await api('/api/library/logout',{method:'POST'});sessionStorage.clear();location.replace('/login');}catch{setError('注销失败，请重试');}}}><LogOut size={16}/>退出登录</button>{error&&<span role="alert">{error}</span>}</div></header>;
-}
