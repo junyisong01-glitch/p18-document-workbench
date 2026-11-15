@@ -186,6 +186,19 @@ def parse_word(path):
     return {"blocks": blocks, "issues": issues, "pages": [], "characters": total}
 
 
+def parse_word_selected(path):
+    """Explicit opt-in only; installing optional dependencies never changes the parser."""
+    backend = os.environ.get('P18_PARSER', 'legacy').strip().lower()
+    if backend in {'', 'legacy'}:
+        return parse_word(path)
+    if backend != 'docling':
+        raise ValueError('P18_PARSER 只接受 legacy 或 docling。')
+    from app.docling_parser import available, extract_word
+    if not available():
+        raise ValueError('未安装可选 Docling 后端；请在独立依赖环境准备后显式启用，或使用 legacy。')
+    return extract_word(path)
+
+
 def process(folder, ext):
     source = folder / ("original" + ext)
     validate(source, ext)
@@ -200,7 +213,7 @@ def process(folder, ext):
         result['parser_version']=result['excel_parser_version']
         if not result['characters']: result['error']='工作簿没有可提取的单元格内容。'
         return result
-    result.update(parse_pdf(source) if ext == ".pdf" else parse_word(word))
+    result.update(parse_pdf(source) if ext == ".pdf" else (parse_word_selected(word) if ext == '.docx' else parse_word(word)))
     if ext == ".pdf":
         result["preview"]["original"] = source.name
     else:

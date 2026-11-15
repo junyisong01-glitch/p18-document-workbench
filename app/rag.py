@@ -565,7 +565,16 @@ class RagService:
         state,answer,ids=data['status'],data['answer'],data['citations']
         if not isinstance(state,str) or state not in {'answered','partial','insufficient_evidence'}:
             raise RagError('answer_status','回答状态无效，未发布。')
-        known={s['id']:s for s in evidence};used=re.findall(r'\[([^\]\n]+)\]',answer)
+        known={s['id']:s for s in evidence};used=[]
+        evidence_text='\n'.join(str(source.get('text','')) for source in evidence)
+        for match in re.finditer(r'\[([^\]\n]+)\]',answer):
+            token=match.group(1)
+            # Technical array/index syntax is not a citation. S-prefixed tokens
+            # and standalone bracketed tokens still require strict validation.
+            identifier=re.search(r'[A-Za-z_][A-Za-z0-9_]*$',answer[:match.start()])
+            symbol=(identifier.group(0)+'['+token+']') if identifier else ''
+            technical=bool(symbol and symbol in evidence_text and re.fullmatch(r'[A-Za-z0-9_]+',token) and not token.startswith('S'))
+            if not technical:used.append(token)
         if any(s not in known for s in ids+used):
             raise RagError('citation_unknown','回答包含未提供的引用编号，未发布。')
         if set(used)!=set(ids):
