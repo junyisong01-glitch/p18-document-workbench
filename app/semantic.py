@@ -123,7 +123,73 @@ class IndexService:
                 run.update(status='stale', searchable=False, count=0, message='文档或切分版本已变化，旧索引不再使用。')
                 self.write(run)
                 if not self.closed:
-                    self.pool.submit(self._delete_document, identifier)
+                    self.pool.submit(self._cleanup_stale, identifier, dict(run))
+
+    def _cleanup_stale(self, identifier, expected):
+        """Bounded retry; never delete a newer generation or another token."""
+        for _ in range(2):
+            # Never wait for vector_lock while holding the business lock.
+            # Queries may enter an admission recheck from inside vector I/O.
+            with self.vector_lock:
+                if not self.store.LOCK.acquire(blocking=False):
+                    continue  # Avoid inversion with schedule() / _present().
+                try:
+                    current = self.read(identifier)
+                    if (not current or current.get('status') != 'stale'
+                        or any(current.get(k) != expected.get(k) for k in ('generation','token'))
+                        or not expected.get('token') or self.valid(current, self.snapshot(identifier))):
+                        return False
+                    try:
+                        for collection in self.client.get_collections().collections:
+                            if collection.name.startswith('p18_'):
+                                self.client.delete(collection.name, points_selector=self.models.FilterSelector(
+                                    filter=self.models.Filter(must=[
+                                        self.models.FieldCondition(key='document_id',match=self.models.MatchValue(value=identifier)),
+                                        self.models.FieldCondition(key='token',match=self.models.MatchValue(value=expected['token']))])))
+                        return True
+                    except Exception:
+                        pass  # Stale run is a durable retry marker.
+                finally:
+                    self.store.LOCK.release()
+        return False
+
+    def replacement_usable(self, identifier):
+        # Replacement is destructive to the old lifecycle: require actual points,
+        # not just a complete SQLite status row.
+        with self.store.LOCK:
+            run, snap = self.read(identifier), self.snapshot(identifier)
+            if not (run and run.get('status') == 'complete'
+                    and self.valid(run, snap) and self.current_config()):
+                return False
+            if not self.vector_lock.acquire(blocking=False):
+                return False  # Defer replacement; never invert query locks.
+            try:
+                return self._present(snap)
+            finally:
+                self.vector_lock.release()
+
+    def _replacement_ready(self, identifier):
+        hook = getattr(self.store, 'on_index_complete', None)
+        if hook is None:
+            return
+        try:
+            if hook(identifier) is False:
+                raise RuntimeError('replacement verification deferred')
+            run = self.read(identifier)
+            if run and run.pop('replacement_pending', False):
+                run.pop('replacement_error', None)
+                self.write(run)
+        except Exception:
+            # Index publication already succeeded. Bookkeeping failure cannot
+            # hide it after the old file may already have been retired.
+            try:
+                run = self.read(identifier)
+                if run and run.get('status') == 'complete':
+                    run.update(replacement_pending=True,
+                               replacement_error='替换记录未完成；下次索引恢复时重试。')
+                    self.write(run)
+            except Exception:
+                pass  # Original complete run remains durable.
 
     def _delete_document(self, identifier):
         with self.vector_lock:
@@ -155,6 +221,7 @@ class IndexService:
             previous = self.read(identifier)
             if self.valid(previous, snap):
                 if previous['status'] == 'complete' and self._present(snap):
+                    self._replacement_ready(identifier)
                     return
                 if previous['status'] == 'failed' and not retry:
                     return
@@ -202,6 +269,7 @@ class IndexService:
                 run.update(status='complete', count=len(points), error=None, error_code=None,
                            message='本地向量索引已建立；支持语义检索，未生成 AI 回答。', updated_at=self.store.now())
                 self.write(run)
+                self._replacement_ready(identifier)
         except Exception as exc:
             with self.store.LOCK:
                 current = self.read(identifier)
@@ -222,6 +290,9 @@ class IndexService:
     def recover(self):
         with self.store.LOCK:
             for doc in self.store.all_docs():
+                run = self.read(doc['id'])
+                if run and run.get('status') == 'stale' and run.get('token') and not self.closed:
+                    self.pool.submit(self._cleanup_stale, doc['id'], dict(run))
                 self.invalidate(doc['id'])
                 self.schedule(doc['id'])
 
