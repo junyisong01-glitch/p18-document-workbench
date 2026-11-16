@@ -134,10 +134,24 @@ def public(doc, detailed=False):
     return result
 
 
+def on_index_complete(identifier):
+    """Both index publication and already-complete recovery recheck this guard."""
+    with LOCK:
+        doc = get(identifier)
+        if not doc.get('replaces') or doc.get('state') != 'ready':
+            return True
+        return activate_replacement(doc)
+
+
 def activate_replacement(doc):
     target = doc.get("replaces")
     if not target:
         return
+    if doc.get('state') != 'ready':
+        return
+    if os.environ.get('P18_SEMANTIC_ENABLED') == '1':
+        if INDEX_SERVICE is None or not INDEX_SERVICE.replacement_usable(doc['id']):
+            return False  # Parsed/reviewed is not a usable replacement.
     try:
         old = get(target)
     except HTTPException:
@@ -146,7 +160,13 @@ def activate_replacement(doc):
         old["state"] = "superseded"
         old["superseded_by"] = doc["id"]
         save(old)
-        event(old, "replacement_prepared")
+    if old.get('state') == 'superseded' and old.get('superseded_by') == doc['id']:
+        # A previous attempt may have saved the old state before audit failed.
+        with connect() as conn:
+            audited = conn.execute("SELECT 1 FROM events WHERE document_id=? AND action='replacement_prepared' LIMIT 1", (old['id'],)).fetchone()
+        if not audited:
+            event(old, "replacement_prepared")
+    return True
 
 
 def kill_process(proc):
@@ -694,7 +714,7 @@ async def upload(files: list[UploadFile] = File(...), mode: str = Form("ask"), r
                 if not target or target["state"] in STATES:
                     responses.append({"name": name, "status": "rejected", "message": "替换目标不存在或正在处理，请刷新后重试。"})
                     continue
-                if any(d.get("replaces") == replace_id and d["state"] in STATES | {"review", "held"} for d in existing):
+                if any(d.get("replaces") == replace_id and d["state"] in STATES | {"review", "held", "ready"} for d in existing):
                     responses.append({"name": name, "status": "rejected", "message": "该文档已有待处理的替换，请先处理或删除该替换文件。"})
                     continue
             identifier = str(uuid.uuid4())
