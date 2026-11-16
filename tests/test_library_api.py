@@ -33,7 +33,7 @@ def setup(tmp_path, monkeypatch):
 def test_auth_cannot_be_replaced_by_role_header(setup):
     client,headers,_ = setup
     assert client.get('/api/documents', headers={'X-P18-Identity':'gm'}).status_code == 401
-    assert client.get('/api/library/me', headers=headers['rd']).json() == {'identity':'研发部员工','manager':False}
+    assert client.get('/api/library/me', headers=headers['rd']).json() == {'identity':'研发部员工','username':'','manager':False}
 
 
 def test_list_and_all_direct_document_routes_deny(setup):

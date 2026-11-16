@@ -2,6 +2,7 @@
 from contextvars import ContextVar
 from dataclasses import asdict
 import json
+import os
 from fastapi import APIRouter, HTTPException, Request, Response, Query, File, UploadFile, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -9,6 +10,7 @@ from app import library_store
 from app.library_policy import LibraryMetadata, can_view, can_use_as_evidence
 
 principal = ContextVar('library_principal', default=None)
+DELETED_STATES = {'deleted', 'deleting', 'delete_failed', 'superseded'}
 
 
 def metadata(store, identifier):
@@ -33,7 +35,7 @@ def visible(store, doc, *, evidence=False):
     return (can_use_as_evidence if evidence else can_view)(row[1], user['identity'])
 
 
-def visible_ids(store, docs):
+def visible_ids(store, docs, *, evidence=False):
     """Visibility for a whole list with one session check and one metadata read.
 
     Same rules as visible(); only the query pattern changes, which removes two
@@ -41,7 +43,7 @@ def visible_ids(store, docs):
     """
     user = principal.get()
     if hasattr(store, 'authorize_document'):
-        return {doc['id'] for doc in docs if store.authorize_document(doc, user, evidence=False)}
+        return {doc['id'] for doc in docs if store.authorize_document(doc, user, evidence=evidence)}
     if user is None:
         return {doc['id'] for doc in docs}
     with store.connect() as conn:
@@ -53,10 +55,11 @@ def visible_ids(store, docs):
     for doc in docs:
         meta = rows.get(doc['id'])
         if meta is None:
-            if user['manager']:
+            if user['manager'] and not evidence:
                 allowed.add(doc['id'])
             continue
-        if can_view(LibraryMetadata(**{**meta, 'viewers': tuple(meta.get('viewers') or ())}), user['identity']):
+        checker = can_use_as_evidence if evidence else can_view
+        if checker(LibraryMetadata(**{**meta, 'viewers': tuple(meta.get('viewers') or ())}), user['identity']):
             allowed.add(doc['id'])
     return allowed
 
@@ -142,6 +145,8 @@ def install(app, store):
         if not managed:
             if request.url.path.startswith('/api/library'):
                 return JSONResponse({'detail': '文件库权限模式尚未启用'}, status_code=409)
+            if request.url.path not in {'/api/config','/api/semantic'} and os.environ.get('P18_ALLOW_LEGACY_OPEN') != '1':
+                return JSONResponse({'detail':'权限模式尚未初始化，请使用正常账号初始化流程'}, status_code=503)
             return await call_next(request)
         if request.url.path == '/api/library/login' and request.method == 'POST':
             return await call_next(request)
@@ -281,7 +286,9 @@ def install(app, store):
     @router.get('/api/library/me')
     def me():
         user = principal.get()
-        return dict(identity=user['identity'],manager=user['manager'] and not getattr(store, 'READ_ONLY_LIBRARY', False),**({'demo':True} if user.get('demo') else {}))
+        return dict(identity=user['identity'], username=user.get('username') or '',
+                    manager=user['manager'] and not getattr(store, 'READ_ONLY_LIBRARY', False),
+                    **({'demo':True} if user.get('demo') else {}))
 
     @router.get('/api/library/documents/{identifier}/preview')
     def parsed_preview(identifier: str):
@@ -295,6 +302,8 @@ def install(app, store):
     @router.get('/api/library/documents/{identifier}')
     def read_metadata(identifier: str):
         doc = store.get(identifier)
+        if doc.get('state') in DELETED_STATES:
+            raise HTTPException(404, '文档已删除或已被替换')
         if not visible(store, doc):
             raise HTTPException(404, '文档不存在或不可访问')
         row = metadata(store, identifier)
@@ -304,6 +313,8 @@ def install(app, store):
     def update_metadata(identifier: str, body: MetadataBody):
         # Management capability does not implicitly grant content access.
         doc = store.get(identifier)
+        if doc.get('state') in DELETED_STATES:
+            raise HTTPException(404, '文档已删除或已被替换')
         if not visible(store, doc):
             raise HTTPException(404, '文档不存在或不可访问')
         values = body.model_dump(exclude={'expected_version'})

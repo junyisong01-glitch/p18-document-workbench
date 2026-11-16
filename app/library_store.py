@@ -116,4 +116,5 @@ def session_by_digest(conn, digest):
         account = conn.execute('SELECT identity,manager,active FROM library_accounts WHERE username=?', (row[3],)).fetchone()
         if not account or not account[2] or account[0] != row[0] or bool(account[1]) != bool(row[1]):
             return None
-    return {'demo':bool(row[4]), 'identity':row[0], 'manager':bool(row[1]), 'session_digest':digest, 'expires':row[2]}
+    return {'demo':bool(row[4]), 'identity':row[0], 'manager':bool(row[1]), 'session_digest':digest,
+            'expires':row[2], 'username':row[3] or ''}

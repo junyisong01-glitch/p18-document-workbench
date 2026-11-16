@@ -95,6 +95,7 @@ export interface LibraryRecord {
 }
 
 export interface Me {
+  username?: string
   identity: string
   manager: boolean
   demo?: boolean

@@ -486,10 +486,15 @@ def semantic_search(body: SearchBody):
         raise HTTPException(503, 'P18_SEARCH_TOP_K 必须为1–50。')
     try:
         if library_api.principal.get() is not None:
-            if body.document_id and not library_api.visible(sys.modules[__name__], get(body.document_id), evidence=True):
+            visible = library_api.visible_ids(sys.modules[__name__], all_docs(), evidence=True)
+            if body.document_id and body.document_id not in visible:
                 raise HTTPException(404, '文档不存在或不可访问')
-            return service.search(body.query.strip(), body.document_id, top_k, mode=body.mode,
-                                  document_filter=lambda d: library_api.visible(sys.modules[__name__], d, evidence=True))
+            result = service.search(body.query.strip(), body.document_id, top_k, mode=body.mode,
+                                    document_filter=lambda d: d['id'] in visible)
+            fresh = library_api.visible_ids(sys.modules[__name__], all_docs(), evidence=True)
+            result['results'] = [h for h in result.get('results', [])
+                if all(m.get('document_id') in fresh for m in h.get('members', [h]))]
+            return result
         return service.search(body.query.strip(), body.document_id, top_k, mode=body.mode)
     except (EmbeddingError, SemanticError) as exc:
         raise HTTPException(503, {'code': exc.code, 'message': str(exc)}) from exc
@@ -587,6 +592,10 @@ def rag_health():
 
 @app.post('/api/rag/prepare')
 def rag_prepare(body: RagPrepareBody):
+    # 兼容端点：自动选证据并签发票据，绕过人工勾选。登录态下禁用，
+    # 只保留给无会话的本地脚本与回归测试。
+    if library_api.principal.get() is not None:
+        raise HTTPException(404, '该接口仅用于本地兼容模式，请改用 /api/rag/drafts')
     return rag_call('prepare', body.question, body.session_id)
 
 
@@ -658,6 +667,9 @@ async def upload(files: list[UploadFile] = File(...), mode: str = Form("ask"), r
                 continue
             digest = hashlib.sha256(content).hexdigest()
             existing = [d for d in all_docs() if d["state"] not in {"deleted", "deleting", "delete_failed", "superseded"}]
+            if library_api.principal.get() is not None:
+                visible_existing = library_api.visible_ids(sys.modules[__name__], existing)
+                existing = [d for d in existing if d['id'] in visible_existing]
             duplicate = next((d for d in existing if d["sha256"] == digest), None)
             if duplicate:
                 responses.append({"name": name, "status": "duplicate", "id": duplicate["id"], "message": "相同内容已存在，未重复上传。"})
