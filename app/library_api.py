@@ -157,7 +157,7 @@ def install(app, store):
         token = principal.set(user)
         try:
             path = request.url.path
-            permitted_posts = {'/api/library/datasets', '/api/search', '/api/library/logout', '/api/rag/prepare',
+            permitted_posts = {'/api/rag/credentials', '/api/library/datasets', '/api/search', '/api/library/logout', '/api/rag/prepare',
                                '/api/rag/drafts', '/api/rag/selection', '/api/rag/answer'}
             demo_create = user.get('demo') and request.method == 'POST' and path in {'/api/library/upload','/api/library/catalog/folders'}
             if request.method not in {'GET','HEAD','OPTIONS'} and path not in permitted_posts and not user['manager'] and not demo_create:

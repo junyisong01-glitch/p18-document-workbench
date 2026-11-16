@@ -75,11 +75,12 @@ def secure_urlopen(req, timeout):
 
 class DeepSeekClient:
     label='DeepSeek'
+    def credential(self):return os.environ.get('DEEPSEEK_API_KEY','').strip()
     @property
-    def configured(self):return bool(os.environ.get('DEEPSEEK_API_KEY','').strip())
+    def configured(self):return bool(self.credential())
 
     def complete(self, messages, cfg):
-        key=os.environ.get('DEEPSEEK_API_KEY','').strip()
+        key=self.credential()
         if not key:raise RagError('api_not_configured','尚未配置DeepSeek密钥，文档管理及知识检索仍可使用。')
         body={'model':cfg['model'],'messages':messages,'stream':False,'thinking':{'type':'disabled'},
               'response_format':{'type':'json_object'},'max_tokens':cfg['max_tokens']}
@@ -104,6 +105,23 @@ class DeepSeekClient:
         except (KeyError,ValueError,TypeError,IndexError):raise RagError('api_response','DeepSeek返回格式不符合要求，未发布回答。') from None
 
 
+
+
+class SessionDeepSeekClient(DeepSeekClient):
+    """Never inherits an operator's global key; no persistence or key echo."""
+    def __init__(self):
+        self._key = None
+        self._credential_lock = threading.RLock()
+    def credential(self):
+        with self._credential_lock:
+            return self._key or ''
+    def complete(self, messages, cfg):
+        if request_endpoint(cfg['base_url']) != 'https://api.deepseek.com/chat/completions':
+            raise RagError('destination_not_allowed','个人密钥仅允许发送到官方DeepSeek接口。')
+        return super().complete(messages, cfg)
+    def set_key(self, value):
+        with self._credential_lock:
+            self._key = value
 
 
 class RagService:

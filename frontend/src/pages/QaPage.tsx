@@ -6,6 +6,9 @@ import {useSession} from '@/lib/session'
 import type {Doc} from '@/lib/types'
 export default function QaPage(){
  const {kbId,visibleDocs}=useSession()
+ const [apiKey,setApiKey]=useState(''),[keyReady,setKeyReady]=useState(false),[keyBusy,setKeyBusy]=useState(false)
+ useEffect(()=>{api.get<any>('/api/rag/credentials').then(x=>setKeyReady(x.configured)).catch(()=>setKeyReady(false))},[])
+ async function configureKey(clear=false){setKeyBusy(true);setError('');try{if(clear)await api.del('/api/rag/credentials');else await api.put('/api/rag/credentials',{api_key:apiKey});setKeyReady(!clear);setPending(null);setConsent(false)}catch(e){setError((e as Error).message)}finally{setApiKey('');setKeyBusy(false)}}
  const [question,setQuestion]=useState(''),[draft,setDraft]=useState<any>(null),[selected,setSelected]=useState<string[]>([]),[version,setVersion]=useState(0),[pending,setPending]=useState<any>(null),[consent,setConsent]=useState(false),[answer,setAnswer]=useState<any>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[preview,setPreview]=useState<Doc|null>(null),[sourceRef,setSourceRef]=useState<any>(undefined)
  useEffect(()=>{setDraft(null);setPending(null);setAnswer(null);setSelected([]);setConsent(false)},[kbId])
  async function ask(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');setPending(null);setAnswer(null);try{const d=await api.post<any>('/api/rag/drafts',{question});setDraft(d);setSelected(d.default_candidate_ids||[]);setVersion(d.selection_version||0);if(d.status!=='drafted')setError(d.message||'请补全问题')}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
@@ -13,6 +16,7 @@ export default function QaPage(){
  async function send(){if(!pending||!consent||!pending.configured||busy)return;setBusy(true);setError('');try{setAnswer(await api.post<any>('/api/rag/answer',{ticket:pending.ticket,consent:true}));setPending(null)}catch(e){setPending(null);setError((e as Error).message)}finally{setBusy(false)}}
  const cls='rounded-md border border-border bg-card p-4'
  return <div className="space-y-5"><PageHeader kicker="Grounded Q&A" title="知识问答" desc={kbId==='qichen'?'启辰资料仅供本地查看，未获外发授权。':'人工选择获准证据，核对完整消息后再确认发送。'}/>
+ <section className={cls+' space-y-3'} aria-label="DeepSeek个人配置"><h2>DeepSeek个人配置</h2><p>{keyReady?'已配置本次登录的Key（未发送验证请求）':'未配置Key，本地检索仍可用'}</p><p className="text-sm">仅保存在后端临时内存，不保存到浏览器或文件；退出/重启后失效。调用可能计费，仍需逐次确认获准资料。</p><input aria-label="DeepSeek API Key" type="password" autoComplete="off" value={apiKey} onChange={e=>setApiKey(e.target.value)} maxLength={256}/><button disabled={keyBusy||busy||!apiKey.trim()} onClick={()=>configureKey()}>保存本次登录配置</button><button disabled={keyBusy||busy||!keyReady} onClick={()=>configureKey(true)}>清除我的Key</button>{kbId==='qichen'&&<p>此库仍禁止外发，配置Key不会改变资料权限。</p>}</section>
  <form onSubmit={ask} className="flex gap-3"><input aria-label="问答问题" className={cls+' flex-1'} value={question} onChange={e=>setQuestion(e.target.value)} maxLength={2000}/><button disabled={busy||!question.trim()} className={cls}>检索证据</button></form>
  {error&&<p role="alert">{error}</p>}
  {draft?.budget_skipped>0&&<p>有{draft.budget_skipped}组证据因容量未能默认装入，不能据此保证答案完整。</p>}

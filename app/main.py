@@ -590,7 +590,7 @@ def current_rag():
     user = library_api.principal.get()
     if user is None:
         return RAG_SERVICE
-    from app.rag import RagService
+    from app.rag import RagService, SessionDeepSeekClient
     from app.library_store import session_by_digest
     with LOCK, connect() as conn:
         for key in list(MANAGED_RAG):
@@ -602,7 +602,7 @@ def current_rag():
         if key not in MANAGED_RAG:
             if len(MANAGED_RAG) >= 64:
                 raise HTTPException(503, '问答会话过多，请稍后重试')
-            MANAGED_RAG[key] = RagService(sys.modules[__name__])
+            MANAGED_RAG[key] = RagService(sys.modules[__name__], client=SessionDeepSeekClient())
         return MANAGED_RAG[key]
 
 
@@ -614,6 +614,61 @@ def rag_call(method, *args):
         return getattr(current_rag(), method)(*args)
     except (RagError, EmbeddingError, SemanticError) as error:
         raise HTTPException(409, {'code':error.code,'message':str(error),**({'details':error.details} if getattr(error,'details',None) is not None else {})})
+
+
+def require_private_credential_transport(request):
+    local = request.url.hostname in {'localhost','127.0.0.1','::1'} and request.client and request.client.host in {'127.0.0.1','::1'}
+    if request.url.scheme != 'https' and not local:
+        raise HTTPException(400, '密钥配置仅允许HTTPS或本机回环连接。')
+    if library_api.principal.get() is None:
+        raise HTTPException(401, '请先正常登录。')
+
+
+@app.get('/api/rag/credentials')
+def credential_status(request: Request):
+    require_private_credential_transport(request)
+    service=current_rag()
+    return {'configured':bool(service.client.configured),'scope':'login_session',
+            'persistent':False,'provider':'DeepSeek','endpoint':'https://api.deepseek.com/chat/completions',
+            'notice':'仅本次登录有效；不回传密钥。配置不等于文档获准外发。'}
+
+
+@app.put('/api/rag/credentials')
+async def configure_credentials(request: Request):
+    require_private_credential_transport(request)
+    raw=b''
+    async for part in request.stream():
+        raw+=part
+        if len(raw)>2048:
+            raise HTTPException(422,'密钥请求过大；请求内容不会回显。')
+    try:
+        if len(raw)>2048:raise ValueError()
+        body=json.loads(raw)
+        import re
+        if not isinstance(body,dict) or set(body)!={'api_key'} or not isinstance(body['api_key'],str):raise ValueError()
+        value=body['api_key'].strip()
+        if not re.fullmatch(r'[A-Za-z0-9_-]{16,256}',value):raise ValueError()
+    except (ValueError,TypeError,UnicodeError):
+        raise HTTPException(422,'密钥格式不正确；请求内容不会回显。') from None
+    service=current_rag()
+    with service.lock:
+        if any(s.get('busy') for s in service.sessions.values()):
+            raise HTTPException(409,'问答请求正在进行，请结束后再更改密钥配置。')
+        service.client.set_key(value)
+        service.tickets.clear()
+    return {'configured':True,'scope':'login_session','persistent':False,'verified':False}
+
+
+@app.delete('/api/rag/credentials')
+def clear_credentials(request: Request):
+    require_private_credential_transport(request)
+    service=current_rag()
+    with service.lock:
+        if any(s.get('busy') for s in service.sessions.values()):
+            raise HTTPException(409,'问答请求正在进行，请结束后再更改密钥配置。')
+        service.client.set_key(None)
+        service.tickets.clear()
+    return {'configured':False,'scope':'login_session','persistent':False}
 
 
 @app.get('/api/rag')
