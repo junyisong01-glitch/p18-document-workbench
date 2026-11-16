@@ -410,7 +410,7 @@ export function UploadDialog({ open, onClose }: { open: boolean; onClose: () => 
 // ---------------------------------------------------------------------------
 
 export function ReviewDialog({ doc, onClose }: { doc: Doc | null; onClose: () => void }) {
-  const { markReviewed, refresh } = useSession()
+  const { markReviewed, refresh, user } = useSession()
   const [done, setDone] = useState(false)
   const [detail, setDetail] = useState<{
     revision: number
@@ -544,7 +544,7 @@ export function ReviewDialog({ doc, onClose }: { doc: Doc | null; onClose: () =>
                     await api.post(`/api/documents/${doc.id}/review`, {
                       action: 'accept',
                       revision: detail.revision,
-                      reviewer: '文档管理员',
+                      reviewer: user?.username || '未署名',
                       checks: Object.fromEntries((detail.requirements || []).map((r) => [r.key, true])),
                       note: '经界面复核确认',
                     })

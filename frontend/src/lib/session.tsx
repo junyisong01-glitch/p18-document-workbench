@@ -111,8 +111,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try {
       const me = await api.get<Me>('/api/library/me')
       setUser({
-        username: me.identity,
-        name: me.identity,
+        username: me.username || me.identity,
+        name: me.username || me.identity,
         role: roleOf(me.identity),
         admin: !!me.manager,
       })
@@ -278,6 +278,7 @@ export interface RagCandidate {
 }
 
 export interface RagDraft {
+  question?: string
   status: string
   session_id?: string
   draft_id?: string
