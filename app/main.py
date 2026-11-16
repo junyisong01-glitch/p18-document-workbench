@@ -156,6 +156,17 @@ def kill_process(proc):
         pass
 
 
+def parser_python(ext):
+    """Optional DOCX worker only; the main/embedding interpreter stays unchanged."""
+    path=os.environ.get('P18_DOCX_PYTHON','')
+    if ext != '.docx' or os.environ.get('P18_PARSER','legacy') != 'docling' or not path:
+        return sys.executable
+    candidate=Path(path)
+    if not candidate.is_absolute() or not candidate.is_file() or not os.access(candidate,os.X_OK):
+        raise ValueError('Docling 独立解析环境不可用，请检查配置或切回 legacy。')
+    return str(candidate)
+
+
 def run_job(identifier, revision):
     proc = None
     try:
@@ -167,7 +178,7 @@ def run_job(identifier, revision):
             save(doc)
             folder = folder_for(identifier)
             (folder / "result.json").unlink(missing_ok=True)
-            proc = subprocess.Popen([sys.executable, "-m", "app.parse_worker", str(folder), doc["ext"]],
+            proc = subprocess.Popen([parser_python(doc["ext"]), "-m", "app.parse_worker", str(folder), doc["ext"]],
                                     cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                     start_new_session=True)
             ACTIVE[identifier] = proc

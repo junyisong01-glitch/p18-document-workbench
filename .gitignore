@@ -49,3 +49,6 @@ config/qichen-libraries.local.json
 *.pdf
 *.zip
 *.jsonl
+
+# Optional isolated parser dependencies (never source control)
+/.optional/

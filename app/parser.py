@@ -196,7 +196,24 @@ def parse_word_selected(path):
     from app.docling_parser import available, extract_word
     if not available():
         raise ValueError('未安装可选 Docling 后端；请在独立依赖环境准备后显式启用，或使用 legacy。')
-    return extract_word(path)
+    try:
+        result = extract_word(path)
+        # Verify original block contents before adopting normalized output.
+        # Whitespace may differ; actual text must not silently disappear.
+        import re
+        legacy = parse_word(path)
+        compact = lambda value: re.sub(r'\s+', '', value)
+        combined = compact('\n'.join(b['text'] for b in result['blocks']))
+        if any(compact(b['text']) not in combined for b in legacy['blocks'] if b.get('text')):
+            raise ValueError('Docling 输出未完整覆盖原始段落或表格，请使用 legacy。')
+        return result
+    except ValueError:
+        if os.environ.get('P18_DOCLING_FALLBACK') != 'legacy':
+            raise
+        result = parse_word(path)
+        result['parser_version'] = 'word-structure-v2+legacy-fallback'
+        result['issues'].append({'kind':'parser_fallback','message':'Docling未通过结构或正文完整性检查，已保留原解析结果，请复核原文。','page':None,'block':None})
+        return result
 
 
 def process(folder, ext):
