@@ -159,7 +159,7 @@ class DatasetsApp:
         selected=cookies['p18_dataset'].value if 'p18_dataset' in cookies else 'demo'
         if selected not in {'demo','qichen30'}:
             return await JSONResponse({'detail':'未知知识库，请重新选择'},status_code=400)(scope,receive,send)
-        central_paths={'/api/library/login','/api/library/logout','/api/library/demo-session','/api/library/datasets'}
+        central_paths={'/api/rag/credentials','/api/library/login','/api/library/logout','/api/library/demo-session','/api/library/datasets'}
         if selected=='qichen30' and path.startswith('/api/') and path not in central_paths:
             if not self.config().get('enabled',True):
                 return await JSONResponse({'detail':'当前源码检出未连接已授权的启辰数据源'},status_code=503)(scope,receive,send)

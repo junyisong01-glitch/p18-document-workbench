@@ -28,17 +28,8 @@ def main():
   if not(a.local or a.acceptance):subprocess.run(['/usr/bin/open','http://127.0.0.1:8896/'])
   return
  if not DATA.exists()or not(DATA/'workbench.sqlite3').exists():raise SystemExit('统一体验数据尚未准备好。')
- mode='local'
- if a.acceptance:mode='acceptance'
- elif a.ai:mode='ai'
- elif not a.local:
-  print('1 本地资料与检索（不启用AI）\n2 启用真实AI（仅审核过的虚构公开资料；可能产生费用）')
-  if input('请选择1或2，默认1：').strip()=='2':mode='ai'
- key=''
- if mode=='ai':
-  if not sys.stdin.isatty():raise SystemExit('请在本机终端隐藏输入，不接受命令参数传递密钥。')
-  key=getpass.getpass('DeepSeek API Key（隐藏输入，仅本次运行有效）：').strip()
-  if not key:print('未输入密钥，改为本地模式。');mode='local'
+ mode='acceptance' if a.acceptance else 'web-ready'
+ key=''  # Personal keys are supplied via authenticated HTTPS/loopback API, not startup.
  env=environment();env.update(P18_DATA_DIR=str(DATA),TMPDIR=str(DATA/'tmp'),PYTHONPATH=str(R/'config/experience_guard')+os.pathsep+str(R),P18_DEEPSEEK_BASE_URL='https://api.deepseek.com',P18_DEEPSEEK_MODEL='deepseek-flash',P18_DEEPSEEK_TIMEOUT='60',P18_DEEPSEEK_MAX_TOKENS='1500',no_proxy='*',NO_PROXY='*')
  if mode=='acceptance':env['P18_EXPERIENCE_ACCEPTANCE']='1'
  log=(DATA/'server.log').open('a')
@@ -49,7 +40,7 @@ def main():
   if listener():break
   time.sleep(.15)
  else:raise SystemExit('启动超时，请核对日志，勿重复启动。')
- STATE.write_text(json.dumps({'pid':proc.pid,'port':8896,'data_dir':str(DATA),'mode':mode,'api_key_persisted':False,'started_at':time.time()},ensure_ascii=False,indent=2));os.chmod(STATE,0o600)
+ STATE.write_text(json.dumps({'pid':proc.pid,'port':8896,'data_dir':str(DATA),'mode':mode,'api_key_persisted':False,'credential_scope':'login_session','started_at':time.time()},ensure_ascii=False,indent=2));os.chmod(STATE,0o600)
  print('已启动：http://127.0.0.1:8896/；模式：'+mode+'。可关闭此终端，服务继续运行。')
  if not(a.local or a.acceptance):subprocess.run(['/usr/bin/open','http://127.0.0.1:8896/'])
 if __name__=='__main__':main()

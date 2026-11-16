@@ -51,3 +51,5 @@ tests/通过代码构造虚构文档、工作簿和模拟客户端；不会调�
 重复问题向量缓存、问答阻断解释与容量提示的最新整合及禁用方法见[2211fcc择取记录](docs/DELIVERY_2211_INTEGRATION.md)。不采用交付包的密级切库、默认解析切换或造数初始化。
 
 剩余交付功能的逐项实测与取舍见[补测记录](docs/REMAINING_2211_VERIFICATION.md)。新增只读“检查P18运行环境.command”；Docling仅为显式可选DOCX后端，当前8896仍legacy，WAL选项也默认关闭。
+
+个人DeepSeek Key现在可在问答页按本次登录配置，API与部署边界见[个人Key说明](docs/PERSONAL_DEEPSEEK_API.md)。填写Key不授予文档外发权限。

@@ -46,7 +46,7 @@ export default function IdentityPage() {
     [
       '外部 AI 使用',
       kb.externalAiAllowed
-        ? '已获外发授权：证据外发需人工选择、容量校验与发送前确认'
+        ? '仅获逐份许可的资料可外发：需配置个人Key、人工选择、容量校验与发送前确认'
         : '受限：该知识库禁止向外部大模型发送资料',
     ],
   ]
