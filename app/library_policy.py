@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 
 IDENTITIES = {
+    '只读访客': '',
     '启辰研发岗位': '研发部',
     '启辰测试岗位': '研发部',
     '启辰运维岗位': '研发部',

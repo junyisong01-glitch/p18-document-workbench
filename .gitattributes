@@ -1,0 +1,2 @@
+# Vite emits bundled third-party license comments with preserved whitespace.
+web/app/assets/* linguist-generated=true -whitespace

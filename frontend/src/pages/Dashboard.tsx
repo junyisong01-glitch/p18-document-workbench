@@ -1,6 +1,7 @@
 // 页面二：工作台
 // 展示当前用户岗位、当前知识库、访问范围、知识库模式与有依据的统计，
 // 并提供文档管理 / 知识检索 / 知识问答三个入口。
+import {BusinessDashboard} from '@/components/BusinessDashboard'
 import { Link } from 'react-router'
 import { ArrowRight, FileStack, MessageSquareText, Search, ShieldCheck } from 'lucide-react'
 import { useKnowledgeBase, useSession } from '@/lib/session'
@@ -36,6 +37,7 @@ export default function DashboardPage() {
   const { user, kbId, setKb, visibleDocs, searchableDocs, kbStats, availableKbs } = useSession()
   const kb = useKnowledgeBase()
 
+  if(kbId==='business')return <BusinessDashboard/>
   return (
     <div className="space-y-10">
       <PageHeader
@@ -51,7 +53,7 @@ export default function DashboardPage() {
       />
 
       {/* 价值主张 */}
-      <section className="grid grid-cols-3 divide-x divide-border border border-border bg-card">
+      <section className="grid grid-cols-1 md:grid-cols-3 divide-x divide-border border border-border bg-card">
         {[
           ['找得到', '混合检索', '向量与关键词融合排序，默认 Top-5 直达来源片段。'],
           ['查得清', '证据可核', '检索结果附证据与原文预览，可人工核对来源。'],
@@ -70,7 +72,7 @@ export default function DashboardPage() {
       {/* 知识库与访问范围 */}
       <section>
         <div className="kicker mb-4">Knowledge Base & Access</div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {(Object.keys(KNOWLEDGE_BASES) as KbId[]).filter(id=>availableKbs.includes(id)).map((id) => {
             const k = KNOWLEDGE_BASES[id]
             const active = id === kbId
@@ -105,7 +107,7 @@ export default function DashboardPage() {
                         : 'border-[hsl(148_32%_32%/0.45)] bg-[hsl(148_32%_32%/0.08)] text-[hsl(148_32%_28%)]'
                     }`}
                   >
-                    {k.readonly ? '只读' : '可管理'}
+                    {k.readonly?'只读':k.id==='business'?user?.accessRole==='guest'?'授权只读':'提交与审批流程':user?.admin?'可管理':'权限内只读'}
                   </span>
                 </div>
 
@@ -149,7 +151,7 @@ export default function DashboardPage() {
       {/* 功能入口 */}
       <section>
         <div className="kicker mb-4">Workspace</div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {ENTRIES.map((e) => (
             <Link
               key={e.to}

@@ -1,0 +1,14 @@
+.git
+.venv
+.optional
+.cache
+.local-*
+.development
+runtime
+models
+**/node_modules
+**/__pycache__
+**/.env
+**/*.pem
+**/*.key
+*.tar.gz

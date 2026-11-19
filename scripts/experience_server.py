@@ -4,7 +4,9 @@ import os,sys,json,time,threading
 R=Path(__file__).resolve().parents[1];sys.path.insert(0,str(R))
 DATA=R/'runtime/demo-v1-experience';TEST=os.environ.get('P18_EXPERIENCE_ACCEPTANCE')=='1'
 if __name__=='__main__':
- if TEST:os.environ['DEEPSEEK_API_KEY']='synthetic-offline-acceptance-only'
+ if TEST:
+  os.environ['DEEPSEEK_API_KEY']='synthetic-offline-acceptance-only'
+  os.environ['LLM_PROVIDER']='deepseek'
  else:
   value=json.loads(sys.stdin.readline());key=value.pop('api_key','');value.clear()
   if key:os.environ['DEEPSEEK_API_KEY']=key
@@ -57,6 +59,29 @@ def checked_transport(req,timeout):
   with official_deepseek_request():return Response(_original(req,timeout),record)
  except Exception as e:metadata_event(dict(record,event='error',error_type=type(e).__name__));raise
 rag.secure_urlopen=checked_transport
+
+from app.llm import DeepSeekProvider, messages as controlled_messages
+_sdk_generate=DeepSeekProvider.generate
+def checked_sdk_generate(self,prompt):
+ body={'model':'deepseek-flash','stream':False,'thinking':{'type':'disabled'},'messages':controlled_messages(prompt)}
+ payload=json.loads(body['messages'][-1]['content'])
+ groups=payload.get('untrusted_evidence',[])
+ if not groups:raise rag.RagError('evidence_missing','没有获准证据，未发送。')
+ for group in groups:
+  for source in group.get('members',[group]):
+   d=main.available(source['document_id']);row=library_api.metadata(main,d['id']);grant=egress.record(DATA,d)
+   if not row or row[1].classification!='公开' or row[1].lifecycle!='现行有效' or grant.get('classification')!='fictional' or not egress.allowed(DATA,d):raise rag.RagError('experience_fictional_only','体验版仅允许已逐份审核的虚构公开资料；未发送。')
+ record={'at':time.time(),'event':'attempt','simulated':TEST,'messages_hash':rag.digest(body['messages']),'destination':'https://api.deepseek.com/chat/completions','model':'deepseek-flash'}
+ metadata_event(record)
+ try:
+  if TEST:
+   with OfflineResponse()as response:result=json.loads(response.read(2000000))['choices'][0]['message']['content']
+  else:
+   with official_deepseek_request():result=_sdk_generate(self,prompt)
+  metadata_event(dict(record,event='response'));return result
+ except Exception as error:metadata_event(dict(record,event='error',error_type=type(error).__name__));raise
+DeepSeekProvider.generate=checked_sdk_generate
+
 import uvicorn
 if __name__=='__main__':
  from app.datasets import install

@@ -103,7 +103,10 @@ def test_context_budget_accumulation_can_omit_otherwise_fitting_answer(rig,monke
     sources=[{k:h[k] for k in fields} for h in hits]
     base=budget_for(question,{})-len('{}')
     costs=[len(json.dumps(s,ensure_ascii=False)) for s in sources]
-    assert all(base+c<=2000 for c in costs) and base+sum(costs)>2000
+    # Derive the window from actual messages: changes to SYSTEM must not invalidate the fixture.
+    limit=max(2000,max(base+c for c in costs)+32, max(rig.rag.selection_budget(question,[],[dict(s,id='S1')],config())['message_chars'] for s in sources)+32)
+    monkeypatch.setenv('P18_RAG_CONTEXT_CHARS',str(limit))
+    assert all(base+c<=limit for c in costs) and base+sum(costs)>limit
     p=rig.rag.prepare(question)
     assert [s['chunk_id'] for s in p['evidence']]==['chunk-g00']
     assert 'chunk-g01' not in json.dumps(p['evidence']) and not rig.provider.requests

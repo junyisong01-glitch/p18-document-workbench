@@ -1,4 +1,6 @@
 // 应用外壳：左侧深色窄边栏（品牌、知识库切换、导航、用户）+ 右侧内容区。
+import {useEffect,useState} from 'react'
+import {Menu,X} from 'lucide-react'
 import { NavLink, Outlet, useNavigate } from 'react-router'
 import {
   Database,
@@ -73,11 +75,14 @@ export default function AppShell() {
   const { user, logout, searchableDocs, visibleDocs } = useSession()
   const kb = useKnowledgeBase()
   const navigate = useNavigate()
+  const [menuOpen,setMenuOpen]=useState(false)
+  useEffect(()=>setMenuOpen(false),[kb.id])
 
   return (
     <div className="flex min-h-dvh">
       {/* 深色窄边栏 */}
-      <aside className="fixed inset-y-0 left-0 z-30 flex w-[236px] flex-col bg-[hsl(36_16%_9%)] text-[#a89f8c]">
+      {menuOpen&&<button aria-label="关闭导航遮罩" className="fixed inset-0 z-20 bg-black/30 lg:hidden" onClick={()=>setMenuOpen(false)}/>}
+      <aside className={`fixed inset-y-0 left-0 z-30 flex w-[236px] flex-col overflow-y-auto bg-[hsl(36_16%_9%)] text-[#a89f8c] transition-transform lg:translate-x-0 ${menuOpen?'translate-x-0':'-translate-x-full'}`}>
         <div className="px-5 pb-6 pt-6">
           <LogoLockup dark />
         </div>
@@ -92,6 +97,7 @@ export default function AppShell() {
             <NavLink
               key={item.to}
               to={item.to}
+              onClick={()=>setMenuOpen(false)}
               end={'end' in item}
               className={({ isActive }) =>
                 `ease-junyi group flex items-center gap-3 rounded-md px-3 py-2.5 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(12_74%_50%)] ${
@@ -145,21 +151,22 @@ export default function AppShell() {
       </aside>
 
       {/* 内容区 */}
-      <div className="ml-[236px] flex min-h-dvh flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-4 border-b border-border bg-[hsl(44_22%_94%/0.92)] px-8 backdrop-blur-sm">
+      <div className="flex min-h-dvh min-w-0 flex-1 flex-col lg:ml-[236px]">
+        <header className="sticky top-0 z-20 flex min-h-14 flex-wrap items-center justify-between gap-3 py-3 border-b border-border bg-[hsl(44_22%_94%/0.92)] px-4 sm:px-8 backdrop-blur-sm">
           <div className="flex items-center gap-3 text-[12px] text-muted-foreground">
+            <button type="button" aria-label={menuOpen?"关闭导航":"打开导航"} onClick={()=>setMenuOpen(!menuOpen)} className="mr-1 rounded-md border border-border p-2 lg:hidden">{menuOpen?<X className="size-4"/>:<Menu className="size-4"/>}</button>
             <Database className="size-3.5" strokeWidth={1.8} />
-            <span>{kb.name}</span>
+            <span className="font-medium text-foreground">{kb.name}</span>
             <span className="text-border">/</span>
             <span className="font-mono2 text-[11px]">
               可见 {visibleDocs.length} · 可检索 {searchableDocs.length}
             </span>
             <span className="text-border">/</span>
-            <span>{kb.modeLabel}</span>
+            <span className="hidden xl:inline">{kb.modeLabel}</span>
           </div>
-          <DemoTag />
+          <div className="flex flex-wrap items-center gap-3"><span className="text-[11px] text-muted-foreground">{user?.username} · {user?.role.name} · {user?.role.dept}</span><DemoTag /></div>
         </header>
-        <main className="flex-1 px-8 py-8">
+        <main className="min-w-0 flex-1 px-4 py-6 sm:px-8 sm:py-8">
           <Outlet />
         </main>
         <footer className="border-t border-border px-8 py-4">

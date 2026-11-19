@@ -6,6 +6,8 @@ import { Download, X } from 'lucide-react'
 import { FormatMark, StatusBadge } from './bits'
 import { downloadDemoFile, useSession } from '@/lib/session'
 import { api } from '@/lib/api'
+import { OriginalBlock, OriginalTable, type SourceBlock, type SourceTable } from './SourceContent'
+import { sourcePages, locationLabel, originalRange, type SourceLocation } from '@/lib/source-presentation'
 import type { Doc } from '@/lib/types'
 
 const PIPELINE_STEPS = [
@@ -61,22 +63,42 @@ export function DocPreviewDialog({
   const {user,kbId}=useSession()
   const [grantChecks,setGrantChecks]=useState<Record<string,boolean>>({})
   const [detail,setDetail]=useState<any>(null),[error,setError]=useState('')
+  const [tab,setTab]=useState<'evidence'|'original'|'full'>('evidence')
+  const [page,setPage]=useState(1),[pages,setPages]=useState<number|null>(null)
+  const [previewError,setPreviewError]=useState('')
+  const [imageError,setImageError]=useState(false)
   const sourceQuery=sourceRef?'?'+new URLSearchParams({revision:String(sourceRef.revision),index_token:sourceRef.index_token,chunk_id:sourceRef.chunk_id}).toString():''
-  useEffect(()=>{let active=true;setDetail(null);setError('');setGrantChecks({});if(open&&doc){
+  useEffect(()=>{let active=true;setDetail(null);setError('');setGrantChecks({});setTab(sourceRef?'evidence':'original');setPages(null);setPreviewError('');setImageError(false);setPage(1);if(open&&doc){
     const url='/api/documents/'+encodeURIComponent(doc.id)+(sourceRef?'/source'+sourceQuery:'')
-    api.get<any>(url).then(x=>{if(active)setDetail(sourceRef?{...x.document,matchedSource:x.source}:x)}).catch(e=>{if(active)setError(e.message)})
+    api.get<any>(url).then(x=>{if(active){setDetail(sourceRef?{...x.document,matchedSource:x.source}:x);setPage(sourcePages(x.source?.sources||[])[0]||1)}}).catch(e=>{if(active)setError(e.message)})
   }return()=>{active=false}},[open,doc?.id,sourceQuery])
+
+  useEffect(() => {
+    if (!open || !doc || !detail || tab !== 'original') return
+    let active=true
+    setPages(null);setPreviewError('');setImageError(false)
+    if (!detail.result?.preview?.original) {setPreviewError('此文件尚无分页预览，可查看全文解析或下载原件。');return}
+    api.get<{pages:number}>('/api/documents/'+encodeURIComponent(doc.id)+'/preview/original/meta'+(sourceQuery||'?revision='+detail.revision))
+      .then(meta=>{if(active){setPages(meta.pages);setPage(p=>p<=meta.pages?p:1)}})
+      .catch(e=>{if(active)setPreviewError(e.message)})
+    return()=>{active=false}
+  },[open,doc?.id,detail,tab,sourceQuery])
 
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {e.preventDefault();e.stopImmediatePropagation();onClose()}
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [open, onClose])
 
   if (!open || !doc) return null
+  const matched=detail?.matchedSource
+  const sources:SourceLocation[]=matched?.sources||[]
+  const blocks:SourceBlock[]=detail?.result?.blocks||[]
+  const tables:SourceTable[]=matched?.tables||[]
+  const mappedPages=sourcePages(sources)
 
   return (
     <div
@@ -87,7 +109,7 @@ export function DocPreviewDialog({
       aria-label={`文档预览：${doc.fileName}`}
     >
       <div
-        className="flex max-h-[85vh] w-full max-w-2xl flex-col border border-border bg-card shadow-2xl"
+        className="flex max-h-[85vh] w-full max-w-4xl flex-col border border-border bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部 */}
@@ -95,7 +117,7 @@ export function DocPreviewDialog({
           <FormatMark format={doc.format} className="mt-0.5" />
           <div className="min-w-0 flex-1">
             <div className="font-mono2 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-              {doc.code} · {doc.version}
+              {doc.code} · 文档版本 {doc.version}
             </div>
             <h3 className="mt-1 break-all font-display text-[16px] font-semibold leading-snug">
               {doc.fileName}
@@ -118,18 +140,52 @@ export function DocPreviewDialog({
 
         {/* 内容 */}
         <div className="scrollbar-thin flex-1 overflow-y-auto px-6 py-5">
-          <div className="flex items-center justify-between">
-            <span className="kicker">{doc.format === 'xlsx' ? '结构化内容预览' : '原文节选预览'}</span>
-            <span className="font-mono2 text-[10px] text-muted-foreground">服务端原文</span>
+          <div role="tablist" aria-label="来源查看方式" onKeyDown={e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const tabs=Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role=tab]'));const current=tabs.indexOf(document.activeElement as HTMLButtonElement);const next=e.key==='Home'?0:e.key==='End'?tabs.length-1:(current+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;tabs[next]?.focus();tabs[next]?.click()}} className="mb-5 flex flex-wrap gap-1 border-b border-border">
+            {([['evidence','命中证据'],['original','原文件'],['full','全文解析']] as const).filter(([key])=>key!=='evidence'||!!sourceRef).map(([key,label])=><button key={key} role="tab" tabIndex={tab===key?0:-1} aria-selected={tab===key} aria-controls="source-panel" id={'source-tab-'+key} onClick={()=>setTab(key)} className={`border-b-2 px-4 py-3 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(12_74%_42%)] ${tab===key?'border-[hsl(12_74%_42%)] font-semibold text-[hsl(12_74%_38%)]':'border-transparent text-muted-foreground hover:text-foreground'}`}>{label}</button>)}
           </div>
-
           {error&&<p role="alert">{error}</p>}
-          {!detail&&!error&&<p>正在核验来源…</p>}
-          {detail&&<>
-            {detail.result?.preview?.original&&<img className="mt-4 w-full" alt="服务端原文转换预览第1页" src={'/api/documents/'+doc.id+'/preview/original/1'+(sourceQuery||'?revision='+detail.revision)}/>}
-            {detail.matchedSource&&<section className="mt-4 border p-3"><b>本次命中的来源片段（已核验版本与索引）</b><pre className="whitespace-pre-wrap text-sm">{detail.matchedSource.text}</pre><pre className="whitespace-pre-wrap text-xs">{JSON.stringify(detail.matchedSource.sources,null,2)}</pre></section>}
-            <div className="mt-4 space-y-3">{(detail.result?.blocks||[]).map((b:any)=><section key={b.id}><b>{b.label||b.id}</b><pre className="whitespace-pre-wrap text-sm">{b.text}</pre></section>)}</div>
-          </>}
+          {!detail&&!error&&<p role="status">正在核验来源…</p>}
+          {detail&&<div id="source-panel" role="tabpanel" aria-labelledby={'source-tab-'+tab} className="space-y-4">
+            {tab==='evidence'&&matched&&<>
+              <div className="space-y-2 border-l-2 border-[hsl(12_74%_42%/0.55)] pl-4">
+                <h4 className="text-[16px] font-semibold">{matched.section||'本次命中证据'}</h4>
+                <p className="text-[12px] leading-relaxed text-muted-foreground">来源、文档修订及索引已由服务端核验；以下保留实际命中内容，不生成答案。</p>
+              </div>
+              <div className="space-y-3" data-testid="matched-evidence">
+                {tables.length? <>
+                  {sources.map((source,i)=>{const block=blocks.find(b=>b.id===source.block_id);return block&&block.kind!=='table'&&originalRange(block.text,source).trim()&&originalRange(block.text,source).trim()!==matched.section?.trim()?<OriginalBlock key={i} block={{...block,text:originalRange(block.text,source)}}/>:null})}
+                  {tables.map((table,i)=><OriginalTable key={i} table={table}/>)}
+                </>:<p className="whitespace-pre-wrap text-[14px] leading-[1.9] [overflow-wrap:anywhere]">{matched.text}</p>}
+              </div>
+              <section className="border-t border-border pt-4">
+                <h4 className="text-[12px] font-semibold">原文位置</h4>
+                <ul className="mt-2 space-y-2 text-[12px] leading-relaxed text-muted-foreground">{sources.map((source,i)=><li key={i}>{locationLabel(source)}</li>)}</ul>
+                {mappedPages.length>0&&<button onClick={()=>{setPage(mappedPages[0]);setTab('original')}} className="mt-3 text-[12px] font-medium text-[hsl(12_74%_38%)] underline underline-offset-4">打开对应原件预览页</button>}
+              </section>
+              <details className="border-t border-border pt-3 text-[12px] text-muted-foreground"><summary className="cursor-pointer py-1">技术来源信息与检索原始文本</summary>
+                <p className="my-2">片段 ID：<span className="break-all font-mono2">{sourceRef?.chunk_id}</span> · 文档修订 {sourceRef?.revision}</p>
+                <pre className="whitespace-pre-wrap break-words leading-relaxed">{matched.text}</pre>
+                <pre className="mt-3 whitespace-pre-wrap break-words">{JSON.stringify(sources,null,2)}</pre>
+              </details>
+            </>}
+            {tab==='original'&&<>
+              <p className="text-[12px] leading-relaxed text-muted-foreground">{doc.format==='pdf'?'原始 PDF 分页预览。':'原件转换后的分页预览；版式可能与本机 Office 存在差异。'}{mappedPages.length?` 已记录的来源页：${mappedPages.join('、')}。`:' 未记录精确页映射，从第1页开始。'}不保证逐字高亮。</p>
+              {previewError&&<p role="alert" className="rounded-sm border border-border p-4 text-[13px]">{previewError}</p>}
+              {!pages&&!previewError&&<p role="status">正在读取预览页数…</p>}
+              {pages&&<>
+                <div className="flex flex-wrap items-center gap-3 text-[12px]">
+                  <button disabled={page<=1} onClick={()=>{setPage(p=>p-1);setImageError(false)}} className="rounded-sm border border-border px-3 py-1.5 disabled:opacity-40">上一页</button>
+                  <label>第 <select aria-label="原件预览页码" value={page} onChange={e=>{setPage(Number(e.target.value));setImageError(false)}} className="mx-1 border border-border bg-card px-2 py-1">{Array.from({length:pages},(_,i)=><option value={i+1} key={i}>{i+1}</option>)}</select> / {pages} 页</label>
+                  <button disabled={page>=pages} onClick={()=>{setPage(p=>p+1);setImageError(false)}} className="rounded-sm border border-border px-3 py-1.5 disabled:opacity-40">下一页</button>
+                </div>
+                {imageError?<p role="alert">原件预览加载失败，请重新打开预览或下载原件核对。</p>:<img key={page} onError={()=>setImageError(true)} className="w-full border border-border bg-white" alt={'服务端原文转换预览第'+page+'页'} src={'/api/documents/'+encodeURIComponent(doc.id)+'/preview/original/'+page+(sourceQuery||'?revision='+detail.revision)}/>}
+              </>}
+            </>}
+            {tab==='full'&&<>
+              <p className="border-b border-border pb-3 text-[12px] leading-relaxed text-muted-foreground">以下是整份文档的解析内容，包含未命中的其他段落；不能全部当作本题命中证据。表格按实际行列显示。</p>
+              <div className="space-y-4">{blocks.map(block=><OriginalBlock key={block.id} block={block}/>)}</div>
+            </>}
+          </div>}
 
           {user?.admin&&kbId==='demo'&&detail?.external_permission?.can_review&&<section className="mt-4 border p-4"><h4>本机外发许可审核</h4><p>仅适用于你已核实的完全虚构、公开、非机密资料。授予许可不代表本次已发送。</p>{[['fictional','我确认本文件完全虚构'],['no_sensitive_content','无敏感内容'],['third_party_terms_checked','已核对第三方分享权利'],['no_restricted_content','不包含受限内容']].map(([key,label])=><label className="block" key={key}><input type="checkbox" checked={!!grantChecks[key]} onChange={e=>setGrantChecks({...grantChecks,[key]:e.target.checked})}/>{label}</label>)}<button disabled={!['fictional','no_sensitive_content','third_party_terms_checked','no_restricted_content'].every(k=>grantChecks[k])} onClick={async()=>{try{await api.post('/api/documents/'+doc.id+'/external-permission',{revision:detail.revision,fingerprint:detail.external_permission.fingerprint,classification:'fictional',checks:{no_sensitive_content:true,third_party_terms_checked:true,no_restricted_content:true}});setDetail(await api.get('/api/documents/'+doc.id));setGrantChecks({})}catch(e){setError((e as Error).message)}}}>逐份授予外发许可</button></section>}
 
@@ -154,7 +210,7 @@ export function DocPreviewDialog({
         <div className="flex items-center justify-between border-t border-border px-6 py-4">
           <PipelineRow doc={doc} />
           <button
-            onClick={() => downloadDemoFile(doc)}
+            onClick={() => {if(!sourceRef){downloadDemoFile(doc);return}const link=document.createElement('a');link.href='/api/documents/'+encodeURIComponent(doc.id)+'/file/original'+sourceQuery;link.download=doc.fileName;link.click()}}
             className="ease-junyi flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-[12px] font-medium transition-colors duration-200 hover:border-[hsl(12_74%_42%/0.5)] hover:text-[hsl(12_74%_42%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(12_74%_42%)]"
           >
             <Download className="size-3.5" />

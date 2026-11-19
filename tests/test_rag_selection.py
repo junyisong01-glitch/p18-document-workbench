@@ -314,12 +314,18 @@ def test_mutated_stored_message_snapshot_cannot_be_dispatched(rig):
 def test_combined_budget_rejects_groups_that_fit_individually(rig,monkeypatch):
     monkeypatch.setenv('P18_RAG_CONTEXT_CHARS','2000')
     install_ranked_fictional_documents(rig,['虚构甲段。'+'甲'*500,'虚构乙段。'+'乙'*500])
+    from app.rag import config
+    hits=rig.service.search('虚构目标？',20)['results']
+    fields=['document_id','document_name','chunk_id','revision','index_token','text','section','sources','risk']
+    single=[dict({k:h[k] for k in fields},id='S1')for h in hits]
+    limit=max(2000,max(rig.rag.selection_budget('虚构目标？',[],[source],config())['message_chars'] for source in single)+32)
+    monkeypatch.setenv('P18_RAG_CONTEXT_CHARS',str(limit))
     d=rig.rag.draft('虚构目标？');ids=[c['candidate_id'] for c in d['candidates']]
     assert all(rig.rag.selection_budget(d['question'],[],[dict(c['evidence'],id='S1')],
-        rig.rag.drafts[d['draft_id']]['config'])['message_chars']<=2000 for c in d['candidates'])
+        rig.rag.drafts[d['draft_id']]['config'])['message_chars']<=limit for c in d['candidates'])
     with pytest.raises(RagError) as error:select(rig,d,ids)
     assert error.value.code=='evidence_budget_exceeded'
-    assert error.value.details['budget']['groups']==2 and error.value.details['budget']['message_chars']>2000
+    assert error.value.details['budget']['groups']==2 and error.value.details['budget']['message_chars']>limit
     assert not rig.provider.requests and not rig.rag.tickets
 
 

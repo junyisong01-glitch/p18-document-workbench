@@ -27,6 +27,8 @@ from app.admission import categories, requirements, confirmed, sync_admission
 from app.chunking import configuration, digest, fingerprint, prepare
 
 ROOT = Path(__file__).resolve().parent.parent
+from app.llm import load_env
+load_env(ROOT / '.env')
 DATA = Path(os.environ.get("P18_DATA_DIR", ROOT / "runtime"))
 DB = DATA / "workbench.sqlite3"
 LOCK = threading.RLock()
@@ -384,6 +386,11 @@ def run_chunk_job(identifier, generation):
 @asynccontextmanager
 async def lifespan(app):
     global INDEX_SERVICE, SEMANTIC_ERROR, RAG_SERVICE
+    from app.llm import startup_check
+    app.state.llm_health=startup_check()
+    if app.state.llm_health.get('notice'):
+        import logging
+        logging.getLogger(__name__).warning(app.state.llm_health['notice'])
     initialize()
     MANAGED_RAG.clear()
     from app.rag import RagService
@@ -422,6 +429,9 @@ async def lifespan(app):
     while CHUNK_ACTIVE:
         import asyncio
         await asyncio.sleep(.02)
+    for child in getattr(sys.modules[__name__],'BUSINESS_CHILDREN',[]):
+        child.POOL.shutdown(wait=True)
+        if child.INDEX_SERVICE and not child.INDEX_SERVICE.closed:child.INDEX_SERVICE.close()
     if INDEX_SERVICE is not None:
         INDEX_SERVICE.close()
         INDEX_SERVICE = None
@@ -591,6 +601,7 @@ def current_rag():
     if user is None:
         return RAG_SERVICE
     from app.rag import RagService, SessionDeepSeekClient
+    from app.llm import RoutedClient
     from app.library_store import session_by_digest
     with LOCK, connect() as conn:
         for key in list(MANAGED_RAG):
@@ -602,7 +613,7 @@ def current_rag():
         if key not in MANAGED_RAG:
             if len(MANAGED_RAG) >= 64:
                 raise HTTPException(503, '问答会话过多，请稍后重试')
-            MANAGED_RAG[key] = RagService(sys.modules[__name__], client=SessionDeepSeekClient())
+            MANAGED_RAG[key] = RagService(sys.modules[__name__], client=(RoutedClient(session=True) if 'LLM_PROVIDER' in os.environ else SessionDeepSeekClient()))
         return MANAGED_RAG[key]
 
 
@@ -628,8 +639,10 @@ def require_private_credential_transport(request):
 def credential_status(request: Request):
     require_private_credential_transport(request)
     service=current_rag()
+    cfg=service.configuration()
+    from app.rag import model_endpoint
     return {'configured':bool(service.client.configured),'scope':'login_session',
-            'persistent':False,'provider':'DeepSeek','endpoint':'https://api.deepseek.com/chat/completions',
+            'persistent':False,'provider':service.client.label,'endpoint':model_endpoint(cfg['base_url']),
             'notice':'仅本次登录有效；不回传密钥。配置不等于文档获准外发。'}
 
 
@@ -669,6 +682,46 @@ def clear_credentials(request: Request):
         service.client.set_key(None)
         service.tickets.clear()
     return {'configured':False,'scope':'login_session','persistent':False}
+
+
+@app.post('/api/rag/fallback')
+async def confirm_llm_fallback(request: Request):
+    require_private_credential_transport(request)
+    body=await request.json()
+    if not isinstance(body,dict) or set(body)!={'confirm_external_fallback'} or body['confirm_external_fallback'] is not True:
+        raise HTTPException(422,'必须明确确认切换到外部DeepSeek。')
+    service=current_rag()
+    from app.llm import RoutedClient
+    if not isinstance(service.client,RoutedClient):raise HTTPException(409,'当前路由不支持故障降级。')
+    with service.lock:
+        if any(s.get('busy') for s in service.sessions.values()):raise HTTPException(409,'请等待当前回答结束。')
+        try:service.client.confirm_fallback()
+        except Exception as e:raise HTTPException(409,{'code':getattr(e,'code','fallback_error'),'message':str(e)})
+        service.tickets.clear();service.drafts.clear();service.sessions.clear();service.receipts.clear()
+    return {'confirmed':True,'provider':'deepseek','notice':'旧确认已失效；请重新检索、选择获准证据并人工确认本轮外发。'}
+
+
+class RagProviderBody(BaseModel):
+    model_config = {"extra":"forbid", "strict":True}
+    provider: Literal['ollama','deepseek']
+    confirm_external: bool = False
+
+
+@app.post('/api/rag/provider')
+def select_llm_provider(body: RagProviderBody, request: Request):
+    require_private_credential_transport(request)
+    service=current_rag()
+    from app.llm import RoutedClient
+    from app.rag import RagError
+    if not isinstance(service.client,RoutedClient):raise HTTPException(409,'当前部署不支持会话模型切换。')
+    if service.source_library!='demo' and body.provider=='deepseek':raise HTTPException(403,'启辰库禁止使用外部模型。')
+    if body.provider=='deepseek' and body.confirm_external is not True:raise HTTPException(422,'必须明确确认选择外部DeepSeek。')
+    with service.lock:
+        if any(s.get('busy') for s in service.sessions.values()):raise HTTPException(409,'请等待当前回答结束后再切换模型。')
+        try:service.client.select_provider(body.provider,body.confirm_external)
+        except RagError as error:raise HTTPException(409,{'code':error.code,'message':str(error)})from None
+        service.tickets.clear();service.drafts.clear();service.sessions.clear();service.receipts.clear()
+    return {'provider':body.provider,'scope':'login_session','notice':'仅更改本次登录的模型路由，未发送资料；旧证据和确认已失效，请重新检索核对。'}
 
 
 @app.get('/api/rag')

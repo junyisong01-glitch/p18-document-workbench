@@ -1,5 +1,7 @@
 # P18 Demo V1 — 统一工作台
 
+**最新源码基线（2026-11-19）**：已整合两库、四类职责与14张演示身份卡、邀请激活、主管/老板自审、新版本与轻量勘误、历史查阅，以及最新登录/文档/检索/问答界面。最终回答支持本地 Ollama（默认 `qwen3.5:4b`、16384上下文）与保留的 DeepSeek 接口；检索仍使用原 Qwen Embedding。当前暂停公网部署，云脚本为尚待服务器验证的准备代码。完整入口和边界见 [最新版本说明](docs/LATEST_BASELINE.md)；下方早期发布记录结合该说明阅读。
+
 本版将文件管理、检索、问答和身份页面统一到一套 React 界面。FastAPI、E2 检索、权限及人工选证据机制继续使用现有实现。唯一维护基线是本仓库 main，体验入口为 http://127.0.0.1:8896/ 。这是本地虚构资料演示版，不是企业生产系统。
 
 包含FastAPI后端、React/TypeScript统一界面、Excel解析、E2结构切分、Qwen Embedding接口、Qdrant/SQLite、RAG人工证据确认、四岗位和只读双数据源适配。未默认启用任何Reranker或失败的新提示词。
@@ -12,7 +14,7 @@
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements-dev.txt -r requirements-semantic.txt
+.venv/bin/python -m pip install -r requirements-dev.txt -r requirements-semantic.txt -r requirements-llm.txt
 cd frontend
 npm ci
 npm run build
@@ -38,6 +40,7 @@ cd ..
 ```sh
 .venv/bin/python -m pytest -q tests
 node --test tests/*.cjs
+node --test frontend/tests/*.test.cjs
 cd frontend
 npm run build
 ```
