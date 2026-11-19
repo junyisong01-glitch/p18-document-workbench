@@ -119,7 +119,7 @@ def library_record(store, doc):
     elif doc['state'] in {'review','held'}: status='待复核'
     elif searchable: status='可检索'
     else: status='待建索引'
-    return dict(id=doc['id'], name=meta.name if meta else doc['name'], code=meta.code if meta else '',
+    result=dict(id=doc['id'], name=meta.name if meta else doc['name'], code=meta.code if meta else '',
         folder=meta.folder if meta else '未分类', department=meta.department if meta else '未分类',
         docType=meta.doc_type if meta else '未分类', classification=meta.classification if meta else '未分类',
         version=meta.version if meta else '', effectiveDate='已废止' if meta and meta.lifecycle=='已废止' else '',
@@ -129,6 +129,8 @@ def library_record(store, doc):
         format=doc.get('ext','').lstrip('.').upper(), createdAt=doc['created_at'], metadataVersion=row[0] if row else 0,
         lifecycle=meta.lifecycle if meta else '现行有效')
 
+    if hasattr(store,'decorate_library_record'):store.decorate_library_record(doc,result)
+    return result
 
 def install(app, store):
     router = APIRouter()
@@ -148,7 +150,7 @@ def install(app, store):
             if request.url.path not in {'/api/config','/api/semantic'} and os.environ.get('P18_ALLOW_LEGACY_OPEN') != '1':
                 return JSONResponse({'detail':'权限模式尚未初始化，请使用正常账号初始化流程'}, status_code=503)
             return await call_next(request)
-        if request.url.path == '/api/library/login' and request.method == 'POST':
+        if (request.url.path == '/api/library/login' and request.method == 'POST') or (request.url.path in {'/api/library/demo-login','/api/library/demo-fill','/api/library/activate-account'} and request.method == 'POST') or (request.url.path == '/api/library/demo-accounts' and request.method == 'GET'):
             return await call_next(request)
         if request.url.path == '/api/library/demo-session' and request.method == 'POST':
             return await call_next(request)
@@ -157,10 +159,13 @@ def install(app, store):
         token = principal.set(user)
         try:
             path = request.url.path
-            permitted_posts = {'/api/rag/credentials', '/api/library/datasets', '/api/search', '/api/library/logout', '/api/rag/prepare',
+            permitted_posts = {'/api/business/accounts/reinvite','/api/business/accounts','/api/business/people','/api/rag/provider','/api/rag/fallback', '/api/rag/credentials', '/api/library/datasets', '/api/search', '/api/library/logout', '/api/rag/prepare',
                                '/api/rag/drafts', '/api/rag/selection', '/api/rag/answer'}
             demo_create = user.get('demo') and request.method == 'POST' and path in {'/api/library/upload','/api/library/catalog/folders'}
-            if request.method not in {'GET','HEAD','OPTIONS'} and path not in permitted_posts and not user['manager'] and not demo_create:
+            if hasattr(store,'authorize_operation'):
+                try:store.authorize_operation(user,request.method,path)
+                except HTTPException as exc:return JSONResponse({'detail':exc.detail},status_code=exc.status_code)
+            elif request.method not in {'GET','HEAD','OPTIONS'} and path not in permitted_posts and not user['manager'] and not demo_create:
                 return JSONResponse({'detail': '需要文档管理权限'}, status_code=403)
             if path.startswith('/api/documents/'):
                 identifier = path.split('/')[3]
@@ -261,13 +266,20 @@ def install(app, store):
         return response
 
     @router.post('/api/library/login')
-    def login(body: LoginBody):
-        with store.connect() as conn:
-            credential = library_store.login(conn, body.username, body.password)
+    def login(body: LoginBody, request: Request):
+        consume=getattr(store,'consume_demo_login',lambda *a:None)
+        credential=consume(request,body.username,body.password)
+        if credential is None:
+            with store.connect() as conn:
+                credential = library_store.login(conn, body.username, body.password)
         if not credential:
             raise HTTPException(401, '账号或密码无效，连续失败后请稍后重试')
         response = JSONResponse({'authenticated': True})
         response.set_cookie('p18_session', credential, httponly=True, samesite='strict', max_age=3600, path='/')
+        from app.business_roles import profile
+        with store.connect()as c:business_profile=profile(c,body.username)
+        response.delete_cookie('p18_demo_challenge',path='/')
+        response.set_cookie('p18_dataset','business' if business_profile and (store.ROOT/'config/business.json').is_file() else 'demo',httponly=True,samesite='strict',path='/')
         response.headers['Cache-Control'] = 'no-store'
         return response
 
@@ -286,8 +298,10 @@ def install(app, store):
     @router.get('/api/library/me')
     def me():
         user = principal.get()
+        from app.enterprise_accounts import can_create_accounts
         return dict(identity=user['identity'], username=user.get('username') or '',
                     manager=user['manager'] and not getattr(store, 'READ_ONLY_LIBRARY', False),
+                    **({**{key:user[key] for key in ['role','department','job']},'can_create_accounts':can_create_accounts(user)} if 'role' in user else {}),
                     **({'demo':True} if user.get('demo') else {}))
 
     @router.get('/api/library/documents/{identifier}/preview')

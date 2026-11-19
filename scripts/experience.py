@@ -1,7 +1,7 @@
 """Simple local product entry. Credentials are never persisted."""
 from pathlib import Path
 import sys,os,json,socket,subprocess,time,signal,getpass,argparse,shutil
-R=Path(__file__).resolve().parents[1];sys.path.insert(0,str(R/'scripts'))
+R=Path(__file__).resolve().parents[1];sys.path.insert(0,str(R));sys.path.insert(0,str(R/'scripts'))
 from demo_env import environment
 DATA=R/'runtime/demo-v1-experience';STATE=DATA/'service.json'
 def listener():
@@ -20,6 +20,11 @@ def main():
    if not listener():print('体验服务已停止；资料和账号保留。');return
    time.sleep(.1)
   raise SystemExit('服务仍在收尾，未强制结束。')
+ if not a.acceptance:
+  try:
+   from local_llm import ensure_local_service
+   ensure_local_service()
+  except Exception as error:print('本地回答暂不可用：'+str(error))
  if listener():
   if not STATE.exists():raise SystemExit('8896被其他服务占用，未覆盖启动。')
   existing=json.loads(STATE.read_text());owners=subprocess.run(['/usr/sbin/lsof','-nP','-iTCP:8896','-sTCP:LISTEN','-t'],capture_output=True,text=True).stdout.split()
@@ -30,7 +35,7 @@ def main():
  if not DATA.exists()or not(DATA/'workbench.sqlite3').exists():raise SystemExit('统一体验数据尚未准备好。')
  mode='acceptance' if a.acceptance else 'web-ready'
  key=''  # Personal keys are supplied via authenticated HTTPS/loopback API, not startup.
- env=environment();env.update(P18_DATA_DIR=str(DATA),TMPDIR=str(DATA/'tmp'),PYTHONPATH=str(R/'config/experience_guard')+os.pathsep+str(R),P18_DEEPSEEK_BASE_URL='https://api.deepseek.com',P18_DEEPSEEK_MODEL='deepseek-flash',P18_DEEPSEEK_TIMEOUT='60',P18_DEEPSEEK_MAX_TOKENS='1500',no_proxy='*',NO_PROXY='*')
+ env=environment();env.update(P18_DATA_DIR=str(DATA),TMPDIR=str(DATA/'tmp'),PYTHONPATH=str(R/'config/experience_guard')+os.pathsep+str(R/'.optional/llm')+os.pathsep+str(R),P18_DEEPSEEK_BASE_URL='https://api.deepseek.com',P18_DEEPSEEK_MODEL='deepseek-flash',P18_DEEPSEEK_TIMEOUT='60',P18_DEEPSEEK_MAX_TOKENS='1500',no_proxy='*',NO_PROXY='*')
  if mode=='acceptance':env['P18_EXPERIENCE_ACCEPTANCE']='1'
  log=(DATA/'server.log').open('a')
  proc=subprocess.Popen([str(R/'.venv/bin/python'),'-B',str(R/'scripts/experience_server.py')],cwd=R,env=env,stdin=subprocess.PIPE,stdout=log,stderr=subprocess.STDOUT,text=True,start_new_session=True)

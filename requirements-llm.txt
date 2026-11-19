@@ -1,0 +1,2 @@
+# Optional SDK, tested in an isolated target; never install into live 8896 automatically.
+openai==2.54.0

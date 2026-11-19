@@ -2,7 +2,7 @@
 // 注意：本文件为前端演示数据结构，字段映射 P18 真实接口。
 // 若某字段现有 API 不提供，界面直接隐藏，不编造占位事实。
 
-export type RoleId = 'rd' | 'qa' | 'ops' | 'mfg'
+export type RoleId = 'rd' | 'qa' | 'ops' | 'mfg' | 'finance' | 'hr' | 'adm' | 'management' | 'guest'
 
 export interface Role {
   id: RoleId
@@ -19,7 +19,7 @@ export interface Account {
   admin?: boolean
 }
 
-export type KbId = 'qichen' | 'demo'
+export type KbId = 'qichen' | 'demo' | 'business'
 
 export interface KnowledgeBase {
   id: KbId
@@ -81,6 +81,7 @@ export interface Doc {
 }
 
 export interface SearchResult {
+  historical?:boolean
   doc: Doc
   rank: number
   score: number // 服务端融合分数，不是概率
@@ -89,6 +90,11 @@ export interface SearchResult {
 }
 
 export const ROLES: Record<RoleId, Role> = {
+  finance:{id:'finance',name:'财务',dept:'财务部'},
+  hr:{id:'hr',name:'人事',dept:'人力资源部'},
+  adm:{id:'adm',name:'行政安全',dept:'行政安全部'},
+  management:{id:'management',name:'老板',dept:'管理层'},
+  guest:{id:'guest',name:'访客',dept:'无部门读权'},
   rd: { id: 'rd', name: '研发', dept: '研发部' },
   qa: { id: 'qa', name: '测试', dept: '研发部' },
   ops: { id: 'ops', name: '运维', dept: '研发部' },
@@ -96,9 +102,10 @@ export const ROLES: Record<RoleId, Role> = {
 }
 
 export const KNOWLEDGE_BASES: Record<KbId, KnowledgeBase> = {
+  business:{id:'business',name:'启辰智造知识库',shortName:'启辰智造',modeLabel:'提交 · 审核 · 发布 · 权限内检索（禁止外发）',readonly:false,externalAiAllowed:false,managed:false,stats:null},
   qichen: {
     id: 'qichen',
-    name: '启辰智造知识库',
+    name: '历史启辰验收库',
     shortName: '启辰智造',
     modeLabel: '只读检索 · 禁止外部 AI 问答',
     readonly: true,

@@ -23,11 +23,13 @@ import {
 } from './types'
 
 export interface SessionUser {
+  canCreateAccounts?:boolean
   username: string
   name: string
   role: Role
   /** 现有文档管理员（阅读范围仍按岗位，仅在可写库开放管理入口） */
   admin: boolean
+  accessRole?:'boss'|'supervisor'|'employee'|'guest'
 }
 
 interface SessionState {
@@ -55,6 +57,10 @@ const SessionContext = createContext<SessionState | null>(null)
 const SESSION_KEY = 'junyi.session'
 
 const ROLE_RULES: Array<[RegExp, RoleId]> = [
+  [/财务/,'finance'],
+  [/人力|人事|薪酬/,'hr'],
+  [/行政/,'adm'],
+  [/总经理|管理/,'management'],
   [/测试/, 'qa'],
   [/运维/, 'ops'],
   [/生产/, 'mfg'],
@@ -67,7 +73,7 @@ function roleOf(identity: string): Role {
 }
 
 /** 服务端库记录 → 界面文档模型。字段缺失就留空，界面自行隐藏。 */
-function toDoc(record: LibraryRecord): Doc {
+export function toDoc(record: LibraryRecord): Doc {
   const extension = (record.format || '').toLowerCase()
   const format: DocFormat = extension === 'xlsx' ? 'xlsx' : extension === 'pdf' ? 'pdf' : 'docx'
   const indexed = record.status === '可检索' || !!record.reviewSearchable
@@ -113,13 +119,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setUser({
         username: me.username || me.identity,
         name: me.username || me.identity,
-        role: roleOf(me.identity),
+        role: me.role==='guest'?ROLES.guest:me.role?{
+          ...ROLES[me.role==='boss'?'management':me.department==='财务部'?'finance':me.department==='人力资源部'?'hr':me.department==='行政安全部'?'adm':me.department==='生产制造部'?'mfg':me.job==='测试'?'qa':me.job==='运维'?'ops':'rd'],
+          dept:me.department||'未分配部门',
+          name:me.role==='boss'?'老板':me.role==='supervisor'?'部门主管':me.department==='研发部'?(me.job||'研发员工'):me.department==='财务部'?'财务员工':me.department==='人力资源部'?'人事员工':me.department==='行政安全部'?'行政员工':me.department==='生产制造部'?'生产员工':'员工',
+        }:roleOf(me.identity),
+        accessRole:me.role,
+        canCreateAccounts:!!me.can_create_accounts,
         admin: !!me.manager,
       })
       const selection = await api.get<{selected:string,datasets:Array<{id:string}>}>('/api/library/datasets')
-      const active:KbId=selection.selected==='qichen30'?'qichen':'demo'
+      const active:KbId=selection.selected==='business'?'business':selection.selected==='qichen30'?'qichen':'demo'
       setKbId(active)
-      setAvailableKbs(selection.datasets.map(d=>d.id==='qichen30'?'qichen':'demo'))
+      setAvailableKbs(selection.datasets.map(d=>d.id==='business'?'business':d.id==='qichen30'?'qichen':'demo'))
       const records = await api.get<LibraryRecord[]>('/api/library/documents')
       setDocs(records.map(r=>({...toDoc(r),kbId:active})))
       return true
@@ -167,7 +179,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const setKb = useCallback((kb: KbId) => {
     setReady(false)
-    void api.post('/api/library/datasets',{dataset:kb==='qichen'?'qichen30':'demo'})
+    void api.post('/api/library/datasets',{dataset:kb==='business'?'business':kb==='qichen'?'qichen30':'demo'})
       .then(()=>location.assign('/documents'))
       .catch(()=>{setReady(true);window.alert('知识库切换失败，请重试')})
   }, [])
@@ -198,7 +210,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         indexedDocs: list.filter((doc) => doc.indexStatus === 'indexed').length,
       }
     }
-    return { qichen: build('qichen'), demo: build('demo') }
+    return { business:build('business'),qichen: build('qichen'), demo: build('demo') }
   }, [docs,kbId])
 
   const refresh = useCallback(async () => {
@@ -240,6 +252,7 @@ export function useKnowledgeBase() {
 }
 
 export interface ApiHit {
+  historical?:boolean
   rank:number
   document_id: string
   document_name: string
@@ -258,9 +271,9 @@ export interface ApiSearchResponse {
   retrieval_mode?: string
 }
 
-export async function searchLibrary(query: string): Promise<{ body: ApiSearchResponse; elapsedMs: number }> {
+export async function searchLibrary(query: string, includeHistory=false): Promise<{ body: ApiSearchResponse; elapsedMs: number }> {
   const started = performance.now()
-  const body = await api.post<ApiSearchResponse>('/api/search', { query })
+  const body = await api.post<ApiSearchResponse>(includeHistory?'/api/business/history-search':'/api/search', { query })
   return { body, elapsedMs: Math.round(performance.now() - started) }
 }
 

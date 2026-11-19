@@ -52,3 +52,9 @@ config/qichen-libraries.local.json
 
 # Optional isolated parser dependencies (never source control)
 /.optional/
+
+# Local business data-source configuration (use the example template)
+config/business.json
+
+# Share only the blank provider template, never local credentials
+!.env.example

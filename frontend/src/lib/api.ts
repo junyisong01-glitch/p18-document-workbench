@@ -95,6 +95,10 @@ export interface LibraryRecord {
 }
 
 export interface Me {
+  can_create_accounts?:boolean
+  role?:'boss'|'supervisor'|'employee'|'guest'
+  department?:string
+  job?:string
   username?: string
   identity: string
   manager: boolean

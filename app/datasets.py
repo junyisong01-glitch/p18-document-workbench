@@ -1,6 +1,6 @@
-"""Two isolated data sources behind the existing local workbench.
+"""Isolated demo, writable business copy and historical read-only source.
 
-Authentication remains in the original library; Qichen business storage is read-only.
+Authentication remains in the original library; The historical Qichen source stays read-only; business writes target a separate runtime copy.
 The dataset cookie chooses a store, never an identity or an authorization grant.
 """
 from pathlib import Path
@@ -27,11 +27,14 @@ class DisabledClient:
 
 class LocalRag(RagService):
     def __init__(self, store, logger):
-        super().__init__(store, client=DisabledClient())
+        from app.llm import RoutedClient
+        import os
+        super().__init__(store, client=RoutedClient(source_library='qichen') if os.environ.get('LLM_PROVIDER')=='ollama' else DisabledClient())
+        self.source_library='qichen'
         self.logger = logger
 
     def external_allowed(self, doc):
-        return False
+        return self.configuration().get('provider')=='ollama' and self.can_read(doc)
 
     def audit_request(self, action, ticket=None, code=None):
         self.logger(action=action, code=code)
@@ -39,25 +42,35 @@ class LocalRag(RagService):
 
 class DatasetBody(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
-    dataset: Literal['demo', 'qichen30']
+    dataset: Literal['demo', 'qichen30', 'business']
 
 
 class DatasetsApp:
     def __init__(self, central):
         self.central = central
         self.qstore = None
+        self.business_store = None
         self.lock = threading.RLock()
         self.config_path = central.ROOT/'config/qichen-libraries.json'
         self.log_lock = threading.RLock()
 
         @central.app.get('/api/library/datasets')
         def datasets(request: Request):
-            return {'selected':request.cookies.get('p18_dataset','demo'),
-                    'datasets':[{'id':'demo','name':'演示资料库（6份）','read_only':False},
-                                *([{'id':'qichen30','name':'启辰智造（30份·只读）','read_only':True}] if self.config().get('enabled',True) else [])]}
+            u=library_api.principal.get()or{}
+            writable=(central.ROOT/'config/business.json').is_file()
+            selected=request.cookies.get('p18_dataset','demo')
+            if writable and selected=='qichen30':selected='business'
+            items=[{'id':'demo','name':'演示资料库','read_only':False}]
+            if writable and u.get('role'):items.insert(0,{'id':'business','name':'启辰智造知识库','read_only':False})
+            elif not writable and self.config().get('enabled',True):items.insert(0,{'id':'qichen30','name':'启辰智造知识库','read_only':True})
+            return {'selected':selected,'datasets':items}
 
         @central.app.post('/api/library/datasets')
         def select_dataset(body: DatasetBody):
+            u=library_api.principal.get()
+            if body.dataset=='qichen30'and(central.ROOT/'config/business.json').is_file():body.dataset='business'
+            if body.dataset=='qichen30' and u and u.get('role') and u['role']!='boss':raise HTTPException(403,'历史验收库仅保留维护入口，请使用业务库')
+            if body.dataset=='business' and (not u or not u.get('role')):raise HTTPException(403,'尚未分配业务角色')
             # Original middleware already authenticates and enforces local CSRF headers.
             response=JSONResponse({'dataset':body.dataset,'reload_required':True})
             response.set_cookie('p18_dataset',body.dataset,httponly=True,samesite='strict',path='/')
@@ -139,6 +152,8 @@ class DatasetsApp:
         @q.app.middleware('http')
         async def readonly_guard(request,call_next):
             allowed={'/api/search','/api/rag/drafts','/api/rag/selection'}
+            from app.llm import provider_name
+            if provider_name()=='ollama':allowed.add('/api/rag/answer')
             if request.method not in {'GET','HEAD','OPTIONS'} and request.url.path not in allowed:
                 self.log(action='readonly_or_egress_denied',path=request.url.path)
                 return JSONResponse({'detail':'启辰库仅限本地只读；禁止修改资料、授予外发许可或调用模型。'},status_code=403,
@@ -157,9 +172,25 @@ class DatasetsApp:
         try:cookies.load(headers.get(b'cookie',b'').decode())
         except Exception:pass
         selected=cookies['p18_dataset'].value if 'p18_dataset' in cookies else 'demo'
-        if selected not in {'demo','qichen30'}:
+        if selected not in {'demo','qichen30','business'}:
             return await JSONResponse({'detail':'未知知识库，请重新选择'},status_code=400)(scope,receive,send)
-        central_paths={'/api/rag/credentials','/api/library/login','/api/library/logout','/api/library/demo-session','/api/library/datasets'}
+        if selected=='qichen30'and(self.central.ROOT/'config/business.json').is_file():
+            selected='business'
+            scope=dict(scope);scope['headers']=[(k,v.replace(b'p18_dataset=qichen30',b'p18_dataset=business'))if k==b'cookie'else(k,v)for k,v in scope.get('headers',[])]
+        central_paths={'/api/business/accounts/reinvite','/api/library/activate-account','/api/business/accounts','/api/library/demo-fill','/api/business/people','/api/library/demo-login','/api/library/demo-accounts','/api/rag/credentials','/api/library/login','/api/library/logout','/api/library/demo-session','/api/library/datasets'}
+        if selected=='business' and path.startswith('/api/') and path not in central_paths:
+            cfg_path=self.central.ROOT/'config/business.json'
+            if not cfg_path.is_file():return await JSONResponse({'detail':'业务库尚未配置'},status_code=503)(scope,receive,send)
+            auth=headers.get(b'authorization',b'').decode()
+            credential=auth[7:] if auth.startswith('Bearer ') else (cookies['p18_session'].value if 'p18_session' in cookies else '')
+            with self.central.connect()as conn:user=library_store.resolve_session(conn,credential) if credential else None
+            if not user:return await JSONResponse({'detail':'请先正常登录'},status_code=401)(scope,receive,send)
+            if not user.get('role'):return await JSONResponse({'detail':'尚未分配业务角色'},status_code=403)(scope,receive,send)
+            with self.lock:
+                if self.business_store is None:
+                    from app.business import create_store
+                    self.business_store=create_store(self.central,json.loads(cfg_path.read_text()))
+            return await self.business_store.app(scope,receive,send)
         if selected=='qichen30' and path.startswith('/api/') and path not in central_paths:
             if not self.config().get('enabled',True):
                 return await JSONResponse({'detail':'当前源码检出未连接已授权的启辰数据源'},status_code=503)(scope,receive,send)
@@ -168,6 +199,7 @@ class DatasetsApp:
             credential=auth[7:] if auth.startswith('Bearer ') else (cookies['p18_session'].value if 'p18_session' in cookies else '')
             with self.central.connect() as conn:user=library_store.resolve_session(conn,credential) if credential else None
             if not user:return await JSONResponse({'detail':'请先正常登录'},status_code=401)(scope,receive,send)
+            if user.get('role') and user['role']!='boss':return await JSONResponse({'detail':'历史验收库仅限维护访问'},status_code=403)(scope,receive,send)
             with self.lock:
                 if self.qstore is None:self.qstore=self.create_store()
             return await self.qstore.app(scope,receive,send)
@@ -175,4 +207,7 @@ class DatasetsApp:
 
 
 def install(central):
+    if (central.ROOT/'config/business.json').is_file():
+        from app.business_roles import install_api
+        install_api(central)
     return DatasetsApp(central)

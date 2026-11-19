@@ -1,3 +1,5 @@
+import BusinessPage from './BusinessPage'
+import {DocumentFormat} from '@/components/DocumentLayout'
 // 页面三：文档管理（优化版）
 // 结构：文件夹卡片 → 文档类型卡片 → 名称搜索 → 文档列表 → 详情抽屉。
 // 管理员（现有权限）在可写演示资料库中额外获得上传与内容复核入口；
@@ -133,7 +135,7 @@ function FolderCards({
   }
 
   return (
-    <div className="grid grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {card('__all__', '全部文档', 'All accessible', docs.length, <FolderOpen className="size-4" strokeWidth={1.8} />)}
       {groups.map(([cat, count]) => {
         // 目录编码形如「06_研发部」；无编码前缀的目录（如演示库「平台资料」）原样展示
@@ -178,9 +180,9 @@ function TypeCards({
   const formats = (Object.keys(TYPE_META) as DocFormat[]).filter((f) => (counts.get(f) ?? 0) > 0)
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex flex-wrap items-center gap-3">
       <span className="kicker shrink-0">类型</span>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button
           onClick={() => onSelect(null)}
           className={`ease-junyi rounded-md border px-3.5 py-2 text-[12px] transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(12_74%_42%)] ${
@@ -227,7 +229,7 @@ function TypeCards({
 // 主页面
 // ---------------------------------------------------------------------------
 
-export default function DocumentsPage() {
+function LegacyDocumentsPage() {
   const { visibleDocs, user } = useSession()
   const kb = useKnowledgeBase()
   const [category, setCategory] = useState('__all__')
@@ -272,7 +274,7 @@ export default function DocumentsPage() {
   const canManage = !!user?.admin && !kb.readonly && kb.managed
 
   return (
-    <div className="space-y-6">
+    <div className="document-manager space-y-6">
       <PageHeader
         kicker="Documents"
         title="文档管理"
@@ -367,85 +369,7 @@ export default function DocumentsPage() {
           hint="调整文件夹、类型或名称查找条件；列表仅包含你有权访问的文档。"
         />
       ) : (
-        <div className="border border-border bg-card">
-          <div className="grid grid-cols-[minmax(0,1fr)_52px_110px_92px_76px_110px_110px_76px] items-center gap-3 border-b border-border bg-secondary/40 px-5 py-2.5 font-mono2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-            <span>文档名称</span>
-            <span>类型</span>
-            <span>所属部门</span>
-            <span>版本</span>
-            <span>状态</span>
-            <span>处理状态</span>
-            <span>索引</span>
-            <span className="text-right">操作</span>
-          </div>
-          {filtered.map((doc) => (
-            <div
-              key={doc.id}
-              onClick={() => setSelected(doc)}
-              className={`grid cursor-pointer grid-cols-[minmax(0,1fr)_52px_110px_92px_76px_110px_110px_76px] items-center gap-3 border-b border-border/60 px-5 py-3 transition-colors duration-150 last:border-0 hover:bg-secondary/30 ${
-                selected?.id === doc.id ? 'bg-[hsl(12_74%_42%/0.05)]' : ''
-              }`}
-            >
-              <div className="min-w-0 pr-2">
-                <div className="break-words text-[13px] font-medium leading-snug" title={doc.fileName}>
-                  {doc.fileName}
-                </div>
-                <div className="mt-1 flex items-center gap-2 font-mono2 text-[10px] tracking-wide text-muted-foreground">
-                  <span>{doc.code}</span>
-                  {doc.subcategory && (
-                    <>
-                      <span className="text-border">·</span>
-                      <span>{doc.subcategory}</span>
-                    </>
-                  )}
-                  {doc.confidentiality === '机密' && (
-                    <span className="rounded-sm border border-[hsl(4_72%_40%/0.4)] px-1 text-[9px] font-medium text-[hsl(4_72%_40%)]">
-                      机密
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="font-mono2 text-[10px] uppercase text-muted-foreground">
-                {doc.format}
-              </div>
-              <div className="truncate text-[12px] text-muted-foreground">{doc.dept}</div>
-              <div className="truncate font-mono2 text-[11px] text-muted-foreground" title={doc.version}>
-                {doc.version}
-              </div>
-              <div>
-                <ValidityBadge doc={doc} />
-              </div>
-              <div>
-                <ReviewBadge reviewed={doc.pipeline.reviewed} pending={doc.reviewRequired} />
-              </div>
-              <div>
-                <IndexBadge doc={doc}/>
-              </div>
-              <div className="flex items-center justify-end gap-0.5">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setPreviewing(doc)
-                  }}
-                  title="查看原文"
-                  className="ease-junyi rounded-md p-2 text-muted-foreground transition-colors duration-200 hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(12_74%_42%)]"
-                >
-                  <Eye className="size-4" strokeWidth={1.8} />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    downloadDemoFile(doc)
-                  }}
-                  title="下载原文件"
-                  className="ease-junyi rounded-md p-2 text-muted-foreground transition-colors duration-200 hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(12_74%_42%)]"
-                >
-                  <Download className="size-4" strokeWidth={1.8} />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+        <div className="dm-document-list">{filtered.map(doc=><article key={doc.id} data-document-id={doc.id} className="dm-document-row dm-legacy-row"><div className="dm-row-main"><DocumentFormat format={doc.format.toUpperCase()} secret={doc.confidentiality==='机密'}/><div className="dm-row-copy"><div className="dm-title-line"><button type="button" onClick={()=>setSelected(doc)} className="dm-document-title" title={doc.fileName}>{doc.fileName}</button>{doc.version&&<span className="dm-version">{doc.version}</span>}</div><p className="dm-row-meta"><span className="dm-code">{doc.code}</span><span>{doc.dept}</span><span className={'dm-tag '+(doc.confidentiality==='机密'?'dm-tag-secret':'')}>{doc.confidentiality}</span>{doc.subcategory&&<span>{doc.subcategory}</span>}</p></div></div><div className="dm-row-side"><div className="dm-legacy-statuses"><ValidityBadge doc={doc}/><ReviewBadge reviewed={doc.pipeline.reviewed} pending={doc.reviewRequired}/><IndexBadge doc={doc}/></div><div className="dm-legacy-actions"><button type="button" onClick={()=>setSelected(doc)}>详情</button><button type="button" onClick={()=>setPreviewing(doc)} title="查看原文">查看原文</button><button type="button" onClick={()=>downloadDemoFile(doc)} title="下载原文件">下载</button></div></div></article>)}</div>
       )}
       <div className="flex items-center justify-between text-[11px] text-muted-foreground">
         <span>
@@ -588,7 +512,7 @@ function DetailDrawer({
 
         {/* 底部操作 */}
         <div className="space-y-2 border-t border-border px-6 py-4">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={onPreview}
               className="ease-junyi flex flex-1 items-center justify-center gap-2 rounded-md bg-[hsl(12_74%_42%)] px-4 py-2.5 text-[12px] font-semibold text-[hsl(44_40%_97%)] transition-colors duration-200 hover:bg-[hsl(12_74%_38%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(12_74%_42%)]"
@@ -621,3 +545,5 @@ function DetailDrawer({
     </div>
   )
 }
+
+export default function DocumentsPage(){const {kbId}=useSession();return kbId==='business'?<BusinessPage/>:<LegacyDocumentsPage/>}
