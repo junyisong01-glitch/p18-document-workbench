@@ -302,6 +302,19 @@ class RagService:
     def tune_query(self, question, query, session, turn_id):
         return query, ''
 
+    def draft_search(self, service, query, question):
+        from app.library_api import principal
+        # Preserve pre-cutoff authorization for both retrieval lanes.
+        authorized=service.search(query,top_k=20,document_filter=self.external_allowed)
+        local=service.search(query,top_k=20,document_filter=self.can_read) if principal.get() is not None else service.search(query,top_k=20)
+        return authorized, local
+
+    def prioritize_candidates(self, question, candidates):
+        return candidates
+
+    def local_evidence_result(self, ticket):
+        return None
+
     def _draft(self, question, session_id=None, turn_id=None, *, trace):
         """Return local candidates; neither a selection nor an external request."""
         cfg=self.configuration();question=question.strip()
@@ -320,10 +333,7 @@ class RagService:
             if query is None:return {'status':'clarify','message':clarification or '请说明指的是哪位人员或哪个项目。','session_id':sid}
             if len(self.drafts)>=128:raise RagError('rag_busy','本地候选草稿过多，请稍后重新检索。')
             service=self.store.require_semantic()
-            # Preserve pre-cutoff authorization: local-only hits cannot starve allowed evidence.
-            authorized=service.search(query,top_k=20,document_filter=lambda doc:self.external_allowed(doc))
-            from app.library_api import principal
-            local=service.search(query,top_k=20,document_filter=self.can_read) if principal.get() is not None else service.search(query,top_k=20)
+            authorized,local=self.draft_search(service,query,question)
             fields=['document_id','document_name','chunk_id','revision','index_token','text','section','sources','risk']
             candidates={};candidate_permissions={};seen=set();defaults=[];default_evidence=[]
             from app.retrieval import duplicate_key
@@ -347,20 +357,27 @@ class RagService:
                                 'permission_reason':'allowed' if selectable else 'external_permission_required',
                                 'retrieval_lane':lane,'lane_rank':rank,
                                 'related_group':digest(duplicate_key(hit)),'default_selected':False}
-                            if selectable:
-                                trial=deepcopy(source);trial['id']='S'+str(len(default_evidence)+1)
-                                budget=self.selection_budget(question,history,default_evidence+[trial],cfg)
-                                if budget['groups']>budget['group_limit']:reason='group_limit'
-                                elif self.context_overflow(budget):reason='context_limit'
-                                else:
-                                    reason='selected';defaults.append(cid);default_evidence.append(trial)
-                                    candidate['default_selected']=True
-                            else:
+                            if not selectable:
                                 block=self.external_block(self.store.available(members[0]['document_id']))
-                                reason='policy_public_only' if block=='policy' else 'local_only'
+                                candidate['default_reason']='policy_public_only' if block=='policy' else 'local_only'
                                 candidate['permission_reason']=('deployment_policy' if block=='policy' else 'external_permission_required')
-                            candidate['default_reason']=reason;candidates[cid]=candidate
-                            if selectable:candidate_permissions[cid]=self.permission_hash([source])
+                            candidates[cid]=candidate
+                candidates=self.prioritize_candidates(question,candidates)
+                for cid,candidate in candidates.items():
+                    if not candidate['selectable']:
+                        continue
+                    source=candidate['evidence']
+                    candidate_permissions[cid]=self.permission_hash([source])
+                    trial=deepcopy(source);trial['id']='S'+str(len(default_evidence)+1)
+                    budget=self.selection_budget(question,history,default_evidence+[trial],cfg)
+                    if budget['groups']>budget['group_limit']:
+                        candidate['default_reason']='group_limit'
+                    elif self.context_overflow(budget):
+                        candidate['default_reason']='context_limit'
+                    else:
+                        candidate['default_reason']='selected'
+                        candidate['default_selected']=True
+                        defaults.append(cid);default_evidence.append(trial)
             did=secrets.token_urlsafe(32)
             self.invalidate_session_tickets(sid)
             session['active_draft']=did;session['at']=time.monotonic()
@@ -530,6 +547,7 @@ class RagService:
                 if digest(messages)!=ticket['messages_hash'] or digest(ticket['messages'])!=ticket['messages_hash']:
                     raise RagError('selection_changed','发送快照已变化，请重新确认。')
                 messages=deepcopy(ticket['messages'])
+                checked=self.local_evidence_result(ticket)
             session['busy']=True
         # The ticket is consumed and this session reserved; unrelated sessions may proceed.
         # Neither the global RAG lock nor the business-data lock spans network I/O.
@@ -555,12 +573,16 @@ class RagService:
                         if (not self.valid(ticket['evidence']+historical)
                             or self.permission_hash(ticket['evidence']+historical)!=ticket['permission_hash']):
                             raise RagError('evidence_stale','外发许可或来源已变化，未发送。')
-                    self.audit_request('egress_allowed',ticket)
-                    self.audit_request('send_attempt',ticket)
-                    ticket['attempted']=True
-                    guard(self.source_library,cfg.get('provider','deepseek'))
-                    raw=ClientAdapter(self.client,cfg).generate(prompt)
-                self.audit_request('send_result',ticket,'response_received')
+                    if checked is None:
+                        self.audit_request('egress_allowed',ticket)
+                        self.audit_request('send_attempt',ticket)
+                        ticket['attempted']=True
+                        guard(self.source_library,cfg.get('provider','deepseek'))
+                        raw=ClientAdapter(self.client,cfg).generate(prompt)
+                    else:
+                        raw=json.dumps(checked,ensure_ascii=False)
+                if checked is None:
+                    self.audit_request('send_result',ticket,'response_received')
                 with self.lock:
                     if self.sessions.get(ticket['sid']) is not session or session['version']!=ticket['version']:
                         raise RagError('session_changed','会话已变化，回答未发布。')
@@ -571,7 +593,7 @@ class RagService:
                     except RagError as error:
                         if retry:
                             raise RagError(error.code,'本次回答的出处未能核对，请展开相关资料查看原文。') from None
-                        if cfg.get('provider')!='ollama' or error.code!='citation_mismatch':
+                        if checked is not None or cfg.get('provider')!='ollama' or error.code!='citation_mismatch':
                             raise
                         self.audit_request('local_citation_retry',ticket,error.code)
                         continue
@@ -589,8 +611,9 @@ class RagService:
                     else:session['rounds']=(rounds+[replacement])[-32:]
                     session['turns']=session['rounds'][-ticket['config']['history_turns']:]
                     return {'status':'answered','answer_status':answer_status,'answer':answer,'citations':citations,'evidence':ticket['evidence'],
-                            'session_id':ticket['sid'],'turn_id':turn_id,'provider':self.client.label,
-                            'notice':'仅核验引用身份及有效性，不保证回答事实正确；重要结论请核对原文。'}
+                            'session_id':ticket['sid'],'turn_id':turn_id,'provider':'本地证据核对' if checked is not None else self.client.label,
+                            'notice':('本轮按问题逐项核对获准原文。' if checked is not None else
+                                      '仅核验引用身份及有效性，不保证回答事实正确；重要结论请核对原文。')}
         finally:
             with self.lock:
                 session['busy']=False;session['at']=time.monotonic()

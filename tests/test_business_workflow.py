@@ -86,6 +86,109 @@ def test_grants_public_guest_and_revocation(rig):
     assert r.action(id,'boss','revoke_public').status_code==200
     assert r.c.get('/api/documents/'+id,headers=r.h['guest']).status_code==404
 
+
+def test_compound_qa_respects_publication_grant_revocation_and_archive(rig, monkeypatch):
+    from app.external_model import QuestionOnlyRag
+    from app.library_api import principal
+    from app.llm import RoutedClient
+
+    r = rig
+    monkeypatch.setenv('LLM_PROVIDER', 'ollama')
+    monkeypatch.setattr(RoutedClient, 'configured', property(lambda _: False))
+    monkeypatch.setattr(RoutedClient, 'complete', lambda *_: pytest.fail('结构化回答应直接核对原文'))
+    records = {}
+
+    def evidence(name, text, **kwargs):
+        identifier = r.create(**kwargs)
+        doc = r.q.get(identifier)
+        doc['name'] = name
+        r.q.save(doc)
+        folder = r.q.folder_for(identifier)
+        folder.mkdir(parents=True)
+        (folder/'original.docx').write_bytes(b'fictional source')
+        records[identifier] = dict(document_id=identifier, document_name=name, chunk_id='chunk-'+identifier,
+                                   revision=1, index_token='index-'+identifier, text=text,
+                                   section='合成测试正文', sources=[{'block_id':'p1'}], risk={})
+        return identifier
+
+    arch = evidence('设备总体架构.docx', '状态每 24 秒上报一次。')
+    private = evidence('设备离线排查手册.docx', '持续离线达到 9 分钟仍未恢复时提交 IT 工单。', status='submitted')
+    assert r.action(arch, 'boss', 'make_public').status_code == 200
+    monitored = []
+
+    def search(query, top_k, document_filter):
+        visible = {identifier for identifier in records if document_filter(r.q.get(identifier))}
+        monitored.append((query, visible))
+        return {'status':'ok', 'results':[value for identifier, value in records.items() if identifier in visible]}
+
+    def snapshot(identifier):
+        record = records[identifier]
+        return {'token':record['index_token'], 'chunks':[dict(record,id=record['chunk_id'])]}
+
+    r.q.require_semantic = lambda: SimpleNamespace(search=search, snapshot=snapshot, read=lambda _: {'status':'complete'},
+                                                   valid=lambda run, snap: bool(run and snap), current_config=lambda: True)
+    services = {}
+
+    def current_rag():
+        user = principal.get()['username']
+        if user not in services:
+            services[user] = QuestionOnlyRag(r.q,r.q)
+        return services[user]
+
+    r.q.current_rag = current_rag
+    question = '状态上报间隔是多少，持续离线多久转工单？'
+    locator = {k:records[private][k] for k in ('revision','index_token','chunk_id')}
+
+    def prepare(who, allowed):
+        monitored.clear()
+        response = r.c.post('/api/rag/drafts', headers=r.h[who], json={'question':question})
+        assert response.status_code == 200, response.text
+        draft = response.json()
+        assert len({query for query, _ in monitored}) == 3
+        assert all(visible == allowed for _, visible in monitored)
+        assert {e['evidence']['document_id'] for e in draft['candidates']} == allowed
+        response = r.c.post('/api/rag/selection', headers=r.h[who], json={
+            'draft_id':draft['draft_id'], 'selection_version':draft['selection_version'],
+            'candidate_ids':draft['default_candidate_ids']})
+        assert response.status_code == 200, response.text
+        assert response.json()['configured'] is True
+        return response.json()['ticket']
+
+    def answer(who, ticket):
+        return r.c.post('/api/rag/answer', headers=r.h[who], json={'ticket':ticket,'consent':True})
+
+    def verify(who, allowed, original_visible):
+        response = answer(who, prepare(who, allowed))
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert result['provider'] == '本地证据核对'
+        assert result['answer_status'] == ('answered' if private in allowed else 'partial')
+        assert ('9 分钟' in result['answer']) == (private in allowed)
+        assert {source['document_id'] for source in result['citations']} == allowed
+        for endpoint in ('source','file/original'):
+            original = r.c.get(f'/api/documents/{private}/{endpoint}', headers=r.h[who], params=locator)
+            assert original.status_code == (200 if original_visible else 404)
+
+    for who in ('rd','prd','guest'):
+        verify(who, {arch}, who == 'rd')
+    assert r.action(private, 'head', 'approve').status_code == 200
+    verify('rd', {arch}, True)
+    assert r.action(private, 'head', 'publish').status_code == 200
+    verify('rd', {arch,private}, True)
+    for who in ('prd','guest'):
+        verify(who, {arch}, False)
+    assert r.action(private, 'head', 'share', username='prd').status_code == 200
+    verify('prd', {arch,private}, True)
+    verify('guest', {arch}, False)
+    ticket = prepare('prd', {arch,private})
+    assert r.action(private, 'head', 'revoke_share', username='prd').status_code == 200
+    stale = answer('prd', ticket)
+    assert stale.status_code == 409 and stale.json()['detail']['code'] == 'evidence_stale'
+    verify('prd', {arch}, False)
+    assert r.action(private, 'head', 'archive').status_code == 200
+    verify('rd', {arch}, True)
+    verify('guest', {arch}, False)
+
 def test_native_mutations_and_external_egress_are_blocked(rig):
     r=rig;id=r.create()
     for name in r.h:
