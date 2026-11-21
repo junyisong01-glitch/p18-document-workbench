@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode, type RefObject } from 'react'
+import { useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 import { ArrowLeft, ArrowUp, PanelLeft, Plus, Settings2 } from 'lucide-react'
 import { Link } from 'react-router'
 import type { QaExample } from '@/lib/qa-examples'
@@ -25,12 +25,73 @@ type WorkspaceProps = {
   onSelect: (id: string) => void
 }
 
+const historyWidthKey = 'p18.qa.historyWidth'
+const historyMinWidth = 176
+const historyMaxWidth = 420
+const historyDefaultWidth = 236
+const clampHistoryWidth = (width: number) => Math.max(historyMinWidth, Math.min(historyMaxWidth, Math.round(width)))
+
+function initialHistoryWidth() {
+  try {
+    const value = window.localStorage.getItem(historyWidthKey)
+    if (value && Number.isFinite(Number(value))) return clampHistoryWidth(Number(value))
+  } catch { /* Storage can be unavailable in restricted browser contexts. */ }
+  return historyDefaultWidth
+}
+
+function saveHistoryWidth(width: number) {
+  try {
+    window.localStorage.setItem(historyWidthKey, String(width))
+  } catch { /* Resizing still works for the current page. */ }
+}
+
 export function QaWorkspace(props: WorkspaceProps) {
   const [showHistory, setShowHistory] = useState(false)
+  const [historyWidth, setHistoryWidth] = useState(initialHistoryWidth)
+  const [resizing, setResizing] = useState(false)
+  const drag = useRef<{ id: number; startX: number; startWidth: number; width: number } | null>(null)
   const {
     library, name, role, history, active, hasTurns, busy, ready, externalSelected, question, inputRef, examples,
     settings, onChange, onAsk, onNew, onSelect, children,
   } = props
+
+  function startResize(event: PointerEvent<HTMLDivElement>) {
+    if (!event.isPrimary || event.button !== 0 || drag.current) return
+    const handle = event.currentTarget
+    event.preventDefault()
+    handle.focus({ preventScroll: true })
+    handle.setPointerCapture(event.pointerId)
+    drag.current = { id: event.pointerId, startX: event.clientX, startWidth: historyWidth, width: historyWidth }
+    setResizing(true)
+  }
+
+  function moveResize(event: PointerEvent<HTMLDivElement>) {
+    const activeDrag = drag.current
+    if (activeDrag?.id !== event.pointerId) return
+    activeDrag.width = clampHistoryWidth(activeDrag.startWidth + event.clientX - activeDrag.startX)
+    setHistoryWidth(activeDrag.width)
+  }
+
+  function finishResize(event: PointerEvent<HTMLDivElement>) {
+    const activeDrag = drag.current
+    if (activeDrag?.id !== event.pointerId) return
+    drag.current = null
+    saveHistoryWidth(activeDrag.width)
+    setResizing(false)
+  }
+
+  function resizeWithKeyboard(event: KeyboardEvent<HTMLDivElement>) {
+    const step = event.shiftKey ? 40 : 16
+    const widths: Partial<Record<string, number>> = {
+      ArrowLeft: historyWidth - step, ArrowRight: historyWidth + step, Home: historyMinWidth, End: historyMaxWidth,
+    }
+    const next = widths[event.key]
+    if (typeof next !== 'number') return
+    event.preventDefault()
+    const width = clampHistoryWidth(next)
+    setHistoryWidth(width)
+    saveHistoryWidth(width)
+  }
 
   const composer = <form className={`qa-chat-composer ${hasTurns ? 'qa-chat-composer-follow' : ''}`} onSubmit={onAsk}>
     <textarea ref={inputRef} aria-label="问答问题" value={question} maxLength={2000} rows={hasTurns ? 1 : 2}
@@ -65,7 +126,8 @@ export function QaWorkspace(props: WorkspaceProps) {
         </Link>
       </div>
     </header>
-    <div className="qa-chat-layout">
+    <div className={`qa-chat-layout ${resizing ? 'qa-chat-layout-resizing' : ''}`}
+      style={{ '--qa-history-width': `${historyWidth}px` } as CSSProperties}>
       <aside className={`qa-chat-side ${showHistory ? 'qa-chat-side-open' : ''}`} id="qa-conversation-history" aria-label={history.length ? '历史会话' : '会话'}>
         <button className="qa-chat-new" type="button" disabled={busy} onClick={() => { onNew(); setShowHistory(false) }}>
           <Plus size={16}/>新会话
@@ -78,6 +140,12 @@ export function QaWorkspace(props: WorkspaceProps) {
           </li>)}</ul>
         </>}
       </aside>
+      <div className="qa-chat-splitter" role="separator" tabIndex={0} aria-label="调整会话栏宽度"
+        aria-controls="qa-conversation-history" aria-orientation="vertical" aria-valuemin={historyMinWidth}
+        aria-valuemax={historyMaxWidth} aria-valuenow={historyWidth} aria-valuetext={`${historyWidth} 像素`}
+        onPointerDown={startResize} onPointerMove={moveResize} onPointerUp={finishResize}
+        onPointerCancel={finishResize} onLostPointerCapture={finishResize}
+        onKeyDown={resizeWithKeyboard} />
       <main className="qa-chat-main">
         {hasTurns ? <>
           <div className="qa-chat-scroll"><div className="qa-chat-thread">{children}</div></div>
