@@ -268,9 +268,20 @@ class RagService:
 
     @staticmethod
     def messages(question, history, evidence):
-        return [{'role':'system','content':SYSTEM},{'role':'user','content':json.dumps({
+        payload={
             'question':question,'history_for_reference_only':history,
-            'untrusted_evidence':model_evidence(evidence)},ensure_ascii=False)}]
+            'untrusted_evidence':model_evidence(evidence)}
+        title=re.search(r'《([^》]{1,80})》',question)
+        if title and re.search(r'适用范围|主要要求|使用规定|使用要求',question) and any(
+            Path(source['document_name']).suffix.lower()=='.xlsx' and title.group(1) in source['document_name']
+            for group in evidence for source in group.get('members',[group])
+        ):
+            payload['answer_guidance']=(
+                '本题只问指定的表格。先回答可确认的用途或字段并引用。 '
+                '如表内未明确写出适用对象或使用要求，status 用 partial，并写明表内未说明这些内容。'
+                '字段本身不能当作要求，也不要把其他文档的规定归给该表。'
+            )
+        return [{'role':'system','content':SYSTEM},{'role':'user','content':json.dumps(payload,ensure_ascii=False)}]
 
     @classmethod
     def selection_budget(cls, question, history, evidence, cfg):
@@ -288,6 +299,9 @@ class RagService:
     def invalidate_session_tickets(self, sid):
         self.tickets={key:value for key,value in self.tickets.items() if value['sid']!=sid}
 
+    def tune_query(self, question, query, session, turn_id):
+        return query, ''
+
     def _draft(self, question, session_id=None, turn_id=None, *, trace):
         """Return local candidates; neither a selection nor an external request."""
         cfg=self.configuration();question=question.strip()
@@ -302,7 +316,8 @@ class RagService:
                 question=original['question'];trace['question']=question
             sid,session,history,query,historical,history_hash=self.context(question,session_id,cfg,turn_id)
             trace.update(history=deepcopy(history),historical=deepcopy(historical))
-            if query is None:return {'status':'clarify','message':'请说明指的是哪位人员或哪个项目。','session_id':sid}
+            query,clarification=self.tune_query(question,query,session,turn_id)
+            if query is None:return {'status':'clarify','message':clarification or '请说明指的是哪位人员或哪个项目。','session_id':sid}
             if len(self.drafts)>=128:raise RagError('rag_busy','本地候选草稿过多，请稍后重新检索。')
             service=self.store.require_semantic()
             # Preserve pre-cutoff authorization: local-only hits cannot starve allowed evidence.
@@ -520,42 +535,62 @@ class RagService:
         # Neither the global RAG lock nor the business-data lock spans network I/O.
         try:
             from app.egress_gate import gate
-            with gate().sending():
-                # A native permission change either finishes first, or waits for this send.
-                # Recheck after acquiring the gate, not only before waiting for it.
-                with self.store.LOCK:
-                    if (not self.valid(ticket['evidence']+historical)
-                        or self.permission_hash(ticket['evidence']+historical)!=ticket['permission_hash']):
-                        raise RagError('evidence_stale','外发许可或来源已变化，未发送。')
-                self.audit_request('egress_allowed',ticket)
-                self.audit_request('send_attempt',ticket)
-                ticket['attempted']=True
-                from app.llm import ClientAdapter, guard
-                guard(self.source_library,ticket['config'].get('provider','deepseek'))
-                raw=ClientAdapter(self.client,ticket['config']).generate(json.dumps(messages,ensure_ascii=False))
-            self.audit_request('send_result',ticket,'response_received')
-            with self.lock:
-                if self.sessions.get(ticket['sid']) is not session or session['version']!=ticket['version']:
-                    raise RagError('session_changed','会话已变化，回答未发布。')
-                with self.store.LOCK:
-                    if (not self.valid(ticket['evidence']+historical) or self.permission_hash(ticket['evidence']+historical)!=ticket['permission_hash']):raise RagError('evidence_stale','请求期间来源或许可变化，回答未发布；已发送的内容无法撤回。')
-                answer_status,answer,citations=self.validate_answer(raw,ticket['evidence'])
-                if ticket['config'].get('provider') and citations:
-                    answer=answer.rstrip()+'\n来源片段：'+''.join('['+c['id']+']' for c in citations)
-                session['version']+=1;session['at']=time.monotonic()
-                turn_id=ticket.get('turn_id') or secrets.token_urlsafe(24)
-                replacement={'turn_id':turn_id,'question':ticket['question'],'answer':answer,'evidence':ticket['evidence'],
-                    'provenance':ticket['provenance'],'permission_hash':ticket['provenance_hash']}
-                rounds=session.setdefault('rounds',list(session['turns']))
-                if ticket.get('turn_id'):
-                    index=next((i for i,t in enumerate(rounds) if t.get('turn_id')==turn_id),None)
-                    if index is None:raise RagError('turn_expired','原问题已过期，回答未发布。')
-                    rounds[index]=replacement
-                else:session['rounds']=(rounds+[replacement])[-32:]
-                session['turns']=session['rounds'][-ticket['config']['history_turns']:]
-                return {'status':'answered','answer_status':answer_status,'answer':answer,'citations':citations,'evidence':ticket['evidence'],
-                        'session_id':ticket['sid'],'turn_id':turn_id,'provider':self.client.label,
-                        'notice':'仅核验引用身份及有效性，不保证回答事实正确；重要结论请核对原文。'}
+            from app.llm import ClientAdapter
+            prompt=json.dumps(messages,ensure_ascii=False)
+            for retry in (False,True):
+                cfg=ticket['config']
+                if retry:
+                    with self.lock:
+                        if self.sessions.get(ticket['sid']) is not session or session['version']!=ticket['version']:
+                            raise RagError('session_changed','会话已变化，请重新提问。')
+                        if digest(self.configuration())!=ticket['config_hash']:
+                            raise RagError('config_changed','本地模型配置已变化，请重新提问。')
+                    # Keep the approved evidence and messages byte-for-byte. Vary only
+                    # local sampling, since the first Ollama request is deterministic.
+                    cfg=dict(cfg,citation_retry=True)
+                with gate().sending():
+                    # A native permission change either finishes first, or waits for this send.
+                    # Recheck after acquiring the gate, not only before waiting for it.
+                    with self.store.LOCK:
+                        if (not self.valid(ticket['evidence']+historical)
+                            or self.permission_hash(ticket['evidence']+historical)!=ticket['permission_hash']):
+                            raise RagError('evidence_stale','外发许可或来源已变化，未发送。')
+                    self.audit_request('egress_allowed',ticket)
+                    self.audit_request('send_attempt',ticket)
+                    ticket['attempted']=True
+                    guard(self.source_library,cfg.get('provider','deepseek'))
+                    raw=ClientAdapter(self.client,cfg).generate(prompt)
+                self.audit_request('send_result',ticket,'response_received')
+                with self.lock:
+                    if self.sessions.get(ticket['sid']) is not session or session['version']!=ticket['version']:
+                        raise RagError('session_changed','会话已变化，回答未发布。')
+                    with self.store.LOCK:
+                        if (not self.valid(ticket['evidence']+historical) or self.permission_hash(ticket['evidence']+historical)!=ticket['permission_hash']):raise RagError('evidence_stale','请求期间来源或许可变化，回答未发布；已发送的内容无法撤回。')
+                    try:
+                        answer_status,answer,citations=self.validate_answer(raw,ticket['evidence'])
+                    except RagError as error:
+                        if retry:
+                            raise RagError(error.code,'本次回答的出处未能核对，请展开相关资料查看原文。') from None
+                        if cfg.get('provider')!='ollama' or error.code!='citation_mismatch':
+                            raise
+                        self.audit_request('local_citation_retry',ticket,error.code)
+                        continue
+                    if ticket['config'].get('provider') and citations:
+                        answer=answer.rstrip()+'\n来源片段：'+''.join('['+c['id']+']' for c in citations)
+                    session['version']+=1;session['at']=time.monotonic()
+                    turn_id=ticket.get('turn_id') or secrets.token_urlsafe(24)
+                    replacement={'turn_id':turn_id,'question':ticket['question'],'answer':answer,'evidence':ticket['evidence'],
+                        'provenance':ticket['provenance'],'permission_hash':ticket['provenance_hash']}
+                    rounds=session.setdefault('rounds',list(session['turns']))
+                    if ticket.get('turn_id'):
+                        index=next((i for i,t in enumerate(rounds) if t.get('turn_id')==turn_id),None)
+                        if index is None:raise RagError('turn_expired','原问题已过期，回答未发布。')
+                        rounds[index]=replacement
+                    else:session['rounds']=(rounds+[replacement])[-32:]
+                    session['turns']=session['rounds'][-ticket['config']['history_turns']:]
+                    return {'status':'answered','answer_status':answer_status,'answer':answer,'citations':citations,'evidence':ticket['evidence'],
+                            'session_id':ticket['sid'],'turn_id':turn_id,'provider':self.client.label,
+                            'notice':'仅核验引用身份及有效性，不保证回答事实正确；重要结论请核对原文。'}
         finally:
             with self.lock:
                 session['busy']=False;session['at']=time.monotonic()

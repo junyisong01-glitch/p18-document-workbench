@@ -15,6 +15,7 @@ else:os.environ.pop('DEEPSEEK_API_KEY',None)
 import app.rag as rag
 from app import main,library_api,egress
 from sitecustomize import official_deepseek_request
+main.QUESTION_ONLY_NETWORK=official_deepseek_request
 from contextlib import nullcontext
 from urllib.request import ProxyHandler
 _original=rag.secure_urlopen

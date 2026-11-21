@@ -335,7 +335,21 @@ class IndexService:
 
         # Lexical candidates use only the same published, admitted SQLite chunks.
         candidate_k = max(candidate_k, top_k)
-        lexical = bm25(query, [record(snap, chunk, None) for snap, chunk in candidates.values()])[:candidate_k] if mode != 'vector' else []
+        priority = None
+        lexical = []
+        if mode != 'vector':
+            corpus = [record(snap, chunk, None) for snap, chunk in candidates.values()]
+            lexical = bm25(query, corpus)
+            if hasattr(self.store, 'business_read'):
+                from app.qa_scope import source_ranker
+                with self.store.connect() as conn:
+                    catalog = {identifier: (code, version) for identifier, code, version in conn.execute(
+                        "SELECT document_id, json_extract(body,'$.code'), json_extract(body,'$.version') FROM library_metadata"
+                    )}
+                priority = source_ranker(query, catalog)
+            if priority is not None:
+                lexical.sort(key=priority, reverse=True)
+            lexical = lexical[:candidate_k]
         lexical_ids = {h['chunk_id'] for h in lexical}
         vector = self._query_vector(query)
         try:
@@ -369,6 +383,8 @@ class IndexService:
                 valid_lex = {value['chunk_id']: value for hit in lex_hits if (value := valid_hit(hit)) is not None}
                 lexical_results = [valid_lex[h['chunk_id']] for h in lexical if h['chunk_id'] in valid_lex]
                 results = fuse(vector_results, lexical_results)
+                if priority is not None:
+                    results.sort(key=priority, reverse=True)
                 if mode == 'hybrid_dedup':results = groups(results)
             results = results[:top_k]
             for rank, result in enumerate(results, 1):result['rank'] = rank

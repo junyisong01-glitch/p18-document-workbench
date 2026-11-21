@@ -53,12 +53,17 @@ class DatasetsApp:
         self.lock = threading.RLock()
         self.config_path = central.ROOT/'config/qichen-libraries.json'
         self.log_lock = threading.RLock()
+        business_config = central.ROOT/'config/business.json'
+        self.single_library = business_config.is_file() and json.loads(business_config.read_text()).get('demo_offline') is True
+        central.DEMO_LIBRARY_OFFLINE = self.single_library
 
         @central.app.get('/api/library/datasets')
         def datasets(request: Request):
             u=library_api.principal.get()or{}
             writable=(central.ROOT/'config/business.json').is_file()
             selected=request.cookies.get('p18_dataset','demo')
+            if self.single_library:
+                return {'selected':'business','datasets':[{'id':'business','name':'启辰智造知识库','read_only':False}]}
             if writable and selected=='qichen30':selected='business'
             items=[{'id':'demo','name':'演示资料库','read_only':False}]
             if writable and u.get('role'):items.insert(0,{'id':'business','name':'启辰智造知识库','read_only':False})
@@ -68,6 +73,7 @@ class DatasetsApp:
         @central.app.post('/api/library/datasets')
         def select_dataset(body: DatasetBody):
             u=library_api.principal.get()
+            if self.single_library and body.dataset=='demo':raise HTTPException(404,'演示资料库已下线')
             if body.dataset=='qichen30'and(central.ROOT/'config/business.json').is_file():body.dataset='business'
             if body.dataset=='qichen30' and u and u.get('role') and u['role']!='boss':raise HTTPException(403,'历史验收库仅保留维护入口，请使用业务库')
             if body.dataset=='business' and (not u or not u.get('role')):raise HTTPException(403,'尚未分配业务角色')
@@ -168,6 +174,8 @@ class DatasetsApp:
         if scope['type']!='http':
             return await self.central.app(scope,receive,send)
         path=scope['path']
+        if self.single_library and path.rstrip('/') in {'/demo','/static/demo.html'}:
+            return await JSONResponse({'detail':'演示资料库已下线'},status_code=404)(scope,receive,send)
         headers=dict(scope.get('headers',[]));cookies=SimpleCookie()
         try:cookies.load(headers.get(b'cookie',b'').decode())
         except Exception:pass
@@ -178,6 +186,9 @@ class DatasetsApp:
             selected='business'
             scope=dict(scope);scope['headers']=[(k,v.replace(b'p18_dataset=qichen30',b'p18_dataset=business'))if k==b'cookie'else(k,v)for k,v in scope.get('headers',[])]
         central_paths={'/api/business/accounts/reinvite','/api/library/activate-account','/api/business/accounts','/api/library/demo-fill','/api/business/people','/api/library/demo-login','/api/library/demo-accounts','/api/rag/credentials','/api/library/login','/api/library/logout','/api/library/demo-session','/api/library/datasets'}
+        if self.single_library:
+            selected='business'
+            central_paths.discard('/api/rag/credentials')
         if selected=='business' and path.startswith('/api/') and path not in central_paths:
             cfg_path=self.central.ROOT/'config/business.json'
             if not cfg_path.is_file():return await JSONResponse({'detail':'业务库尚未配置'},status_code=503)(scope,receive,send)

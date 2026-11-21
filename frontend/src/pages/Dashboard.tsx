@@ -1,9 +1,10 @@
+import { demoIdentityName } from '@/lib/demo-identity-names'
 // 页面二：工作台
 // 展示当前用户岗位、当前知识库、访问范围、知识库模式与有依据的统计，
-// 并提供文档管理 / 知识检索 / 知识问答三个入口。
+// 并提供文档管理与知识问答入口。
 import {BusinessDashboard} from '@/components/BusinessDashboard'
 import { Link } from 'react-router'
-import { ArrowRight, FileStack, MessageSquareText, Search, ShieldCheck } from 'lucide-react'
+import { ArrowRight, FileStack, MessageSquareText, ShieldCheck } from 'lucide-react'
 import { useKnowledgeBase, useSession } from '@/lib/session'
 import { KNOWLEDGE_BASES } from '@/lib/types'
 import { PageHeader } from '@/components/bits'
@@ -16,13 +17,6 @@ const ENTRIES = [
     title: '文档管理',
     en: 'Documents',
     desc: '按真实目录分类浏览有权限的文档，查看解析、切分、复核与索引状态，预览原文并下载。',
-  },
-  {
-    to: '/search',
-    icon: Search,
-    title: '知识检索',
-    en: 'Search',
-    desc: '自然语言提问，向量与关键词融合检索返回 Top-5 结果，每条结果附来源证据片段。',
   },
   {
     to: '/qa',
@@ -42,7 +36,7 @@ export default function DashboardPage() {
     <div className="space-y-10">
       <PageHeader
         kicker="Dashboard"
-        title={`${user?.name}，欢迎回来`}
+        title={demoIdentityName(user?.username) ?? user?.role.name ?? '工作台'}
         desc={`当前以「${user?.role.name}」岗位访问${kb.name}，可见文档 ${visibleDocs.length} 份，其中现行可检索 ${searchableDocs.length} 份。`}
         extra={
           <div className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-[12px] text-muted-foreground">
@@ -151,7 +145,7 @@ export default function DashboardPage() {
       {/* 功能入口 */}
       <section>
         <div className="kicker mb-4">Workspace</div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {ENTRIES.map((e) => (
             <Link
               key={e.to}

@@ -12,8 +12,11 @@ export interface ModelConfigStatus {
 export async function loadModelConfig(): Promise<ModelConfigStatus> {
   const [credentials, health] = await Promise.all([
     api.get<{configured:boolean;provider:string;endpoint:string}>('/api/rag/credentials'),
-    api.get<{configured:boolean;provider:string;destination:string;model:string;error?:string}>('/api/rag'),
+    api.get<{configured:boolean;provider:string;destination:string;model:string;error?:string;question_only_external?:boolean}>('/api/rag'),
   ])
+  if (health.question_only_external) {
+    return {configured:credentials.configured, provider:credentials.provider, baseUrl:new URL(credentials.endpoint).origin, endpoint:credentials.endpoint, model:'deepseek-flash'}
+  }
   if (health.error || !health.model || !health.destination || !credentials.endpoint) {
     throw new Error('当前后端模型配置不可用，请先检查部署配置。本地检索仍可使用。')
   }

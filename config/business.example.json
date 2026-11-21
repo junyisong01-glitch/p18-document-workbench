@@ -1,3 +1,4 @@
 {
-  "data_dir": "runtime/business-workflow"
+  "data_dir": "runtime/business-workflow",
+  "demo_offline": true
 }

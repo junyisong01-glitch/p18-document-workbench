@@ -19,13 +19,15 @@ export function qaExamples(kbId:KbId,documents:Doc[]):QaExample[]{
   ]
   const result=definitions.filter(item=>docs.some(doc=>item.match.test(`${doc.fileName} ${doc.title} ${doc.code}`)))
     .map(({label,question})=>({label,question}))
+  const directory=kbId==='business'?docs.find(doc=>doc.code==='QC-HR-009'):undefined
   // Other departments get prompts about their own visible documents, rather
   // than R&D examples that could reveal inaccessible document names.
   if(!result.length){
-    for(const doc of docs.slice(0,2)){
+    for(const doc of docs.filter(doc=>doc!==directory).slice(0,2)){
       const title=doc.title||doc.fileName,short=Array.from(title).slice(0,14).join('')
       result.push({label:short+(Array.from(title).length>14?'…':''),question:`《${title}》的适用范围和主要要求是什么？`})
     }
   }
+  if(directory)result.unshift({label:'员工通讯录包含哪些信息？',question:'《员工通讯录》包含哪些信息？'})
   return result.slice(0,4)
 }

@@ -4,7 +4,6 @@ import AppShell from './components/AppShell'
 import LoginPage from './pages/Login'
 import DashboardPage from './pages/Dashboard'
 import DocumentsPage from './pages/Documents'
-import SearchPage from './pages/SearchPage'
 import QaPage from './pages/QaPage'
 import IdentityPage from './pages/Identity'
 
@@ -20,6 +19,8 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
 function AppRoutes() {
   const { user, ready } = useSession()
+  const from = useLocation().state?.from
+  const afterLogin = from === '/search' || from === '/qa' ? '/qa' : '/'
   // 深链接：会话恢复完成前不要渲染路由，否则会先跳登录再跳首页
   if (!ready) {
     return (
@@ -30,7 +31,8 @@ function AppRoutes() {
   }
   return (
     <Routes>
-      <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
+      <Route path="/login" element={user ? <Navigate to={afterLogin} replace /> : <LoginPage />} />
+      <Route path="/qa" element={<RequireAuth><QaPage key={user?.username} /></RequireAuth>} />
       <Route
         element={
           <RequireAuth>
@@ -40,8 +42,7 @@ function AppRoutes() {
       >
         <Route path="/" element={<DashboardPage />} />
         <Route path="/documents" element={<DocumentsPage />} />
-        <Route path="/search" element={<SearchPage />} />
-        <Route path="/qa" element={<QaPage />} />
+        <Route path="/search" element={<Navigate to="/qa" replace />} />
         <Route path="/identity" element={<IdentityPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

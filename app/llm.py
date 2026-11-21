@@ -88,8 +88,9 @@ def local_json(path, body=None, timeout=2):
 
 class OllamaProvider(BaseLLMProvider):
     name='ollama'
-    def __init__(self, *, model=None, num_ctx=None, timeout=60, max_tokens=1500):
+    def __init__(self, *, model=None, num_ctx=None, timeout=60, max_tokens=1500, citation_retry=False):
         self.model=model or os.environ.get('OLLAMA_MODEL','qwen2.5:7b');self.timeout=timeout;self.max_tokens=max_tokens
+        self.citation_retry=citation_retry
         try:self.num_ctx=int(num_ctx if num_ctx is not None else os.environ.get('OLLAMA_NUM_CTX','16384'))
         except ValueError:fail('llm_configuration','OLLAMA_NUM_CTX必须为整数。')
         if self.num_ctx<16384:fail('llm_configuration','OLLAMA_NUM_CTX不得低于16384。')
@@ -103,8 +104,9 @@ class OllamaProvider(BaseLLMProvider):
         if len(json.dumps(messages(prompt),ensure_ascii=False).encode('utf-8'))>self.num_ctx-self.max_tokens-512:
             fail('llm_context_limit','所选资料超过本地模型保守容量，请减少证据；未自动截断或改用外部模型。')
         self.health()
+        temperature,seed=(0.2,43) if self.citation_retry else (0,42)
         result=local_json('/api/chat',{'model':self.model,'messages':messages(prompt),'stream':False,'format':'json','think':False,'keep_alive':0,'truncate':False,
-            'options':{'num_ctx':self.num_ctx,'num_predict':self.max_tokens,'temperature':0,'seed':42}},timeout=self.timeout)
+            'options':{'num_ctx':self.num_ctx,'num_predict':self.max_tokens,'temperature':temperature,'seed':seed}},timeout=self.timeout)
         if result.get('done') is not True or result.get('done_reason')!='stop':fail('incomplete_answer','本地模型响应截断或未完整结束，未发布回答。')
         content=result.get('message',{}).get('content')
         if not isinstance(content,str)or not content:fail('api_response','Ollama未返回有效文本。')
@@ -132,8 +134,13 @@ class RoutedClient:
         else:cfg.update(base_url='https://api.deepseek.com',model='deepseek-flash')
         return cfg
     def provider(self,cfg):
-        guard(self.source_library,self.name)
-        if self.name=='ollama':return OllamaProvider(model=cfg['model'],num_ctx=cfg['num_ctx'],timeout=cfg['timeout'],max_tokens=cfg['max_tokens'])
+        name=self.name
+        guard(self.source_library,name)
+        if cfg.get('citation_retry') and name!='ollama':
+            fail('config_changed','本地模型路由已变化，请重新提问。')
+        if name=='ollama':
+            return OllamaProvider(model=cfg['model'],num_ctx=cfg['num_ctx'],timeout=cfg['timeout'],
+                                  max_tokens=cfg['max_tokens'],citation_retry=cfg.get('citation_retry',False))
         return DeepSeekProvider(key=self.credential(),timeout=cfg['timeout'],max_tokens=cfg['max_tokens'])
     @property
     def configured(self):

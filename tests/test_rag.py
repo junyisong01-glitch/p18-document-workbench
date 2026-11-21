@@ -302,6 +302,63 @@ def test_protocol_errors_have_safe_specific_codes(rig,raw,code):
     assert not rig.rag.sessions[p['session_id']]['busy']
 
 
+@pytest.mark.parametrize('corrected',[True,False])
+def test_local_citation_mismatch_retries_once_with_same_messages(rig,monkeypatch,corrected):
+    rig.grant(['a','b'])
+    monkeypatch.setattr(rig.provider,'configuration',lambda cfg:dict(cfg,provider='ollama',num_ctx=16384,base_url='http://localhost:11434'),raising=False)
+    prepared=rig.rag.prepare('项目负责人是谁？')
+    calls=[]
+
+    def complete(messages,cfg):
+        calls.append((deepcopy(messages),cfg))
+        return json.dumps({'status':'partial','answer':'资料显示项目负责人是林晓岚。[S2]',
+                           'citations':['S2'] if corrected and len(calls)==2 else ['S1']})
+
+    monkeypatch.setattr(rig.provider,'complete',complete)
+    if corrected:
+        answer=rig.rag.answer(prepared['ticket'],True)
+        assert answer['answer_status']=='partial'
+        assert [source['id'] for source in answer['citations']]==['S2']
+    else:
+        with pytest.raises(RagError,match='请展开相关资料查看原文') as error:
+            rig.rag.answer(prepared['ticket'],True)
+        assert error.value.code=='citation_mismatch'
+    assert len(calls)==2
+    assert calls[0][0]==calls[1][0]
+    assert 'citation_retry' not in calls[0][1] and calls[1][1]['citation_retry'] is True
+    session=rig.rag.sessions[prepared['session_id']]
+    assert len(session['turns'])==int(corrected) and not session['busy']
+
+
+def test_local_citation_retry_stops_if_evidence_changes(rig,monkeypatch):
+    rig.grant(['a','b'])
+    monkeypatch.setattr(rig.provider,'configuration',lambda cfg:dict(cfg,provider='ollama',num_ctx=16384,base_url='http://localhost:11434'),raising=False)
+    rig.provider.reply={'status':'partial','answer':'事实[S1]','citations':['S2']}
+    prepared=rig.rag.prepare('项目负责人是谁？')
+    original_audit=rig.rag.audit_request
+
+    def audit(action,ticket=None,code=None):
+        original_audit(action,ticket,code)
+        if action=='local_citation_retry':
+            rig.grant(['a'])
+
+    monkeypatch.setattr(rig.rag,'audit_request',audit)
+    with pytest.raises(RagError) as error:
+        rig.rag.answer(prepared['ticket'],True)
+    assert error.value.code=='evidence_stale'
+    assert len(rig.provider.requests)==1
+
+
+def test_named_spreadsheet_scope_prompt_preserves_question_and_evidence():
+    question='《测试表》的适用范围和主要要求是什么？'
+    evidence=[{'document_name':'QC-01_测试表.xlsx','text':'仅为虚构数据'}]
+    payload=json.loads(RagService.messages(question,[],evidence)[1]['content'])
+    assert payload['question']==question and payload['untrusted_evidence']==evidence
+    assert 'partial' in payload['answer_guidance']
+    unrelated=json.loads(RagService.messages('《其他表》的适用范围是什么？',[],evidence)[1]['content'])
+    assert 'answer_guidance' not in unrelated
+
+
 @pytest.mark.parametrize('state',['answered','partial','insufficient_evidence'])
 @pytest.mark.parametrize('when',['before','during'])
 def test_all_states_still_reject_revoked_evidence(rig,state,when):
