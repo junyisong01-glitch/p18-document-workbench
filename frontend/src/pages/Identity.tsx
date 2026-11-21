@@ -3,6 +3,7 @@
 // 不显示全岗位权限表，不提供修改岗位或身份切换。
 import { KeyRound, Lock, ShieldCheck } from 'lucide-react'
 import { PageHeader } from '@/components/bits'
+import { demoIdentityName } from '@/lib/demo-identity-names'
 import { useKnowledgeBase, useSession } from '@/lib/session'
 
 export default function IdentityPage() {
@@ -11,9 +12,12 @@ export default function IdentityPage() {
 
   if (!user) return null
 
+  const name = demoIdentityName(user.username) ?? (user.name !== user.username ? user.name : undefined)
+  const displayName = name ?? user.role.name
+
   const rows: [string, React.ReactNode][] = [
     ['当前账号', <span className="font-mono2">{user.username}</span>],
-    ['姓名', user.name],
+    ['姓名', name ?? '未设置'],
     ['当前岗位', user.role.name],
     ['所属部门', user.role.dept],
     ['当前知识库', kb.name],
@@ -69,11 +73,11 @@ export default function IdentityPage() {
         {/* 身份摘要 */}
         <div className="flex items-center gap-5 border-b border-border px-7 py-6">
           <div className="flex size-14 items-center justify-center rounded-full border border-border bg-secondary font-display text-[20px] font-semibold">
-            {user.name.slice(0, 1)}
+            {Array.from(displayName)[0]}
           </div>
           <div>
             <div className="font-display text-[18px] font-semibold tracking-tight">
-              {user.name}
+              {displayName}
             </div>
             <div className="mt-1 flex items-center gap-2 text-[12px] text-muted-foreground">
               <KeyRound className="size-3.5" strokeWidth={1.8} />

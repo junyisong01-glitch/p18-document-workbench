@@ -19,17 +19,18 @@ def test_sdk_exact_destination_model_and_no_retries(monkeypatch):
     assert seen['body']['messages'][0]['content']==SYSTEM
     assert seen['http_client'].follow_redirects is False and seen['http_client']._trust_env is False
 
-def test_ollama_exact_payload_and_context(monkeypatch):
+@pytest.mark.parametrize('retry,temperature,seed',[(False,0,42),(True,0.2,43)])
+def test_ollama_exact_payload_and_context(monkeypatch,retry,temperature,seed):
     calls=[]
     def transport(path,body=None,timeout=2):
         calls.append((path,body))
         return {'models':[{'name':'qwen2.5:7b'}]} if path=='/api/tags' else {'done':True,'done_reason':'stop','message':{'content':'{}'}}
     monkeypatch.setattr('app.llm.local_json',transport)
-    assert OllamaProvider().generate('公开虚构问题')=='{}'
+    assert OllamaProvider(citation_retry=retry).generate('公开虚构问题')=='{}'
     path,body=calls[-1];assert path=='/api/chat' and body['options']['num_ctx']==16384
     assert body['stream'] is False and body['truncate'] is False
     assert body['think'] is False and body['keep_alive']==0
-    assert body['options']['temperature']==0 and body['options']['seed']==42
+    assert body['options']['temperature']==temperature and body['options']['seed']==seed
     assert body['messages'][0]['content']==SYSTEM
 
 @pytest.mark.parametrize('source',['qichen','qichen30','business'])

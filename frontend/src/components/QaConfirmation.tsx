@@ -1,24 +1,33 @@
 import {Monitor,Cloud,ChevronDown,Plus} from 'lucide-react'
 import {parseConfirmation,isLocalAnswerEndpoint,endpointHost,displayValue,type WireSource} from '../lib/confirmation-presentation'
 import './QaConfirmation.css'
+import { documentTitleParts } from '../lib/document-title'
 
 type Prepared = {
   messages:unknown;provider?:string;model?:string;request_endpoint?:string;configured?:boolean;
   budget?:{message_chars?:number;context_limit?:number;message_bytes?:number;byte_limit?:number}
 }
 function SourceMeta({source}:{source:WireSource}){
-  return <p className="qc-source-meta">{[displayValue(source.section),source.revision!==undefined?`正文修订 ${source.revision}`:''].filter(Boolean).join(' · ')}</p>
+  return <p className="qc-source-meta">{[documentTitleParts(source.document_name||'').number,displayValue(source.section),source.revision!==undefined?`正文修订 ${source.revision}`:''].filter(Boolean).join(' · ')}</p>
 }
 function Risk({value}:{value:unknown}){
   const text=displayValue(value)
   return text&&text!=='[]'&&text!=='{}'?<p className="qc-risk">来源提示：{text}</p>:null
 }
 function SourceGroup({source,index}:{source:WireSource;index:number}){
-  return <details className="qc-source"><summary><span className="qc-source-id">{source.id||`来源 ${index+1}`}</span><div className="qc-source-copy"><h3>{source.document_name||'参考片段'}</h3><SourceMeta source={source}/></div><span className="qc-source-toggle">查看片段<ChevronDown aria-hidden="true" size={13}/></span></summary><div className="qc-excerpt"><p className="qc-caption">本轮实际使用的完整片段</p><pre className="qc-readable" data-wire-text="group">{source.text}</pre><Risk value={source.risk}/>{!!source.members?.length&&<section className="qc-members" aria-label="组内全部来源"><h4>组内全部来源 · {source.members.length} 段</h4>{source.members.map((member,j)=><article key={j}><p className="qc-member-name">{j+1}. {member.document_name||source.document_name||'组内来源'}</p><SourceMeta source={member}/>{member.text===undefined||member.text===source.text?<p className="qc-caption">与上方共享同一完整片段。</p>:<pre className="qc-readable" data-wire-text="member">{member.text}</pre>}<Risk value={member.risk}/></article>)}</section>}</div></details>
+  return <details className="qc-source"><summary><span className="qc-source-id">{source.id||`来源 ${index+1}`}</span><div className="qc-source-copy"><h3>{documentTitleParts(source.document_name||'参考片段').title}</h3><SourceMeta source={source}/></div><span className="qc-source-toggle">查看片段<ChevronDown aria-hidden="true" size={13}/></span></summary><div className="qc-excerpt"><p className="qc-caption">本轮实际使用的完整片段</p><pre className="qc-readable" data-wire-text="group">{source.text}</pre><Risk value={source.risk}/>{!!source.members?.length&&<section className="qc-members" aria-label="组内全部来源"><h4>组内全部来源 · {source.members.length} 段</h4>{source.members.map((member,j)=><article key={j}><p className="qc-member-name">{j+1}. {documentTitleParts(member.document_name||source.document_name||'组内来源').title}</p><SourceMeta source={member.document_name?member:{...member,document_name:source.document_name}}/>{member.text===undefined||member.text===source.text?<p className="qc-caption">与上方共享同一完整片段。</p>:<pre className="qc-readable" data-wire-text="member">{member.text}</pre>}<Risk value={member.risk}/></article>)}</section>}</div></details>
 }
 export function QaConfirmation({pending,consent,busy,onConsent,onSend,onCancel,privateDeployment=false}:{
   pending:Prepared;consent:boolean;busy:boolean;onConsent:(value:boolean)=>void;onSend:()=>void;onCancel:()=>void;privateDeployment?:boolean
 }){
+  const outbound = Array.isArray(pending.messages) && pending.messages.length===1 && pending.request_endpoint==='https://api.deepseek.com/chat/completions' && pending.messages[0]?.role==='user' && typeof pending.messages[0]?.content==='string' ? pending.messages[0].content : null
+  if(outbound!==null) return <section id="qa-final-confirmation" role="dialog" aria-label="最终发送确认" className="qc-panel">
+    <header className="qc-header"><span className="qc-step">3</span><div><h2>确认本次外发问题</h2><p>DeepSeek 提供外部参考回答。</p></div></header>
+    <div className="qc-body"><section className="qc-question"><h3>本次问题</h3><p>{outbound}</p></section>
+      <p className="qc-external-warning">接收方 api.deepseek.com · 发送内容仅为以上问题。</p>
+      <details className="qc-advanced"><summary>查看本次外发内容</summary><pre className="qc-raw">{JSON.stringify(pending.messages,null,2)}</pre></details></div>
+    <footer className="qc-footer"><label className="qc-consent"><input type="checkbox" checked={consent} disabled={busy||!pending.configured} onChange={event=>onConsent(event.target.checked)}/>我同意仅将本次问题发送给 DeepSeek。</label>
+      <div className="qc-actions"><button type="button" className="qc-primary" disabled={!consent||busy||!pending.configured} onClick={onSend}>确认发送</button><button type="button" className="qc-back" disabled={busy} onClick={onCancel}>返回调整</button></div></footer></section>
   const content=parseConfirmation(pending.messages),local=isLocalAnswerEndpoint(pending.request_endpoint)
   const host=endpointHost(pending.request_endpoint),budget=pending.budget
   return <section id="qa-final-confirmation" role="dialog" aria-label="最终发送确认" className="qc-panel">

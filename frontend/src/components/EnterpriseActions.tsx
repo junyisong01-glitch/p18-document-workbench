@@ -6,7 +6,7 @@ const departments=['研发部','生产制造部','财务部','人力资源部','
 export function InviteAccount(){
  const [username,setUsername]=useState(''),[department,setDepartment]=useState('研发部'),[role,setRole]=useState('employee'),[job,setJob]=useState(''),[invitation,setInvitation]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false)
  return <form className="grid max-w-xl gap-4 border border-border bg-card p-5" onSubmit={async e=>{e.preventDefault();setBusy(true);setMessage('');setInvitation('');try{const r=await api.post<{invitation_code:string;notice:string}>('/api/business/accounts',{username,department,role,job});setInvitation(r.invitation_code);setMessage(r.notice)}catch(e){setMessage((e as Error).message)}finally{setBusy(false)}}}>
- <h2 className="font-semibold">邀请新人建号</h2><p className="text-sm text-muted-foreground">仅老板与指定人事主管。只能创建员工或访客；主管任命仍由老板办理。邀请有效24小时，仅显示一次，请通过可信渠道交给本人，不要公开截图。</p>
+ <h2 className="font-semibold">邀请新人建号</h2><p className="text-sm text-muted-foreground">仅管理层负责人与指定人事主管。只能创建员工或访客；主管任命仍由管理层负责人办理。邀请有效24小时，仅显示一次，请通过可信渠道交给本人，不要公开截图。</p>
  <label className="grid gap-1">新人账号<input aria-label="新人账号" required minLength={3} maxLength={64} pattern="[A-Za-z][A-Za-z0-9_]{2,63}" autoComplete="off" className={input} value={username} onChange={e=>setUsername(e.target.value)}/></label>
  <label className="grid gap-1">初始部门<select aria-label="初始部门" className={input} value={department} onChange={e=>{setDepartment(e.target.value);setJob('')}}>{departments.map(d=><option key={d}>{d}</option>)}</select></label>
  <label className="grid gap-1">初始职责<select aria-label="初始职责" className={input} value={role} onChange={e=>setRole(e.target.value)}><option value="employee">普通员工</option><option value="guest">只读访客（无部门自动读权）</option></select></label>

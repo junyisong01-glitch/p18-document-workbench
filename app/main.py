@@ -396,7 +396,8 @@ async def lifespan(app):
     from app.rag import RagService
     RAG_SERVICE = RagService(sys.modules[__name__])
     SEMANTIC_ERROR = None
-    if os.environ.get('P18_SEMANTIC_ENABLED') == '1':
+    demo_offline = globals().get('DEMO_LIBRARY_OFFLINE', False)
+    if os.environ.get('P18_SEMANTIC_ENABLED') == '1' and not demo_offline:
         try:
             from app.semantic import IndexService
             INDEX_SERVICE = IndexService(sys.modules[__name__])
@@ -404,7 +405,7 @@ async def lifespan(app):
             SEMANTIC_ERROR = '本地索引初始化失败，请检查可选依赖、模型配置及Qdrant目录占用。'
             INDEX_SERVICE = None
     with LOCK:
-        for doc in all_docs():
+        for doc in ([] if demo_offline else all_docs()):
             previous_state = doc["state"]
             if doc["state"] in STATES:
                 doc.update(state="failed", quality="failed", error="上次处理因服务停止而中断，请重试。")
@@ -419,7 +420,7 @@ async def lifespan(app):
                 event(doc, 'admission_review_required')
             if 'admission' not in doc or doc['state'] != previous_state:
                 save(doc)
-        for doc in all_docs():
+        for doc in ([] if demo_offline else all_docs()):
             if doc.get('admission', {}).get('eligible'):
                 schedule_chunks(doc)
     if INDEX_SERVICE is not None:
@@ -641,6 +642,9 @@ def credential_status(request: Request):
     service=current_rag()
     cfg=service.configuration()
     from app.rag import model_endpoint
+    if getattr(service,'question_only_external',False):
+        return {'configured':bool(service.client.credential()),'scope':'login_session','persistent':False,
+                'provider':'DeepSeek','endpoint':'https://api.deepseek.com/chat/completions'}
     return {'configured':bool(service.client.configured),'scope':'login_session',
             'persistent':False,'provider':service.client.label,'endpoint':model_endpoint(cfg['base_url']),
             'notice':'仅本次登录有效；不回传密钥。配置不等于文档获准外发。'}
@@ -714,6 +718,8 @@ def select_llm_provider(body: RagProviderBody, request: Request):
     from app.llm import RoutedClient
     from app.rag import RagError
     if not isinstance(service.client,RoutedClient):raise HTTPException(409,'当前部署不支持会话模型切换。')
+    if getattr(service,'question_only_external',False):
+        return rag_call('select_model',body.provider,body.confirm_external)
     if service.source_library!='demo' and body.provider=='deepseek':raise HTTPException(403,'启辰库禁止使用外部模型。')
     if body.provider=='deepseek' and body.confirm_external is not True:raise HTTPException(422,'必须明确确认选择外部DeepSeek。')
     with service.lock:

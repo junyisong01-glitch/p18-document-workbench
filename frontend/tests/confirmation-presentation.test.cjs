@@ -5,6 +5,7 @@ const compile=(m,file)=>m._compile(ts.transpileModule(fs.readFileSync(file,'utf8
 Module._extensions['.ts']=compile;Module._extensions['.tsx']=compile;Module._extensions['.css']=()=>{};
 const {parseConfirmation,isLocalAnswerEndpoint}=require(path.join(root,'src/lib/confirmation-presentation.ts'));
 const {QaConfirmation}=require(path.join(root,'src/components/QaConfirmation.tsx'));
+const {answerRoute}=require(path.join(root,'src/lib/qa-answer-first.ts'));
 Module._extensions['.ts']=oldTs;Module._extensions['.tsx']=oldTsx;Module._extensions['.css']=oldCss;
 const React=require(path.join(root,'node_modules/react')),{renderToStaticMarkup}=require(path.join(root,'node_modules/react-dom/server'));
 const make=(evidence,history=[])=>[{role:'system',content:'实际完整系统指令。'},{role:'user',content:JSON.stringify({question:'问题😀',untrusted_evidence:evidence,history_for_reference_only:history})}];
@@ -33,4 +34,15 @@ test('云访问明确表示部署环境私有模型，不声称资料在访客�
  const messages=make([{text:'公开虚构资料'}]),before=JSON.stringify(messages);
  const html=renderToStaticMarkup(React.createElement(QaConfirmation,{privateDeployment:true,pending:{messages,provider:'Ollama',request_endpoint:'http://localhost:11434/api/chat',model:'test',configured:true},consent:false,busy:false,onConsent(){},onSend(){},onCancel(){}}));
  assert(html.includes('私有模型处理'));assert(html.includes('当前部署环境'));assert(!html.includes('这台电脑'));assert(!html.includes('同意在本机'));assert.equal(JSON.stringify(messages),before);
+});
+
+test('one-click QA can send only to an explicit Ollama loopback endpoint',()=>{
+ const local={provider:'Ollama（本机）',request_endpoint:'http://localhost:11434/api/chat'};
+ assert.equal(answerRoute(local),'local');
+ assert.equal(answerRoute({...local,request_endpoint:'http://127.0.0.1:11434/api/chat'}),'local');
+ assert.equal(answerRoute({...local,request_endpoint:'https://localhost.evil.test/api/chat'}),'unavailable');
+ assert.equal(answerRoute({...local,provider:'DeepSeek'}),'unavailable');
+ const external={request_endpoint:'https://api.deepseek.com/chat/completions',messages:[{role:'user',content:'问题'}]};
+ assert.equal(answerRoute(external),'confirm_external');
+ assert.equal(answerRoute({...external,messages:[{role:'system',content:'unexpected'},...external.messages]}),'unavailable');
 });

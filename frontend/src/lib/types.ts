@@ -80,20 +80,11 @@ export interface Doc {
   tablePreview?: TablePreview // Excel 结构化内容预览（演示）
 }
 
-export interface SearchResult {
-  historical?:boolean
-  doc: Doc
-  rank: number
-  score: number // 服务端融合分数，不是概率
-  sourceRef?: {revision:number;index_token:string;chunk_id:string}
-  snippet: Snippet
-}
-
 export const ROLES: Record<RoleId, Role> = {
   finance:{id:'finance',name:'财务',dept:'财务部'},
   hr:{id:'hr',name:'人事',dept:'人力资源部'},
   adm:{id:'adm',name:'行政安全',dept:'行政安全部'},
-  management:{id:'management',name:'老板',dept:'管理层'},
+  management:{id:'management',name:'管理层负责人',dept:'管理层'},
   guest:{id:'guest',name:'访客',dept:'无部门读权'},
   rd: { id: 'rd', name: '研发', dept: '研发部' },
   qa: { id: 'qa', name: '测试', dept: '研发部' },

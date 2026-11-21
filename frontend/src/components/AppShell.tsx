@@ -8,19 +8,18 @@ import {
   KeyRound,
   LogOut,
   MessageSquareText,
-  Search,
   LayoutDashboard,
 } from 'lucide-react'
 import { LogoLockup } from './Logo'
 import { DemoTag } from './bits'
 import { useKnowledgeBase, useSession } from '@/lib/session'
+import { demoIdentityName } from '@/lib/demo-identity-names'
 import { KNOWLEDGE_BASES } from '@/lib/types'
 import type { KbId } from '@/lib/types'
 
 const NAV = [
   { to: '/', label: '工作台', en: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/documents', label: '文档管理', en: 'Documents', icon: FileStack },
-  { to: '/search', label: '知识检索', en: 'Search', icon: Search },
   { to: '/qa', label: '知识问答', en: 'Ask', icon: MessageSquareText },
   { to: '/identity', label: '权限与身份', en: 'Identity', icon: KeyRound },
 ] as const
@@ -73,6 +72,7 @@ function KbSwitcher() {
 
 export default function AppShell() {
   const { user, logout, searchableDocs, visibleDocs } = useSession()
+  const name = demoIdentityName(user?.username) ?? user?.role.name ?? '用户'
   const kb = useKnowledgeBase()
   const navigate = useNavigate()
   const [menuOpen,setMenuOpen]=useState(false)
@@ -127,10 +127,10 @@ export default function AppShell() {
         <div className="border-t border-[hsl(36_10%_18%)] p-4">
           <div className="flex items-center gap-3">
             <div className="flex size-9 items-center justify-center rounded-full border border-[hsl(36_10%_24%)] font-display text-[13px] font-semibold text-[#EDE6D8]">
-              {user?.name.slice(0, 1)}
+              {Array.from(name)[0]}
             </div>
             <div className="min-w-0 flex-1 leading-tight">
-              <div className="truncate text-[13px] font-medium text-[#EDE6D8]">{user?.name}</div>
+              <div className="truncate text-[13px] font-medium text-[#EDE6D8]">{name}</div>
               <div className="mt-0.5 truncate font-mono2 text-[10px] tracking-wide text-[#6e6656]">
                 {user?.role.name} · {user?.role.dept}
                 {user?.admin ? ' · 文档管理员' : ''}

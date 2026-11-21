@@ -1,7 +1,6 @@
 // 页面一：登录（已有登录功能的视觉升级）
 // 演示账号由数据层提供；登录成功进入工作台，退出后回到本页。
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router'
 import { ArrowRight, Check, Eye, EyeOff, KeyRound, Loader2, LockKeyhole, UserRound } from 'lucide-react'
 import { LogoLockup, LogoMark } from '@/components/Logo'
 import {DemoIdentityCards} from '@/components/DemoIdentityCards'
@@ -11,7 +10,6 @@ import './LoginFlow.css'
 
 export default function LoginPage() {
   const { login } = useSession()
-  const navigate = useNavigate()
   const [activate,setActivate]=useState(false),[invite,setInvite]=useState(''),[newPassword,setNewPassword]=useState('')
   const [activationError,setActivationError]=useState('')
   const [activationSuccess,setActivationSuccess]=useState(false)
@@ -58,9 +56,7 @@ export default function LoginPage() {
     setLoading(true)
     try {
       const res = await login(username, password)
-      if (res.ok) {
-        navigate('/', { replace: true })
-      } else {
+      if (!res.ok) {
         setError(password.startsWith('p18-demo-')?'临时演示口令已失效，请重新点击身份卡片填入后登录。':res.error ?? '登录失败')
       }
     } finally {
@@ -144,7 +140,7 @@ export default function LoginPage() {
             <form aria-label="邀请激活" aria-busy={loading} className="login-flow-form" onSubmit={activateAccount}>
               <label htmlFor="activation-invite">一次性邀请</label>
               <div className="login-flow-input"><KeyRound aria-hidden="true"/><input id="activation-invite" aria-label="激活邀请" required type="password" autoComplete="off" maxLength={128} placeholder="粘贴你收到的一次性邀请" value={invite} onChange={e=>setInvite(e.target.value)} disabled={loading} aria-describedby="invite-help"/></div>
-              <p id="invite-help" className="login-flow-note">由老板或人事主管提供，有效期24小时，仅可使用一次。</p>
+              <p id="invite-help" className="login-flow-note">由管理层负责人或人事主管提供，有效期24小时，仅可使用一次。</p>
               <label htmlFor="activation-password" className="login-flow-next">设置自己的密码（至少12字符）</label>
               <div className="login-flow-input"><LockKeyhole aria-hidden="true"/><input id="activation-password" aria-label="新密码" required type={showPw?'text':'password'} autoComplete="new-password" minLength={12} maxLength={1024} placeholder="至少12个字符" value={newPassword} onChange={e=>setNewPassword(e.target.value)} disabled={loading}/><button type="button" className="login-flow-eye" aria-label={showPw?'隐藏密码':'显示密码'} onClick={()=>setShowPw(!showPw)}>{showPw?<EyeOff/>:<Eye/>}</button></div>
               <p className="login-flow-note">以后登录时使用这个密码，激活成功后请使用自己的账号登录。</p>

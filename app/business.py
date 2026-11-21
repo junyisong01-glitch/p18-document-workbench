@@ -85,9 +85,12 @@ def install(store,central,legacy_acl):
         if path.startswith('/api/business/'):return
         # Preserve only local retrieval/RAG preparation, no external endpoint.
         if method=='POST' and path in {'/api/search','/api/rag/drafts','/api/rag/selection'}:return
+        if getattr(central,'DEMO_LIBRARY_OFFLINE',False) and (path=='/api/rag/provider' and method=='POST'
+            or path=='/api/rag/credentials' and method in {'PUT','DELETE'}
+            or path=='/api/rag/external-settings' and method=='PUT'):return
         if method=='POST' and path=='/api/rag/answer':
             from app.llm import provider_name
-            if provider_name()=='ollama':return
+            if getattr(central,'DEMO_LIBRARY_OFFLINE',False) or provider_name()=='ollama':return
         if method=='POST' and path.startswith('/api/documents/') and path.endswith('/review'):
             identifier=path.split('/')[3];b=read(identifier)
             if b and manager(u,b) and b['status']in {'submitted','correction_pending'}:return
@@ -326,14 +329,19 @@ def create_store(central,cfg):
         def close(self):
             self.closed=True;self.pool.shutdown(wait=True)
             with self.vector_lock:self.client.close()
-    q.INDEX_SERVICE=SharedModelIndex(q)
-    shared=central.require_semantic().provider
-    if q.INDEX_SERVICE.config!=shared.config:raise RuntimeError('业务与基线模型配置不同，停止打开业务库')
-    q.INDEX_SERVICE.provider=shared
+    single_library=cfg.get('demo_offline') is True
+    q.INDEX_SERVICE=IndexService(q) if single_library else SharedModelIndex(q)
+    if not single_library:
+        shared=central.require_semantic().provider
+        if q.INDEX_SERVICE.config!=shared.config:raise RuntimeError('业务与基线模型配置不同，停止打开业务库')
+        q.INDEX_SERVICE.provider=shared
     install(q,central,legacy_acl)
     # Business RAG remains local-only irrespective of personal credentials.
     from app.datasets import LocalRag
     services={}
+    if single_library:
+        from app.external_model import QuestionOnlyRag, install_admin
+        install_admin(q,central)
     def current_rag():
         u=library_api.principal.get()
         if not u:raise HTTPException(401,'请登录')
@@ -341,7 +349,7 @@ def create_store(central,cfg):
             if not library_store.session_by_digest(c,u['session_digest']):raise HTTPException(401,'会话已失效')
         if u['session_digest']not in services:
             if len(services)>64:services.clear()
-            services[u['session_digest']]=LocalRag(q,lambda **v:None)
+            services[u['session_digest']]=(QuestionOnlyRag(q,central) if single_library else LocalRag(q,lambda **v:None))
         return services[u['session_digest']]
     q.current_rag=current_rag
     for doc in q.all_docs():

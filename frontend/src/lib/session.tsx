@@ -19,7 +19,6 @@ import {
   type KbId,
   type Role,
   type RoleId,
-  type SearchResult,
 } from './types'
 
 export interface SessionUser {
@@ -122,7 +121,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         role: me.role==='guest'?ROLES.guest:me.role?{
           ...ROLES[me.role==='boss'?'management':me.department==='财务部'?'finance':me.department==='人力资源部'?'hr':me.department==='行政安全部'?'adm':me.department==='生产制造部'?'mfg':me.job==='测试'?'qa':me.job==='运维'?'ops':'rd'],
           dept:me.department||'未分配部门',
-          name:me.role==='boss'?'老板':me.role==='supervisor'?'部门主管':me.department==='研发部'?(me.job||'研发员工'):me.department==='财务部'?'财务员工':me.department==='人力资源部'?'人事员工':me.department==='行政安全部'?'行政员工':me.department==='生产制造部'?'生产员工':'员工',
+          name:me.role==='boss'?'管理层负责人':me.role==='supervisor'?'部门主管':me.department==='研发部'?(me.job||'研发员工'):me.department==='财务部'?'财务员工':me.department==='人力资源部'?'人事员工':me.department==='行政安全部'?'行政员工':me.department==='生产制造部'?'生产员工':'员工',
         }:roleOf(me.identity),
         accessRole:me.role,
         canCreateAccounts:!!me.can_create_accounts,
@@ -317,11 +316,6 @@ export const ragAnswer = (ticket: string) =>
     citations: Array<{ document_name: string; section?: string }>
   }>('/api/rag/answer', { ticket, consent: true })
 
-export interface SearchOutput {
-  results: SearchResult[]
-  verifiedCase: boolean
-  elapsedMs: number
-}
 
 
 export function downloadDemoFile(doc: Doc) {
