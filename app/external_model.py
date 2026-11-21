@@ -12,6 +12,7 @@ from app import library_api, library_store
 from app.datasets import LocalRag
 from app.egress_gate import gate
 from app.llm import NoRedirect, RoutedClient
+from app import qa_facts
 from app.rag import RagError
 
 ENDPOINT = 'https://api.deepseek.com/chat/completions'
@@ -170,6 +171,49 @@ class QuestionOnlyRag(LocalRag):
             return rewritten, clarification
         return query, ''
 
+    def draft_search(self, service, query, question):
+        authorized, local = super().draft_search(service, query, question)
+        plan = qa_facts.parts(question)
+        if not plan:
+            return authorized, local
+        extra = []
+        for part in plan:
+            result = service.search(part.query, top_k=20, document_filter=self.can_read)
+            extra.extend(result['results'])
+        return dict(authorized, results=[*authorized['results'], *extra]), local
+
+    def document_anchor_check(self):
+        service = self.store.require_semantic()
+        snapshots = {}
+
+        def contains(source, anchor):
+            identifier = source['document_id']
+            if identifier not in snapshots:
+                snapshots[identifier] = service.snapshot(identifier)
+            snap = snapshots[identifier]
+            return bool(snap and snap['token'] == source['index_token'] and any(
+                qa_facts.contains_anchor(chunk['text'], anchor) for chunk in snap['chunks']))
+
+        return contains
+
+    def prioritize_candidates(self, question, candidates):
+        plan = qa_facts.parts(question)
+        if not plan:
+            return candidates
+        contains = self.document_anchor_check()
+        per_part = [[cid for cid, candidate in candidates.items()
+                     if candidate['selectable'] and next(qa_facts.matches(part, candidate['evidence'], contains), None)]
+                    for part in plan]
+        preferred = [group[0] for group in per_part if group]
+        preferred.extend(cid for group in per_part for cid in group)
+        return {cid: candidates[cid] for cid in dict.fromkeys([*preferred, *candidates])}
+
+    def local_evidence_result(self, ticket):
+        plan = qa_facts.parts(ticket['question'])
+        if plan and ticket['config'].get('provider') == 'ollama':
+            return qa_facts.checked_answer(plan, ticket['evidence'], self.document_anchor_check())
+        return None
+
     def select_model(self, provider, confirm_external):
         with self.lock:
             if any(session.get('busy') for session in self.sessions.values()):
@@ -203,6 +247,8 @@ class QuestionOnlyRag(LocalRag):
     def _selection(self, draft_id, selection_version, candidate_ids, *, trace):
         with self.lock:
             result = super()._selection(draft_id, selection_version, candidate_ids, trace=trace)
+            if qa_facts.parts(result['question']):
+                result['configured'] = True
             if self.external_revision is None:
                 return result
             # Consider every hit and every deduplicated member, even when unchecked.

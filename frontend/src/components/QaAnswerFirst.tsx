@@ -219,6 +219,6 @@ export function QaAnswerFirst({ answer, examples, onAsk, onSource, notice, docum
     </details>}
     {guest && !external && <p className="qa-chat-guest"><Lock size={13}/>内部资料需有权限的内部账号查看。</p>}
     {!!examples.length && <div className="qa-first-followup"><Suggestions examples={examples} onAsk={onAsk}/></div>}
-    <p className="qa-chat-provider">{external ? 'DeepSeek · 外部参考回答' : '已使用本地模型'}</p>
+    <p className="qa-chat-provider">{external ? 'DeepSeek · 外部参考回答' : answer.provider === '本地证据核对' ? '已逐项核对原文' : '已使用本地模型'}</p>
   </article>
 }
