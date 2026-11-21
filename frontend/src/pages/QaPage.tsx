@@ -17,6 +17,7 @@ import {api, ApiError} from '@/lib/api'
 import {useKnowledgeBase,useSession} from '@/lib/session'
 import {demoIdentityName} from '@/lib/demo-identity-names'
 import type {Doc} from '@/lib/types'
+const widePreviewQuery='(min-width: 1100px)'
 const button='inline-flex items-center justify-center gap-2 rounded-md border border-border bg-card px-4 py-2.5 text-xs font-medium transition-colors hover:border-[hsl(12_74%_42%/0.5)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(12_74%_42%)] disabled:cursor-not-allowed disabled:opacity-45'
 type Turn = {
  question:string
@@ -51,6 +52,15 @@ export default function QaPage(){
  const closeConfig=useCallback(()=>setConfigOpen(false),[])
  useEffect(()=>{let active=true;setConfigOpen(false);setModelConfig(null);setConfigError('');setConfigLoading(kbId==='demo');if(kbId==='demo')loadModelConfig().then(value=>{if(active)setModelConfig(value)}).catch(()=>{if(active)setConfigError('无法读取当前模型配置，可打开配置窗口重试；本地检索不受影响。')}).finally(()=>{if(active)setConfigLoading(false)});return()=>{active=false}},[kbId])
  const [question,setQuestion]=useState(''),[draft,setDraft]=useState<any>(null),[selected,setSelected]=useState<string[]>([]),[version,setVersion]=useState(0),[pending,setPending]=useState<any>(null),[consent,setConsent]=useState(false),[answer,setAnswer]=useState<QaResult|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[preview,setPreview]=useState<Doc|null>(null),[sourceRef,setSourceRef]=useState<any>(undefined)
+ const [dockPreview,setDockPreview]=useState(()=>window.matchMedia(widePreviewQuery).matches)
+ const previewTrigger=useRef<HTMLElement|null>(null)
+ useEffect(()=>{
+  const media=window.matchMedia(widePreviewQuery)
+  const sync=()=>setDockPreview(media.matches)
+  sync()
+  media.addEventListener('change',sync)
+  return()=>media.removeEventListener('change',sync)
+ },[])
  useEffect(()=>{backendSessions.current.clear();setConversations([]);setActive(null);setQuestion('');setAskedQuestion('');setEmpty(false);setRelatedSources([]);setAnswerNotice('');setDraft(null);setPending(null);setAnswer(null);setSelected([]);setConsent(false);setPreview(null);setSourceRef(undefined);setError('')},[kbId,user?.username])
  const currentTurn:Turn={question:askedQuestion,answer,empty,error,sources:relatedSources,notice:answerNotice}
  const previousTurns=conversations.find(conversation=>conversation.id===active)?.turns||[]
@@ -150,8 +160,13 @@ export default function QaPage(){
   try{await api.post('/api/rag/provider',{provider,confirm_external:provider==='deepseek'});const next=await api.get<any>('/api/rag');setRoute(next);const credential=await loadModelConfig();setModelConfig(credential);if(provider==='deepseek'&&!credential.configured)setConfigOpen(true)}catch(e){void api.get('/api/rag').then(setRoute).catch(()=>{});throw e}finally{setBusy(false)}
  }
  function openSource(source:QaCitation,view?:'file'){
+  previewTrigger.current=document.activeElement instanceof HTMLElement?document.activeElement:null
   setSourceRef(view==='file'?undefined:{revision:source.revision,index_token:source.index_token,chunk_id:source.chunk_id})
   setPreview(visibleDocs.find(doc=>doc.id===source.document_id)||null)
+ }
+ function closePreview(){
+  setPreview(null)
+  if(dockPreview)previewTrigger.current?.focus({preventScroll:true})
  }
  const questionOnly=route?.question_only_external===true
  const local=kbId!=='demo'&&!route?.local&&!questionOnly
@@ -195,6 +210,8 @@ export default function QaPage(){
 
  return <>
   <QaWorkspace library={kb.name} name={name} role={guest?'外部参观':user?.role.name??''} settings={settings}
+    previewDocked={dockPreview&&!!preview} preview={preview&&<DocPreviewDialog presentation={dockPreview?'panel':'drawer'}
+      sourceRef={sourceRef} doc={preview} open onClose={closePreview}/>}
     history={conversations} active={active} hasTurns={!!askedQuestion||previousTurns.length>0} busy={busy}
     ready={!!route} question={question} inputRef={questionInput} examples={examples.slice(0,3)}
     externalSelected={!!route?.external_selected||!!route&&!route.local&&kbId==='demo'}
@@ -216,6 +233,5 @@ export default function QaPage(){
   </QaWorkspace>
   {(kbId==='demo'||questionOnly)&&<ModelConfigDialog open={configOpen} onClose={closeConfig} onStatus={setModelConfig}
     onChanged={()=>{setPending(null);setConsent(false);setConfigError('')}}/>}
- <DocPreviewDialog drawer sourceRef={sourceRef} doc={preview} open={!!preview} onClose={()=>setPreview(null)}/>
  </>
 }

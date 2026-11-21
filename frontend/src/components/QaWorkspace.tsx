@@ -9,6 +9,8 @@ type WorkspaceProps = {
   name: string
   role: string
   settings: ReactNode
+  preview?: ReactNode
+  previewDocked?: boolean
   children: ReactNode
   history: { id: string; title: string }[]
   active: string | null
@@ -52,7 +54,7 @@ export function QaWorkspace(props: WorkspaceProps) {
   const drag = useRef<{ id: number; startX: number; startWidth: number; width: number } | null>(null)
   const {
     library, name, role, history, active, hasTurns, busy, ready, externalSelected, question, inputRef, examples,
-    settings, onChange, onAsk, onNew, onSelect, children,
+    settings, preview, previewDocked, onChange, onAsk, onNew, onSelect, children,
   } = props
 
   function startResize(event: PointerEvent<HTMLDivElement>) {
@@ -126,7 +128,7 @@ export function QaWorkspace(props: WorkspaceProps) {
         </Link>
       </div>
     </header>
-    <div className={`qa-chat-layout ${resizing ? 'qa-chat-layout-resizing' : ''}`}
+    <div className={`qa-chat-layout ${resizing ? 'qa-chat-layout-resizing' : ''} ${previewDocked ? 'qa-chat-layout-with-preview' : ''}`}
       style={{ '--qa-history-width': `${historyWidth}px` } as CSSProperties}>
       <aside className={`qa-chat-side ${showHistory ? 'qa-chat-side-open' : ''}`} id="qa-conversation-history" aria-label={history.length ? '历史会话' : '会话'}>
         <button className="qa-chat-new" type="button" disabled={busy} onClick={() => { onNew(); setShowHistory(false) }}>
@@ -168,6 +170,7 @@ export function QaWorkspace(props: WorkspaceProps) {
           </section>
         </div>}
       </main>
+      {preview}
     </div>
   </div>
 }
