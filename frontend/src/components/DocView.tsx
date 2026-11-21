@@ -55,13 +55,13 @@ export function PipelineRow({ doc }: { doc: Doc }) {
 export function DocPreviewDialog({
   doc,
   sourceRef,
-  drawer = false,
+  presentation = 'dialog',
   open,
   onClose,
 }: {
   doc: Doc | null
   sourceRef?: {revision:number;index_token:string;chunk_id:string}
-  drawer?: boolean
+  presentation?: 'dialog' | 'drawer' | 'panel'
   open: boolean
   onClose: () => void
 }) {
@@ -74,6 +74,8 @@ export function DocPreviewDialog({
   const [imageError,setImageError]=useState(false)
   const firstMatch=useRef<HTMLDivElement>(null)
   const opener=useRef<HTMLElement|null>(null)
+  const closeButton=useRef<HTMLButtonElement>(null)
+  const contextual=presentation!=='dialog'
   const sourceQuery=sourceRef?'?'+new URLSearchParams({revision:String(sourceRef.revision),index_token:sourceRef.index_token,chunk_id:sourceRef.chunk_id}).toString():''
   useEffect(()=>{let active=true;setDetail(null);setError('');setGrantChecks({});setTab(sourceRef?'evidence':'original');setPages(null);setPreviewError('');setImageError(false);setPage(1);if(open&&doc){
     const url='/api/documents/'+encodeURIComponent(doc.id)+(sourceRef?'/source'+sourceQuery:'')
@@ -84,9 +86,9 @@ export function DocPreviewDialog({
       setPage(sourcePages(locations)[0]||1)
       const full:SourceBlock[]=x.document?.result?.blocks||[]
       const sheets:ExcelSheet[]=(sourceRef?x.document:x)?.result?.excel_sheets||[]
-      if(doc.format==='xlsx'&&sheets.length||drawer&&sourceRef&&full.some(block=>locations.some(location=>location.block_id===block.id)))setTab('full')
+      if(doc.format==='xlsx'&&sheets.length||contextual&&sourceRef&&full.some(block=>locations.some(location=>location.block_id===block.id)))setTab('full')
     }).catch(e=>{if(active)setError(e.message)})
-  }return()=>{active=false}},[open,doc?.id,doc?.format,sourceQuery,drawer])
+  }return()=>{active=false}},[open,doc?.id,doc?.format,sourceQuery,contextual])
 
   useEffect(() => {
     if (!open || !doc || !detail || tab !== 'original') return
@@ -100,18 +102,22 @@ export function DocPreviewDialog({
   },[open,doc?.id,detail,tab,sourceQuery])
 
   useEffect(() => {
-    if (!open || drawer) return
+    if (!open || presentation!=='dialog') return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {e.preventDefault();e.stopImmediatePropagation();onClose()}
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [open, drawer, onClose])
+  }, [open, presentation, onClose])
 
   useEffect(()=>{
-    if (!open || !drawer || tab!=='full' || !sourceQuery || !detail) return
+    if(open&&presentation==='panel')closeButton.current?.focus({preventScroll:true})
+  },[open,presentation])
+
+  useEffect(()=>{
+    if (!open || !contextual || tab!=='full' || !sourceQuery || !detail) return
     firstMatch.current?.scrollIntoView({block:'center'})
-  },[open,drawer,tab,sourceQuery,detail])
+  },[open,contextual,tab,sourceQuery,detail])
 
   if (!open || !doc) return null
   const matched=detail?.matchedSource
@@ -127,7 +133,7 @@ export function DocPreviewDialog({
   }) : []
   const tables:SourceTable[]=matched?.tables||[]
   const mappedPages=sourcePages(sources)
-  const matchedBlocks=new Set(drawer?sources.map(source=>source.block_id):[])
+  const matchedBlocks=new Set(contextual?sources.map(source=>source.block_id):[])
   const firstMatchedBlock=blocks.find(block=>matchedBlocks.has(block.id))?.id
   const { title } = documentTitleParts(doc.fileName)
   const label=`文档预览：${title}`
@@ -150,6 +156,7 @@ export function DocPreviewDialog({
             </div>
           </div>
           <button
+            ref={closeButton}
             onClick={onClose}
             aria-label="关闭预览"
             className="ease-junyi rounded-md p-2 text-muted-foreground transition-colors duration-200 hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(12_74%_42%)]"
@@ -246,7 +253,11 @@ export function DocPreviewDialog({
           </button>
         </div>
   </>
-  if(drawer)return <PreviewDialog.Root open onOpenChange={value=>{if(!value)onClose()}}>
+  if(presentation==='panel')return <section aria-label={label} className="qa-chat-preview flex min-h-0 min-w-0 flex-col border-l border-border bg-card"
+    onKeyDown={event=>{if(event.key==='Escape'){event.stopPropagation();onClose()}}}>
+    {content}
+  </section>
+  if(presentation==='drawer')return <PreviewDialog.Root open onOpenChange={value=>{if(!value)onClose()}}>
     <PreviewDialog.Portal>
       <PreviewDialog.Overlay className="fixed inset-0 z-50 bg-foreground/15"/>
       <PreviewDialog.Content aria-describedby={undefined} data-testid="qa-document-drawer"
