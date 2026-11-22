@@ -27,7 +27,7 @@ export function ManagerDashboard({rows,loaded,error}:{rows:BusinessRow[];loaded:
   {title:'解析异常',hint:'核对解析失败、内容缺失和表格结构疑点。',to:'/documents?view=部门异常',icon:Inbox},
   {title:'知识问答',hint:'查找获准资料，查看回答、来源和原文。',to:'/qa',icon:MessageSquareText},
   ...(user?.canCreateAccounts?[{title:'邀请新人',hint:'为员工或访客生成一次性邀请。',to:'/workbench?invite=1',icon:UserRoundPlus}]:[]),
-  {title:'人员职责',hint:'调整人员职责与所属部门。',to:'/documents?view=人员职责',icon:Users},
+  {title:'人员职责',hint:'调整人员职责与所属部门。',to:'/management?view=people',icon:Users},
  ]
  const queue=[...pending,...parseIssues,...ready].filter((r,index,all)=>all.findIndex(item=>item.id===r.id)===index).slice(0,5)
  return <div className="manager-dashboard">
