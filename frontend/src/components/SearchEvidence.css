@@ -1,25 +1,2 @@
 .search-result-card{min-width:0;border-radius:8px}.search-result-card .se-title{background:none;border:0;padding:0;text-align:left;overflow-wrap:anywhere}.search-result-card .se-title:hover{color:#b53a1a}.search-result-card .se-title:focus-visible,.search-result-card .se-source:focus-visible{outline:2px solid #bb3b1a;outline-offset:4px}.search-result-card .se-source{background:none;border:0;padding:0;text-align:left}.search-result-card .se-source:hover{text-decoration:underline;text-underline-offset:3px}.search-result-card .se-evidence{min-width:0;background:#f4f2ee;padding:14px 16px 16px}.se-paragraphs{max-width:100ch}.se-paragraphs p{font-size:14px;line-height:1.95;white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 13px}.se-paragraphs p:last-child{margin-bottom:0}.se-tables{min-width:0;margin-top:13px}.se-table{min-width:0}.se-table>div{margin:0;border-radius:4px;background:hsl(var(--card));scrollbar-width:thin;scrollbar-color:#c1b6a5 #f0ece4}.se-table+.se-table{margin-top:14px}.se-table table{min-width:710px;font-size:13px;line-height:1.85}.se-table[data-plain-grid=true] table{table-layout:fixed}.se-table table td{padding:11px 12px;vertical-align:top}.se-table table tr:first-child td{font-weight:600;background:#ece9e2}.se-table[data-columns="4"][data-plain-grid=true] table col:nth-child(1){width:94px}.se-table[data-columns="4"][data-plain-grid=true] table col:nth-child(2){width:23%}.se-table[data-columns="4"][data-plain-grid=true] table col:nth-child(3){width:43%}.se-table[data-columns="3"][data-plain-grid=true] table col:nth-child(1){width:16%}.se-table[data-columns="3"][data-plain-grid=true] table col:nth-child(2){width:64%}.se-table>div:focus-visible{outline:2px solid #bb3b1a;outline-offset:3px}.se-scroll-hint{display:none;margin:8px 0 0;font-size:10px;color:hsl(var(--muted-foreground))}.se-raw{font-size:10px;color:hsl(var(--muted-foreground));margin-top:11px}.se-raw summary{cursor:pointer;width:fit-content}.se-raw summary:focus-visible{outline:2px solid #bb3b1a;outline-offset:3px}.se-raw pre{font-family:inherit;font-size:12px;line-height:1.9;white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0 0}.se-loading{font-size:12px;color:hsl(var(--muted-foreground));padding:10px 0}.se-error{font-size:12px;line-height:1.8;color:#956a30;padding:8px 0}.se-error button{background:none;border:0;border-bottom:1px solid currentColor;font-size:11px;padding:0;margin-top:7px}.se-error button:focus-visible{outline:2px solid #bb3b1a;outline-offset:3px}
 @media(max-width:700px){.se-scroll-hint{display:block}.search-result-card .se-evidence{padding:12px}.se-paragraphs p{font-size:13px}}
-
-.se-excel-records { display: grid; gap: 8px; min-width: 0; }
-.se-excel-record {
-  padding: 10px 12px;
-  border: 1px solid var(--qa-line);
-  border-radius: 8px;
-  background: var(--qa-bg);
-}
-.se-excel-row-number {
-  margin: 0 0 8px;
-  color: var(--qa-muted);
-  font-size: 11px;
-  font-weight: 650;
-}
-.se-excel-record dl {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr));
-  gap: 9px 14px;
-  margin: 0;
-}
-.se-excel-record dt { color: var(--qa-muted); font-size: 11px; }
-.se-excel-record dd { margin: 2px 0 0; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
-.se-excel-wide-field { grid-column: 1 / -1; }

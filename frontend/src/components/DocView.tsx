@@ -1,7 +1,7 @@
 // 文档详情与原文预览（共享组件）
 // 预览能力沿用现有实现：Word 展示节选段落（精确高亮不保证成功），
 // Excel 展示结构化内容（暂不支持跳转原始单元格）。
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import * as PreviewDialog from '@radix-ui/react-dialog'
 import { Download, X } from 'lucide-react'
 import { FormatMark, StatusBadge } from './bits'
@@ -55,40 +55,65 @@ export function PipelineRow({ doc }: { doc: Doc }) {
 export function DocPreviewDialog({
   doc,
   sourceRef,
+  sourceVisit,
+  navigation,
   presentation = 'dialog',
   open,
   onClose,
 }: {
   doc: Doc | null
   sourceRef?: {revision:number;index_token:string;chunk_id:string}
+  sourceVisit?: number
+  navigation?: ReactNode
   presentation?: 'dialog' | 'drawer' | 'panel'
   open: boolean
   onClose: () => void
 }) {
   const {user,kbId}=useSession()
   const [grantChecks,setGrantChecks]=useState<Record<string,boolean>>({})
-  const [detail,setDetail]=useState<any>(null),[error,setError]=useState('')
+  const [loaded,setLoaded]=useState<{key:string;detail?:any;error?:string}>({key:''})
   const [tab,setTab]=useState<'evidence'|'original'|'full'>('evidence')
   const [page,setPage]=useState(1),[pages,setPages]=useState<number|null>(null)
   const [previewError,setPreviewError]=useState('')
   const [imageError,setImageError]=useState(false)
   const firstMatch=useRef<HTMLDivElement>(null)
+  const previewBody=useRef<HTMLDivElement>(null)
   const opener=useRef<HTMLElement|null>(null)
   const closeButton=useRef<HTMLButtonElement>(null)
   const contextual=presentation!=='dialog'
   const sourceQuery=sourceRef?'?'+new URLSearchParams({revision:String(sourceRef.revision),index_token:sourceRef.index_token,chunk_id:sourceRef.chunk_id}).toString():''
-  useEffect(()=>{let active=true;setDetail(null);setError('');setGrantChecks({});setTab(sourceRef?'evidence':'original');setPages(null);setPreviewError('');setImageError(false);setPage(1);if(open&&doc){
+  const loadKey=JSON.stringify([kbId,user?.username,doc?.id,doc?.format,sourceQuery,sourceVisit,contextual])
+  const detail=loaded.key===loadKey?loaded.detail:undefined
+  const error=loaded.key===loadKey?loaded.error:undefined
+  useEffect(()=>{
+    if(!open||!doc)return
+    let active=true
+    if(previewBody.current)previewBody.current.scrollTop=0
+    setLoaded({key:loadKey})
+    setGrantChecks({})
+    setTab(sourceRef?'evidence':'original')
+    setPages(null)
+    setPreviewError('')
+    setImageError(false)
+    setPage(1)
     const url='/api/documents/'+encodeURIComponent(doc.id)+(sourceRef?'/source'+sourceQuery:'')
-    api.get<any>(url).then(x=>{
-      if (!active) return
-      setDetail(sourceRef?{...x.document,matchedSource:x.source}:x)
-      const locations:SourceLocation[]=x.source?.sources||[]
-      setPage(sourcePages(locations)[0]||1)
-      const full:SourceBlock[]=x.document?.result?.blocks||[]
-      const sheets:ExcelSheet[]=(sourceRef?x.document:x)?.result?.excel_sheets||[]
-      if(doc.format==='xlsx'&&sheets.length||contextual&&sourceRef&&full.some(block=>locations.some(location=>location.block_id===block.id)))setTab('full')
-    }).catch(e=>{if(active)setError(e.message)})
-  }return()=>{active=false}},[open,doc?.id,doc?.format,sourceQuery,contextual])
+    api.get<any>(url).then(response=>{
+      if(!active)return
+      const document=sourceRef?response.document:response
+      const locations:SourceLocation[]=response.source?.sources||[]
+      const mappedPage=sourcePages(locations)[0]
+      const blocks:SourceBlock[]=document.result?.blocks||[]
+      const hasMappedBlock=blocks.some(block=>locations.some(location=>location.block_id===block.id))
+      if(doc.format==='xlsx'&&document.result?.excel_sheets?.length)setTab('full')
+      else if(contextual&&sourceRef){
+        if((doc.format==='pdf'||!hasMappedBlock)&&mappedPage&&document.result?.preview?.original)setTab('original')
+        else if(hasMappedBlock)setTab('full')
+      }
+      setPage(mappedPage??1)
+      setLoaded({key:loadKey,detail:sourceRef?{...document,matchedSource:response.source}:document})
+    }).catch(error=>{if(active)setLoaded({key:loadKey,error:error.message})})
+    return()=>{active=false}
+  },[open,loadKey])
 
   useEffect(() => {
     if (!open || !doc || !detail || tab !== 'original') return
@@ -100,6 +125,14 @@ export function DocPreviewDialog({
       .catch(e=>{if(active)setPreviewError(e.message)})
     return()=>{active=false}
   },[open,doc?.id,detail,tab,sourceQuery])
+
+  useEffect(()=>{
+    if(contextual&&tab==='original'&&(previewError||imageError)){
+      const locations:SourceLocation[]=detail?.matchedSource?.sources||[]
+      const blocks:SourceBlock[]=detail?.result?.blocks||[]
+      setTab(blocks.some(block=>locations.some(location=>location.block_id===block.id))?'full':'evidence')
+    }
+  },[contextual,tab,previewError,imageError,detail])
 
   useEffect(() => {
     if (!open || presentation!=='dialog') return
@@ -166,15 +199,16 @@ export function DocPreviewDialog({
         </div>
 
         {/* 内容 */}
-        <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
-          <div role="tablist" aria-label="来源查看方式" onKeyDown={e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const tabs=Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role=tab]'));const current=tabs.indexOf(document.activeElement as HTMLButtonElement);const next=e.key==='Home'?0:e.key==='End'?tabs.length-1:(current+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;tabs[next]?.focus();tabs[next]?.click()}} className="mb-5 flex flex-wrap gap-1 border-b border-border">
+        {navigation&&<div className="border-b border-border px-4 pt-3 sm:px-6">{navigation}</div>}
+        <div ref={previewBody} className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+          {!contextual&&<div role="tablist" aria-label="来源查看方式" onKeyDown={e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const tabs=Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role=tab]'));const current=tabs.indexOf(document.activeElement as HTMLButtonElement);const next=e.key==='Home'?0:e.key==='End'?tabs.length-1:(current+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;tabs[next]?.focus();tabs[next]?.click()}} className="mb-5 flex flex-wrap gap-1 border-b border-border">
             {([['evidence','命中证据'],['original','原文件'],['full',excelSheets.length?'工作表预览':'全文解析']] as const)
               .filter(([key])=>(key!=='evidence'||!!sourceRef)&&(key!=='original'||!excelSheets.length))
               .map(([key,label])=><button key={key} role="tab" tabIndex={tab===key?0:-1} aria-selected={tab===key} aria-controls="source-panel" id={'source-tab-'+key} onClick={()=>setTab(key)} className={`border-b-2 px-4 py-3 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(12_74%_42%)] ${tab===key?'border-[hsl(12_74%_42%)] font-semibold text-[hsl(12_74%_38%)]':'border-transparent text-muted-foreground hover:text-foreground'}`}>{label}</button>)}
-          </div>
+          </div>}
           {error&&<p role="alert">{error}</p>}
           {!detail&&!error&&<p role="status">正在核验来源…</p>}
-          {detail&&<div id="source-panel" role="tabpanel" aria-labelledby={'source-tab-'+tab} className="space-y-4">
+          {detail&&<div id="source-panel" role={contextual?undefined:'tabpanel'} aria-labelledby={contextual?undefined:'source-tab-'+tab} className="space-y-4">
             {tab==='evidence'&&matched&&<>
               <div className="space-y-2 border-l-2 border-[hsl(12_74%_42%/0.55)] pl-4">
                 <h4 className="text-[16px] font-semibold">{matched.section||'本次命中证据'}</h4>
@@ -186,17 +220,17 @@ export function DocPreviewDialog({
                   {tables.map((table,i)=><OriginalTable key={i} table={table}/>)}
                 </>:<p className="whitespace-pre-wrap text-[14px] leading-[1.9] [overflow-wrap:anywhere]">{matched.text}</p>}
               </div>
-              <section className="border-t border-border pt-4">
+              {sources.length>0&&<section className="border-t border-border pt-4">
                 <h4 className="text-[12px] font-semibold">原文位置</h4>
                 <ul className="mt-2 space-y-2 text-[12px] leading-relaxed text-muted-foreground">{sources.map((source,i)=><li key={i}>{locationLabel(source)}</li>)}</ul>
-                {excelSheets.length>0?<button onClick={()=>setTab('full')} className="mt-3 text-[12px] font-medium text-[hsl(12_74%_38%)] underline underline-offset-4">在工作表查看命中行</button>:
-                  mappedPages.length>0&&<button onClick={()=>{setPage(mappedPages[0]);setTab('original')}} className="mt-3 text-[12px] font-medium text-[hsl(12_74%_38%)] underline underline-offset-4">打开对应原件预览页</button>}
-              </section>
-              <details className="border-t border-border pt-3 text-[12px] text-muted-foreground"><summary className="cursor-pointer py-1">技术来源信息与检索原始文本</summary>
+                {!contextual&&(excelSheets.length>0?<button onClick={()=>setTab('full')} className="mt-3 text-[12px] font-medium text-[hsl(12_74%_38%)] underline underline-offset-4">在工作表查看命中行</button>:
+                  mappedPages.length>0&&<button onClick={()=>{setPage(mappedPages[0]);setTab('original')}} className="mt-3 text-[12px] font-medium text-[hsl(12_74%_38%)] underline underline-offset-4">打开对应原件预览页</button>)}
+              </section>}
+              {!contextual&&<details className="border-t border-border pt-3 text-[12px] text-muted-foreground"><summary className="cursor-pointer py-1">技术来源信息与检索原始文本</summary>
                 <p className="my-2">片段 ID：<span className="break-all font-mono2">{sourceRef?.chunk_id}</span> · 文档修订 {sourceRef?.revision}</p>
                 <pre className="whitespace-pre-wrap break-words leading-relaxed">{matched.text}</pre>
                 <pre className="mt-3 whitespace-pre-wrap break-words">{JSON.stringify(sources,null,2)}</pre>
-              </details>
+              </details>}
             </>}
             {tab==='original'&&<>
               {doc.format!=='xlsx'&&<p className="text-[12px] leading-relaxed text-muted-foreground">{doc.format==='pdf'?'原始 PDF 分页预览。':'原件转换后的分页预览；版式可能与本机 Office 存在差异。'}{mappedPages.length?` 已记录的来源页：${mappedPages.join('、')}。`:' 未记录精确页映射，从第1页开始。'}不保证逐字高亮。</p>}
@@ -204,15 +238,15 @@ export function DocPreviewDialog({
               {!pages&&!previewError&&<p role="status">正在读取预览页数…</p>}
               {pages&&<>
                 <div className="flex flex-wrap items-center gap-3 text-[12px]">
-                  <button disabled={page<=1} onClick={()=>{setPage(p=>p-1);setImageError(false)}} className="rounded-sm border border-border px-3 py-1.5 disabled:opacity-40">上一页</button>
+                  {!contextual&&<button disabled={page<=1} onClick={()=>{setPage(p=>p-1);setImageError(false)}} className="rounded-sm border border-border px-3 py-1.5 disabled:opacity-40">上一页</button>}
                   <label>第 <select aria-label="原件预览页码" value={page} onChange={e=>{setPage(Number(e.target.value));setImageError(false)}} className="mx-1 border border-border bg-card px-2 py-1">{Array.from({length:pages},(_,i)=><option value={i+1} key={i}>{i+1}</option>)}</select> / {pages} 页</label>
-                  <button disabled={page>=pages} onClick={()=>{setPage(p=>p+1);setImageError(false)}} className="rounded-sm border border-border px-3 py-1.5 disabled:opacity-40">下一页</button>
+                  {!contextual&&<button disabled={page>=pages} onClick={()=>{setPage(p=>p+1);setImageError(false)}} className="rounded-sm border border-border px-3 py-1.5 disabled:opacity-40">下一页</button>}
                 </div>
                 {imageError?<p role="alert">原件预览加载失败，请重新打开预览或下载原件核对。</p>:<img key={page} onError={()=>setImageError(true)} className="w-full border border-border bg-white" alt={'服务端原文转换预览第'+page+'页'} src={'/api/documents/'+encodeURIComponent(doc.id)+'/preview/original/'+page+(sourceQuery||'?revision='+detail.revision)}/>}
               </>}
             </>}
-            {tab==='full'&&(excelSheets.length ? <ExcelPreview key={doc.id+sourceQuery} sheets={excelSheets} matches={excelMatches}/> : <>
-              <p className="border-b border-border pb-3 text-[12px] leading-relaxed text-muted-foreground">以下是整份文档的解析内容，包含未命中的其他段落；不能全部当作本题命中证据。表格按实际行列显示。</p>
+            {tab==='full'&&(excelSheets.length ? <ExcelPreview key={loadKey} sheets={excelSheets} matches={excelMatches} contextual={contextual}/> : <>
+              <p className="border-b border-border pb-3 text-[12px] leading-relaxed text-muted-foreground">{contextual?'文档正文预览，已标出本次引用的内容。':'以下是整份文档的解析内容，包含未命中的其他段落；不能全部当作本题命中证据。表格按实际行列显示。'}</p>
               {firstMatchedBlock&&<p className="text-xs text-[hsl(12_74%_38%)]">命中章节 · {matched?.section||'本次命中证据'}</p>}
               <div className="space-y-4">{blocks.map(block=>matchedBlocks.has(block.id)?
                 <div key={block.id} ref={block.id===firstMatchedBlock?firstMatch:undefined} data-matched-section
@@ -222,7 +256,7 @@ export function DocPreviewDialog({
             </>)}
           </div>}
 
-          {user?.admin&&kbId==='demo'&&detail?.external_permission?.can_review&&<section className="mt-4 border p-4"><h4>本机外发许可审核</h4><p>仅适用于你已核实的完全虚构、公开、非机密资料。授予许可不代表本次已发送。</p>{[['fictional','我确认本文件完全虚构'],['no_sensitive_content','无敏感内容'],['third_party_terms_checked','已核对第三方分享权利'],['no_restricted_content','不包含受限内容']].map(([key,label])=><label className="block" key={key}><input type="checkbox" checked={!!grantChecks[key]} onChange={e=>setGrantChecks({...grantChecks,[key]:e.target.checked})}/>{label}</label>)}<button disabled={!['fictional','no_sensitive_content','third_party_terms_checked','no_restricted_content'].every(k=>grantChecks[k])} onClick={async()=>{try{await api.post('/api/documents/'+doc.id+'/external-permission',{revision:detail.revision,fingerprint:detail.external_permission.fingerprint,classification:'fictional',checks:{no_sensitive_content:true,third_party_terms_checked:true,no_restricted_content:true}});setDetail(await api.get('/api/documents/'+doc.id));setGrantChecks({})}catch(e){setError((e as Error).message)}}}>逐份授予外发许可</button></section>}
+          {user?.admin&&kbId==='demo'&&detail?.external_permission?.can_review&&<section className="mt-4 border p-4"><h4>本机外发许可审核</h4><p>仅适用于你已核实的完全虚构、公开、非机密资料。授予许可不代表本次已发送。</p>{[['fictional','我确认本文件完全虚构'],['no_sensitive_content','无敏感内容'],['third_party_terms_checked','已核对第三方分享权利'],['no_restricted_content','不包含受限内容']].map(([key,label])=><label className="block" key={key}><input type="checkbox" checked={!!grantChecks[key]} onChange={e=>setGrantChecks({...grantChecks,[key]:e.target.checked})}/>{label}</label>)}<button disabled={!['fictional','no_sensitive_content','third_party_terms_checked','no_restricted_content'].every(k=>grantChecks[k])} onClick={async()=>{try{await api.post('/api/documents/'+doc.id+'/external-permission',{revision:detail.revision,fingerprint:detail.external_permission.fingerprint,classification:'fictional',checks:{no_sensitive_content:true,third_party_terms_checked:true,no_restricted_content:true}});setLoaded({key:loadKey,detail:await api.get('/api/documents/'+doc.id)});setGrantChecks({})}catch(e){setLoaded({key:loadKey,detail,error:(e as Error).message})}}}>逐份授予外发许可</button></section>}
 
           {/* 能力边界说明（真实约束，不虚构） */}
           <div className="mt-6 space-y-1.5 border-t border-dashed border-border pt-4 text-[11px] leading-relaxed text-muted-foreground">
@@ -242,11 +276,12 @@ export function DocPreviewDialog({
         </div>
 
         {/* 底部操作 */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-4 sm:px-6">
-          <PipelineRow doc={doc} />
+        <div className={`flex flex-wrap items-center gap-3 border-t border-border px-4 py-4 sm:px-6 ${contextual?'justify-end':'justify-between'}`}>
+          {!contextual&&<PipelineRow doc={doc} />}
           <button
+            disabled={contextual&&!detail}
             onClick={() => {if(!sourceRef){downloadDemoFile(doc);return}const link=document.createElement('a');link.href='/api/documents/'+encodeURIComponent(doc.id)+'/file/original'+sourceQuery;link.download=doc.fileName;link.click()}}
-            className="ease-junyi flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-[12px] font-medium transition-colors duration-200 hover:border-[hsl(12_74%_42%/0.5)] hover:text-[hsl(12_74%_42%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(12_74%_42%)]"
+            className="ease-junyi flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-[12px] font-medium transition-colors duration-200 hover:border-[hsl(12_74%_42%/0.5)] hover:text-[hsl(12_74%_42%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(12_74%_42%)] disabled:opacity-50"
           >
             <Download className="size-3.5" />
             下载原文件

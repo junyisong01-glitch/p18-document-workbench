@@ -135,3 +135,10 @@
   .qa-chat-user b { display: none; }
   .qa-chat-reply { gap: 8px; }
 }
+
+.qa-preview-selector { display: grid; gap: 5px; margin-bottom: 16px; font-size: 12px; color: var(--qa-muted, hsl(var(--muted-foreground))); }
+.qa-preview-selector select {
+  width: 100%; max-width: 100%; min-width: 0; padding: 7px 10px;
+  border: 1px solid hsl(var(--border)); border-radius: 7px;
+  background: hsl(var(--card)); color: hsl(var(--foreground));
+}
