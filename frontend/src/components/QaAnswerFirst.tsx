@@ -2,7 +2,7 @@ import { Fragment, type ReactNode } from 'react'
 import { documentTitleParts } from '../lib/document-title'
 import type { QaExample } from '../lib/qa-examples'
 import type { Doc } from '../lib/types'
-import { Lock } from 'lucide-react'
+import { ChevronDown, Lock } from 'lucide-react'
 import './QaAnswerFirst.css'
 
 export type QaCitation = {
@@ -113,14 +113,19 @@ export function QaAnswerFirst({ answer, examples, onAsk, onSource, notice, docum
   return <article className="qa-first-card" aria-label="本轮回答">
     {notice && <p className="qa-first-notice" role="status">{notice}</p>}
     <AnswerText text={answer.answer} cite={cite}/>
-    {references.size > 0 && <details className="qa-first-sources">
-      <summary>参考了 <strong>{references.size} 份</strong> 资料</summary>
+    {references.size > 0 && <details className="qa-first-sources" open>
+      <summary><span className="qa-source-stack" aria-hidden="true">{citations.slice(0,3).map((_,index)=><i key={index}>{index+1}</i>)}</span>参考了 <strong>{references.size} 份</strong> 资料<ChevronDown size={14}/></summary>
       <ul className="qa-first-document-list">
         {Array.from(references, ([key, source]) => {
           const document = documents.find(doc => doc.id === source.document_id)
           const { title } = documentTitleParts(source.document_name)
+          const numbers=citations.flatMap((citation,index)=>citationLocations(citation).some(location=>location.document_id===source.document_id&&location.revision===source.revision)?[index+1]:[])
           return <li key={key}>
-            {title}{document?.version && <span>版本 {document.version}</span>}
+            <div className="qa-source-numbers" aria-label={'引用 '+numbers.join('、')}>{numbers.map(number=><span key={number}>{number}</span>)}</div>
+            <div className="qa-source-copy"><button type="button" className="qa-source-title" title={source.document_name} aria-label={'查看原文：'+title} onClick={()=>onSource(source)}>{title}</button>
+              {source.section&&<p className="qa-source-section">{source.section}</p>}
+              {document&&<p className="qa-source-meta">{document.version&&<span>版本 {document.version}</span>}<span>{document.status==='archived'?'历史版本':document.processingStatus==='可检索'?<><i/>已发布 · 可检索</>:'状态以原文页为准'}</span></p>}
+            </div>
           </li>
         })}
       </ul>

@@ -1,7 +1,7 @@
 import {DocumentMore,type DocumentAction} from './BusinessDocumentTools'
 import {WorkflowButton,type BusinessRow} from './BusinessPresentation'
 
-export function DocumentRowActions({row,own,manage,boss,busy,username,preview,review,start,act,audit,correct,reupload}:{row:BusinessRow;own:boolean;manage:boolean;boss:boolean;busy:boolean;username?:string;preview:()=>void;review:()=>void;start:(action:string)=>void;act:(action:string)=>void;audit:()=>void;correct:()=>void;reupload:()=>void}){
+export function DocumentRowActions({row,own,manage,boss,busy,review,start,act,audit,correct,reupload}:{row:BusinessRow;own:boolean;manage:boolean;boss:boolean;busy:boolean;review:()=>void;start:(action:string)=>void;act:(action:string)=>void;audit:()=>void;correct:()=>void;reupload:()=>void}){
  const b=row.workflow,current=b.status==='published'&&!b.archived&&!b.deleted,pending=!b.deleted&&!b.archived&&['submitted','approved','correction_pending','returned'].includes(b.status)
  const reviewReason=!boss&&own&&!!row.review_reasons?.length?'本人提交的高风险文档由管理层负责人审核':undefined
  const indexReason=row.index_error?'索引失败，请先重试':!row.technical_index_ready?'等待索引就绪':undefined
@@ -12,8 +12,6 @@ export function DocumentRowActions({row,own,manage,boss,busy,username,preview,re
   if(own)more.push({label:'轻量勘误',run:correct})
   if(manage&&(!b.restricted||boss)){add('授权借阅','share');add('撤销借阅','revoke_share')}
   if(boss&&!b.restricted){add(b.company_internal?'撤销公司内部共享':'全公司内部可见',b.company_internal?'revoke_internal':'make_internal');add(b.company_public?'撤销对外公开':'设为对外公开',b.company_public?'revoke_public':'make_public')}
-  if(manage||own&&b.published_by===username&&!b.restricted&&!b.company_public&&!b.company_internal)add('下架资料','take_down',true)
-  if(manage)add('归档资料','archive')
  }
  if(pending&&own&&b.status==='correction_pending')add('取消本次勘误','cancel_correction')
  if(pending&&own&&['submitted','approved','returned'].includes(b.status))add('撤回提交','withdraw')
@@ -22,7 +20,7 @@ export function DocumentRowActions({row,own,manage,boss,busy,username,preview,re
  if(!b.deleted&&(manage||own&&b.status==='withdrawn'))add('移入回收站','trash',true)
  if(b.deleted&&(manage||own&&b.status==='withdrawn'))add('恢复记录','restore')
  if(b.deleted&&boss)add('彻底删除','purge',true)
- return <div className="dm-row-actions"><WorkflowButton onClick={preview}>{row.technical_state==='failed'?'查看文件':'查看原文'}</WorkflowButton>
+ return <div className="dm-row-actions">
  {pending&&manage&&row.publication_stage==='解析异常'&&row.technical_state==='review'&&<WorkflowButton onClick={review}>核对解析内容</WorkflowButton>}
  {pending&&(manage||own)&&row.technical_state==='failed'&&['submitted','approved'].includes(b.status)&&<WorkflowButton onClick={reupload}>重新上传</WorkflowButton>}
  {!b.deleted&&!b.archived&&['withdrawn','returned'].includes(b.status)&&(own||manage)&&<WorkflowButton onClick={reupload}>重新上传</WorkflowButton>}
