@@ -176,7 +176,7 @@ export function DocPreviewDialog({
           <FormatMark format={doc.format} className="mt-0.5" />
           <div className="min-w-0 flex-1">
             <div className="font-mono2 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-              {doc.code} · 文档版本 {doc.version}
+              {doc.code && <>文档编号 {doc.code} · </>}文档版本 {doc.version}
             </div>
             <h3 className="mt-1 break-all font-display text-[16px] font-semibold leading-snug">
               {title}

@@ -568,6 +568,31 @@ def test_sensitive_content_and_supervisor_self_review_go_through_separate_gate(r
     assert r.c.get('/api/documents/'+id,headers=r.h['rd']).status_code==404
 
 
+def test_optional_document_code_preserves_distinct_series_and_version_link(rig):
+    r=rig
+    def upload(name, version='V1', **extra):
+        response=r.c.post('/api/business/upload',headers=r.h['rd'],
+            files={'file':('report.docx',b'test')},
+            data={'metadata_json':json.dumps(dict(name=name,version=version,**extra))})
+        assert response.is_success,response.text
+        return response.json()
+    first=upload('测试报告')
+    second=upload('另一份报告',code='  ')
+    assert first['code']==second['code']==''
+    assert first['id']!=second['id']
+    assert r.q.business_read(first['id'])['series']!=r.q.business_read(second['id'])['series']
+    assert r.action(first['id'],'rd','publish').is_success
+    newer=upload('测试报告','V2',replaces=first['id'])
+    assert newer['code']==''
+    assert r.q.business_read(newer['id'])['series']==r.q.business_read(first['id'])['series']
+    assert r.action(newer['id'],'rd','publish').is_success
+    assert r.q.business_read(first['id'])['archived']
+    numbered=upload('有编号报告',code='RD-123')
+    assert r.action(numbered['id'],'rd','publish').is_success
+    next_numbered=upload('有编号报告','V2',replaces=numbered['id'])
+    assert next_numbered['code']=='RD-123'
+
+
 def test_parse_exception_priority_and_withdrawn_draft(rig):
     r=rig
     id=r.create(status='submitted',restricted=True)
