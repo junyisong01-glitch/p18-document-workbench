@@ -83,7 +83,7 @@ class LoginBody(BaseModel):
 class MetadataBody(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     expected_version: int = Field(ge=0)
-    code: str = Field(min_length=1, max_length=200)
+    code: str = Field(default='', max_length=200)
     name: str = Field(min_length=1, max_length=200)
     folder: str = Field(min_length=1, max_length=500)
     department: str = Field(min_length=1, max_length=100)

@@ -128,7 +128,7 @@ export function UploadDialog({ open, onClose }: { open: boolean; onClose: () => 
     try {
       const uploaded = await uploadDocument(form.file as File, {
         expected_version: 0,
-        code: form.code.trim() || `AUTO-${Date.now()}`,
+        code: form.code.trim(),
         name: form.name.trim(),
         folder: form.folder,
         department: form.dept,
@@ -347,7 +347,7 @@ export function UploadDialog({ open, onClose }: { open: boolean; onClose: () => 
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <Field label="文档编号" hint="按现有编号规则填写">
+                <Field label="文档编号（选填）" hint="有公司编号时填写">
                   <input
                     value={form.code}
                     onChange={(e) => set('code', e.target.value)}

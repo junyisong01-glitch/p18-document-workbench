@@ -42,8 +42,10 @@ class LibraryMetadata:
             raise ValueError('未知密级')
         if self.lifecycle not in {'现行有效', '已废止'}:
             raise ValueError('未知文档状态')
+        if not isinstance(self.code, str):
+            raise ValueError('文档编号格式无效')
         if not all(isinstance(v, str) and v.strip() for v in
-                   (self.code, self.name, self.folder, self.department, self.doc_type, self.version)):
+                   (self.name, self.folder, self.department, self.doc_type, self.version)):
             raise ValueError('文档管理字段不能为空')
         if self.classification == '机密' and any(v not in IDENTITIES for v in self.viewers):
             raise ValueError('机密文档查看范围包含未知身份')

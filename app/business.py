@@ -193,7 +193,10 @@ def install(store,central,legacy_acl):
             if m.get('replaces')is not None and (not isinstance(m['replaces'],str) or str(uuid.UUID(m['replaces']))!=m['replaces']):raise ValueError()
             dept=m.get('department') if u['role']=='boss' else u['department']
             if dept not in DEPARTMENTS or (u['role']!='boss' and m.get('department',dept)!=dept):raise ValueError()
-            for key in ['name','code','version']:
+            m.setdefault('code', '')
+            if not isinstance(m['code'],str) or len(m['code'])>200:raise ValueError()
+            m['code']=m['code'].strip()
+            for key in ['name','version']:
                 if not isinstance(m.get(key),str)or not m[key].strip()or len(m[key])>200:raise ValueError()
             classification=m.get('classification','内部')
             if classification not in {'内部','机密'}:raise ValueError()
@@ -204,6 +207,7 @@ def install(store,central,legacy_acl):
                 previous=read(m['replaces'])
                 if not previous or previous['department']!=dept or not visible(store.get(m['replaces']),u) or previous['status']not in {'published','returned','withdrawn','taken_down'} or previous.get('deleted')or previous['archived']:raise HTTPException(409,'不能替换此文档版本')
                 with store.connect()as c:old_meta=library_store.read(c,m['replaces'])[1]
+                if not m['code']:m['code']=old_meta.code
                 if m['code']!=old_meta.code or (m['version']==old_meta.version and previous['status']!='withdrawn'):raise HTTPException(409,'新版本须保留文档编号并使用不同版本号')
                 if old_meta.classification=='机密'and classification!='机密':raise HTTPException(422,'新版本不得降低原机密级别；扩大读取须另行明确批准')
                 if previous['owner']!=u['username'] and not manager(u,previous):raise HTTPException(403,'仅上传者或主管可提交新版本')
@@ -213,7 +217,7 @@ def install(store,central,legacy_acl):
                         if v['series']==previous['series'] and not(v.get('owner')==previous['owner'] and v['version']==previous['version'] and v['status']=='returned') and not v.get('deleted') and v['status']in {'submitted','approved','returned','correction_pending'}:raise HTTPException(409,'已有未发布的新版本')
             else:
                 with store.connect()as c:
-                    if any(json.loads(r[0]).get('code')==m['code'] for r in c.execute('SELECT body FROM library_metadata')):raise HTTPException(409,'文档编号已存在，请使用上传新版本或联系主管')
+                    if m['code'] and any(json.loads(r[0]).get('code')==m['code'] for r in c.execute('SELECT body FROM library_metadata')):raise HTTPException(409,'文档编号已存在，请使用上传新版本或联系主管')
         # Native parser/storage, never client-supplied text/chunks or vector data.
         response=(await store.upload(files=[file],mode='keep' if previous else 'ask',replace_id=''))[0]
         if response['status']!='accepted':raise HTTPException(409,response['message'])
@@ -232,7 +236,7 @@ def install(store,central,legacy_acl):
                 if inherited is not None:b['read_jobs']=list(inherited)
             try:
                 with store.connect()as c:
-                    if not previous and any(json.loads(row[0]).get('code')==meta.code
+                    if not previous and meta.code and any(json.loads(row[0]).get('code')==meta.code
                                             for row in c.execute('SELECT body FROM library_metadata')):
                         raise ValueError('Document code already exists')
                     library_store.write(c,identifier,meta,0)

@@ -1,3 +1,4 @@
+import { documentTitleParts } from '../lib/document-title'
 import BusinessPage from './BusinessPage'
 import {DocumentFormat} from '@/components/DocumentLayout'
 // 页面三：文档管理（优化版）
@@ -369,7 +370,7 @@ function LegacyDocumentsPage() {
           hint="调整文件夹、类型或名称查找条件；列表仅包含你有权访问的文档。"
         />
       ) : (
-        <div className="dm-document-list">{filtered.map(doc=><article key={doc.id} data-document-id={doc.id} className="dm-document-row dm-legacy-row"><div className="dm-row-main"><DocumentFormat format={doc.format.toUpperCase()} secret={doc.confidentiality==='机密'}/><div className="dm-row-copy"><div className="dm-title-line"><button type="button" onClick={()=>setSelected(doc)} className="dm-document-title" title={doc.fileName}>{doc.fileName}</button>{doc.version&&<span className="dm-version">{doc.version}</span>}</div><p className="dm-row-meta"><span className="dm-code">{doc.code}</span><span>{doc.dept}</span><span className={'dm-tag '+(doc.confidentiality==='机密'?'dm-tag-secret':'')}>{doc.confidentiality}</span>{doc.subcategory&&<span>{doc.subcategory}</span>}</p></div></div><div className="dm-row-side"><div className="dm-legacy-statuses"><ValidityBadge doc={doc}/><ReviewBadge reviewed={doc.pipeline.reviewed} pending={doc.reviewRequired}/><IndexBadge doc={doc}/></div><div className="dm-legacy-actions"><button type="button" onClick={()=>setSelected(doc)}>详情</button><button type="button" onClick={()=>setPreviewing(doc)} title="查看原文">查看原文</button><button type="button" onClick={()=>downloadDemoFile(doc)} title="下载原文件">下载</button></div></div></article>)}</div>
+        <div className="dm-document-list">{filtered.map(doc=><article key={doc.id} data-document-id={doc.id} className="dm-document-row dm-legacy-row"><div className="dm-row-main"><DocumentFormat format={doc.format.toUpperCase()} secret={doc.confidentiality==='机密'}/><div className="dm-row-copy"><div className="dm-title-line"><button type="button" onClick={()=>setSelected(doc)} className="dm-document-title" title={doc.fileName}>{documentTitleParts(doc.fileName).title}</button>{doc.version&&<span className="dm-version">{doc.version}</span>}</div><p className="dm-row-meta"><span>{doc.dept}</span><span className={'dm-tag '+(doc.confidentiality==='机密'?'dm-tag-secret':'')}>{doc.confidentiality}</span>{doc.subcategory&&<span>{doc.subcategory}</span>}</p></div></div><div className="dm-row-side"><div className="dm-legacy-statuses"><ValidityBadge doc={doc}/><ReviewBadge reviewed={doc.pipeline.reviewed} pending={doc.reviewRequired}/><IndexBadge doc={doc}/></div><div className="dm-legacy-actions"><button type="button" onClick={()=>setSelected(doc)}>详情</button><button type="button" onClick={()=>setPreviewing(doc)} title="查看原文">查看原文</button><button type="button" onClick={()=>downloadDemoFile(doc)} title="下载原文件">下载</button></div></div></article>)}</div>
       )}
       <div className="flex items-center justify-between text-[11px] text-muted-foreground">
         <span>
@@ -434,7 +435,7 @@ function DetailDrawer({
               {doc.code}
             </div>
             <h3 className="mt-1.5 break-words font-display text-[15px] font-semibold leading-snug">
-              {doc.fileName}
+              {documentTitleParts(doc.fileName).title}
             </h3>
           </div>
           <button
