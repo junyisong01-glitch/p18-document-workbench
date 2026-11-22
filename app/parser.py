@@ -1,4 +1,5 @@
-"""Bounded, local-only document extraction; no OCR or model calls."""
+"""Bounded, local-only document extraction."""
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,7 @@ from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 from lxml import etree
+from app.pdf_ocr import OcrError, PdfOcr
 from app.word_structure import table_structure, table_text, associate_preview, compatibility_copy, normalized, PARSER_VERSION
 
 MAX_TEXT = 2_000_000
@@ -100,22 +102,43 @@ def issue(kind, message, page=None, block=None):
 def parse_pdf(path):
     blocks, issues, pages = [], [], []
     total = 0
-    with fitz.open(path) as doc:
+    recognizer = None
+    with ExitStack() as stack, fitz.open(path) as doc:
         for number, page in enumerate(doc, 1):
             text = page.get_text("text", sort=True).strip()
+            image_info = page.get_image_info()
+            scanned = not text and bool(image_info)
+            extraction = "text"
+            if scanned:
+                if recognizer is None:
+                    directory = stack.enter_context(tempfile.TemporaryDirectory(prefix="p18-pdf-ocr-"))
+                    recognizer = PdfOcr(directory)
+                try:
+                    lines = recognizer.recognize(page)
+                except OcrError as error:
+                    lines = []
+                    issues.append(issue("no_text", str(error), number))
+                else:
+                    if not lines:
+                        issues.append(issue("no_text", "本页 OCR 未识别到文字，请核对扫描质量。", number))
+                if lines:
+                    extraction = "ocr"
+                    text = "\n".join(line["text"].strip() for line in lines)
+                    if any(line["confidence"] < 0.65 for line in lines):
+                        issues.append(issue("characters", "本页 OCR 有低置信度文字，请对照原页核对。", number))
+                else:
+                    extraction = "ocr_unreadable"
             total += len(text)
             if total > MAX_TEXT:
                 raise ValueError("提取内容超过 200 万字符，请拆分文档。")
-            image_info = page.get_image_info()
-            pages.append({"page": number, "characters": len(text), "images": len(image_info)})
-            if not text:
-                if image_info:
-                    issues.append(issue("no_text", "未提取到文字，可能包含扫描内容；当前未进行图片文字识别。", number))
-                elif page.get_drawings():
+            pages.append({"page": number, "characters": len(text), "images": len(image_info),
+                          "extraction": extraction})
+            if not scanned and not text:
+                if page.get_drawings():
                     issues.append(issue("no_text", "此页包含图形但未提取到文字，请核对是否遗漏内容。", number))
                 else:
                     pages[-1]["blank"] = True
-            elif any(fitz.Rect(i["bbox"]).get_area() > page.rect.get_area() * .10 for i in image_info):
+            elif not scanned and any(fitz.Rect(i["bbox"]).get_area() > page.rect.get_area() * .10 for i in image_info):
                 issues.append(issue("image", "本页包含较大图片，图片文字未识别，请核对内容是否完整。", number))
             if "\ufffd" in text or "\x00" in text:
                 issues.append(issue("characters", "检测到异常字符，请与原文核对。", number))
@@ -232,6 +255,8 @@ def process(folder, ext):
         return result
     result.update(parse_pdf(source) if ext == ".pdf" else (parse_word_selected(word) if ext == '.docx' else parse_word(word)))
     if ext == ".pdf":
+        if any(page["extraction"] != "text" for page in result["pages"]):
+            result["parser_version"] = "pdf-text-vision-v1"
         result["preview"]["original"] = source.name
     else:
         for variant, target in [("original", source)] + ([("converted", word)] if ext == ".doc" else []):
@@ -248,5 +273,6 @@ def process(folder, ext):
             except Exception:
                 result["preview_warnings"].append(f"{variant} 的转换预览未生成，可下载文件核对；预览失败不等于正文解析失败。")
     if not result["characters"]:
-        result["error"] = "未提取到可用于检索的文字。可能是扫描内容、空白文档或特殊对象；当前不进行 OCR。"
+        result["error"] = (result["issues"][0]["message"] if ext == ".pdf" and result["issues"]
+                           else "未提取到可用于检索的文字，请检查文件内容或重新导出。")
     return result

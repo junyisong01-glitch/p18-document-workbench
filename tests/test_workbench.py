@@ -25,6 +25,7 @@ def pdf_bytes(text="Test reservation documentation"):
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(main,"DATA",tmp_path)
     monkeypatch.setattr(main,"DB",tmp_path / "test.sqlite3")
+    monkeypatch.setenv("P18_PDF_OCR_HELPER", str(tmp_path / "unavailable-ocr"))
     with TestClient(main.app) as c:yield c
     deadline=time.time()+10
     while main.ACTIVE and time.time()<deadline:time.sleep(.05)
