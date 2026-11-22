@@ -19,8 +19,8 @@ export function BusinessDashboard(){
   {label:'可检索资料',value:current.filter(r=>r.technical_index_ready).length,hint:'发布且索引可用',to:'/documents'},
   {label:'待审核风险资料',value:pending.length,hint:'机密或命中风险检查',to:'/documents?view=待我审核'},
  ]:head?[
-  {label:'待我审核',value:pending.length,hint:'检查送审原因，再决定发布或退回',to:'/documents?view=待我审核'},
-  {label:'部门异常',value:parseIssues.length,hint:'核对未读全、读不准的资料',to:'/documents?view=部门异常'},
+  {label:'内容待审',value:pending.length,hint:'判断能否发布：查看送审原因，批准或退回',to:'/documents?view=待我审核'},
+  {label:'解析异常',value:parseIssues.length,hint:'处理文件读取问题：更换文件、核对或重试',to:'/documents?view=部门异常'},
  ]:[{label:'可查阅资料',value:current.length,hint:guest?'当前对外公开资料':'当前账号获准的已发布资料',to:'/documents'},...(!guest?[{label:'我的在途提交',value:rows.filter(r=>r.workflow.owner===user?.username&&!r.workflow.deleted&&!r.workflow.archived&&!['published','withdrawn','taken_down'].includes(r.workflow.status)).length,hint:'查看进度、退回原因和待发布资料',to:'/documents?view=我的提交'}]:[])]
  const queue=boss||head?[...pending,...parseIssues].slice(0,5):rows.filter(r=>r.workflow.owner===user?.username&&!r.workflow.deleted&&!r.workflow.archived&&!['published','withdrawn','taken_down'].includes(r.workflow.status)).slice(0,5)
  return <div className="mx-auto max-w-6xl space-y-8">
