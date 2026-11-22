@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import type { SourceLocation } from '@/lib/source-presentation'
+import { useEffect, useRef, useState } from 'react'
 
 type ExcelCell = { coordinate: string; text: string; warning?: string; formula_cached?: boolean }
 type ExcelRow = { row: number; cells: ExcelCell[] }
@@ -13,58 +12,26 @@ type ExcelTableData = {
 }
 export type ExcelSheet = { name: string; metadata: ExcelRow[]; tables: ExcelTableData[]; other_rows: ExcelRow[] }
 export type ExcelMatch = { sheet: string; start: number; end: number; tableId?: string | null }
-export type ExcelEvidenceBlock = { id: string; table_id?: string | null; sheet?: string; row_start?: number }
-
 const rowLimit = 40
 const matchesRow = (match: ExcelMatch, row: number) => match.start <= row && row <= match.end
-
-function CellText({ cell, text = cell.text }: { cell: ExcelCell; text?: string }) {
-  const hint=cell.warning || (cell.formula_cached?'公式的已保存结果':undefined)
-  return <span title={hint ? `${cell.coordinate} · ${hint}` : cell.coordinate}>
-    {text}{cell.warning&&<small className="mt-1 block text-amber-800">{cell.warning}</small>}
-  </span>
-}
 
 function displayCellText(text: string) {
   return text.replace(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(:\d{2})?$/, (_, date, time, seconds) =>
     `${date} ${time}${seconds === ':00' ? '' : seconds ?? ''}`)
 }
 
-export function ExcelCitationEvidence({ sheets, locations, blocks, fallback }: {
-  sheets: ExcelSheet[]
-  locations: SourceLocation[]
-  blocks: ExcelEvidenceBlock[]
-  fallback: ReactNode
-}) {
-  const rows = locations.map(location => {
-    const block = blocks.find(block => block.id === location.block_id &&
-      block.sheet === location.sheet && block.row_start === location.row_start)
-    const sheet = sheets.find(sheet => sheet.name === location.sheet)
-    const table = sheet?.tables.find(table => table.id === block?.table_id)
-    if (!table?.header_confirmed || location.row_start !== location.row_end) return null
-    const row = table.rows.find(row => row.row === location.row_start)
-      ?? table.summary_rows.find(row => row.row === location.row_start)
-    if (!row || row.cells.length !== table.headers.length) return null
-    return { row, headers: table.headers, id: location.block_id }
-  })
-  if (!rows.length || rows.some(row => row === null)) return fallback
-
-  return <div className="se-excel-records" aria-label="命中的工作表记录" role="group">
-    {rows.map(record => record && <div className="se-excel-record" key={record.id}>
-      <p className="se-excel-row-number">第 {record.row.row} 行</p>
-      <dl>
-        {record.row.cells.map((cell, index) => <div key={cell.coordinate}
-          className={cell.text.length > 34 || cell.text.includes('\n') ? 'se-excel-wide-field' : undefined}>
-          <dt>{record.headers[index]}</dt>
-          <dd><CellText cell={cell} text={cell.text ? displayCellText(cell.text) : '未填写'}/></dd>
-        </div>)}
-      </dl>
-    </div>)}
-  </div>
+function CellText({ cell, contextual }: { cell: ExcelCell; contextual?: boolean }) {
+  const hint=cell.warning || (cell.formula_cached?'公式的已保存结果':undefined)
+  const text=contextual?displayCellText(cell.text):cell.text
+  const code=/^[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)+$/.test(text)
+  return <span title={hint ? `${cell.coordinate} · ${hint}` : cell.coordinate}
+    className={contextual&&(text!==cell.text||code&&text.length<=35)?'whitespace-nowrap tabular-nums':undefined}>
+    {text}{cell.warning&&<small className="mt-1 block text-amber-800">{cell.warning}</small>}
+  </span>
 }
 
-function SpreadsheetTable({ table, sheetName, matches, initialRow }: {
-  table: ExcelTableData; sheetName: string; matches: ExcelMatch[]; initialRow?: number
+function SpreadsheetTable({ table, sheetName, matches, initialRow, contextual }: {
+  table: ExcelTableData; sheetName: string; matches: ExcelMatch[]; initialRow?: number; contextual?: boolean
 }) {
   const records=[...table.rows,...table.summary_rows].sort((a,b)=>a.row-b.row)
   const indexOfMatch=records.findIndex(record=>record.row===initialRow)
@@ -101,7 +68,9 @@ function SpreadsheetTable({ table, sheetName, matches, initialRow }: {
               {matched&&<span className="sr-only">命中行 </span>}{record.row}
             </th>
             {table.headers.map((_,index)=><td key={index} className="whitespace-pre-wrap border-b border-l border-border px-3 py-1.5 align-top">
-              {record.cells[index]&&<CellText cell={record.cells[index]}/>}
+              {record.cells[index]&&<span className={contextual?'block min-w-[5rem] max-w-[18rem] [overflow-wrap:anywhere]':undefined}>
+                <CellText cell={record.cells[index]} contextual={contextual}/>
+              </span>}
             </td>)}
           </tr>
         })}</tbody>
@@ -117,27 +86,40 @@ function SpreadsheetTable({ table, sheetName, matches, initialRow }: {
   </section>
 }
 
-export function ExcelPreview({ sheets, matches }: { sheets: ExcelSheet[]; matches: ExcelMatch[] }) {
+export function ExcelPreview({ sheets, matches, contextual }: { sheets: ExcelSheet[]; matches: ExcelMatch[]; contextual?: boolean }) {
   const primary=matches.find(match=>sheets.some(sheet=>sheet.name===match.sheet))
   const [name,setName]=useState(primary?.sheet ?? sheets[0]?.name)
   const sheet=sheets.find(item=>item.name===name) ?? sheets[0]
+  const firstNonTableRow=useRef<HTMLElement>(null)
+  useEffect(()=>{
+    firstNonTableRow.current?.scrollIntoView({block:'nearest',inline:'nearest'})
+  },[sheet?.name])
   if(!sheet)return null
   const localMatches=matches.filter(match=>match.sheet===sheet.name)
+  const nonTableMatches=localMatches.filter(match=>!match.tableId)
+  const firstRow=primary?.sheet===sheet.name&&!primary.tableId?primary.start:undefined
 
   return <section className="min-w-0 space-y-4" aria-label="工作表预览">
-    <header>
-      <p className="text-xs text-muted-foreground">工作表预览使用 Excel 已读取的数据，原始格式及公式可下载原文件核对。</p>
-      {sheets.length>1&&<nav aria-label="切换工作表" className="mt-3 flex flex-wrap gap-2">
+    <header className={contextual?'sticky top-0 z-10 bg-card':undefined}>
+      {contextual&&sheets.length>1?<label className="qa-preview-selector">
+        工作表
+        <select value={sheet.name} onChange={event=>setName(event.currentTarget.value)}>
+          {sheets.map(item=><option key={item.name} value={item.name}>{item.name}</option>)}
+        </select>
+      </label>:<p className="text-xs text-muted-foreground">工作表预览使用 Excel 已读取的数据，原始格式及公式可下载原文件核对。</p>}
+      {!contextual&&sheets.length>1&&<nav aria-label="切换工作表" className="mt-3 flex flex-wrap gap-2">
         {sheets.map(item=><button type="button" key={item.name} aria-pressed={item.name===sheet.name}
           className="rounded-md border border-border px-3 py-1.5 text-xs aria-pressed:border-primary aria-pressed:bg-primary/10"
           onClick={()=>setName(item.name)}>{item.name}</button>)}
       </nav>}
     </header>
     <div className="space-y-1">
-      <h4 className="text-sm font-semibold">{sheet.name}</h4>
+      {(!contextual||sheets.length===1)&&<h4 className="text-sm font-semibold">{sheet.name}</h4>}
       {sheet.metadata.length>0&&<div className="space-y-1 text-xs leading-6 text-muted-foreground">
-        {sheet.metadata.map(record=><p key={record.row}>
-          {record.cells.map((cell,index)=><span key={cell.coordinate}>{index>0?' · ':''}<CellText cell={cell}/></span>)}
+        {sheet.metadata.map(record=><p key={record.row} ref={record.row===firstRow?node=>{firstNonTableRow.current=node}:undefined}
+          data-matched-section={nonTableMatches.some(match=>matchesRow(match,record.row))||undefined}
+          className="data-[matched-section]:bg-primary/10">
+          {record.cells.map((cell,index)=><span key={cell.coordinate}>{index>0?' · ':''}<CellText cell={cell} contextual={contextual}/></span>)}
         </p>)}
       </div>}
     </div>
@@ -145,17 +127,17 @@ export function ExcelPreview({ sheets, matches }: { sheets: ExcelSheet[]; matche
       const tableMatches=localMatches.filter(match=>match.tableId===table.id)
       const firstMatch=tableMatches[0]
       return <SpreadsheetTable key={`${sheet.name}/${table.id}`} table={table} sheetName={sheet.name}
-        matches={tableMatches} initialRow={firstMatch===primary?firstMatch?.start:undefined}/>
+        matches={tableMatches} initialRow={firstMatch===localMatches[0]?firstMatch?.start:undefined} contextual={contextual}/>
     })}
-    {sheet.other_rows.length>0&&<details open={sheet.tables.length===0} className="rounded-md border border-border px-3 py-2">
+    {sheet.other_rows.length>0&&<details open={sheet.tables.length===0||sheet.other_rows.some(row=>nonTableMatches.some(match=>matchesRow(match,row.row)))} className="rounded-md border border-border px-3 py-2">
       <summary className="cursor-pointer text-xs font-medium">其他单元格 · {sheet.other_rows.length} 行</summary>
       <dl className="mt-2 max-h-72 divide-y divide-border overflow-auto text-xs">
-        {sheet.other_rows.map(record=><div key={record.row}
-          data-matched-section={localMatches.some(match=>!match.tableId&&matchesRow(match,record.row))||undefined}
+        {sheet.other_rows.map(record=><div key={record.row} ref={record.row===firstRow?node=>{firstNonTableRow.current=node}:undefined}
+          data-matched-section={nonTableMatches.some(match=>matchesRow(match,record.row))||undefined}
           className="flex flex-wrap gap-3 py-2 data-[matched-section]:bg-primary/10">
           <dt className="text-muted-foreground">第 {record.row} 行</dt>
           <dd className="flex min-w-0 flex-wrap gap-x-4 gap-y-1">{record.cells.map(cell=><span key={cell.coordinate}>
-            <span className="mr-1 text-muted-foreground">{cell.coordinate}</span><CellText cell={cell}/>
+            <span className="mr-1 text-muted-foreground">{cell.coordinate}</span><CellText cell={cell} contextual={contextual}/>
           </span>)}</dd>
         </div>)}
       </dl>

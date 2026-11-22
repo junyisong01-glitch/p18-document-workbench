@@ -9,52 +9,22 @@
   border-radius: 50%; background: var(--qa-tint); color: var(--qa-accent); font: 650 11px/19px ui-monospace, monospace;
 }
 .qa-first-reference { display: inline; margin-left: 3px; vertical-align: super; color: var(--qa-accent); font: 650 .72em ui-monospace, monospace; }
-.qa-first-reference:hover, .qa-first-original:hover { text-decoration: underline; text-underline-offset: 3px; }
+.qa-first-reference:hover { text-decoration: underline; text-underline-offset: 3px; }
 .qa-first-sources { margin-top: 14px; }
 .qa-first-sources > summary {
   display: list-item; width: max-content; max-width: 100%; padding: 4px 0 9px;
   color: var(--qa-muted); font-size: 13px; cursor: pointer;
 }
 .qa-first-sources > summary strong { color: var(--qa-accent); font-weight: 650; }
-.qa-chat-citation {
-  position: relative; border: 1px solid var(--qa-line); border-radius: 12px; background: var(--qa-card);
-  padding: 11px 13px; margin: 0 0 8px; scroll-margin-block: 16px;
+.qa-first-document-list {
+  list-style: none; display: grid; gap: 0; margin: 0; padding: 0 12px;
+  border: 1px solid var(--qa-line); border-radius: 9px; background: var(--qa-card);
 }
-.qa-chat-source-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px 14px; }
-.qa-chat-source-header h3 { color: var(--qa-accent); font-size: 14px; font-weight: 650; line-height: 1.55; overflow-wrap: anywhere; }
-.qa-chat-citation-meta { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 5px; color: var(--qa-muted); font-size: 12px; }
-.qa-chat-source-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 9px; flex-shrink: 0; }
-.qa-chat-source-count { color: var(--qa-muted); background: var(--qa-bg); border-radius: 6px; padding: 3px 7px; font-size: 11px; flex-shrink: 0; }
-.qa-chat-open-file {
-  display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid var(--qa-line);
-  border-radius: 7px; color: var(--qa-accent); font-size: 12px; white-space: nowrap;
-}
-.qa-chat-open-file:hover { background: var(--qa-tint); border-color: var(--qa-accent); }
-@media (max-width: 520px) {
-  .qa-chat-source-header { flex-wrap: wrap; }
-  .qa-chat-source-actions { justify-content: flex-start; }
-}
-.qa-chat-source-list { border-top: 1px solid var(--qa-line); margin-top: 10px; }
-.qa-chat-source-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 9px; padding: 7px 6px; }
-.qa-chat-source-row + .qa-chat-source-row { border-top: 1px solid var(--qa-line); }
-.qa-chat-source-row[data-active] { background: var(--qa-tint); }
-.qa-chat-source-row .qa-first-original { padding: 3px 2px; white-space: nowrap; }
-.qa-first-source > summary {
-  display: flex; align-items: center; flex-wrap: wrap; min-height: 24px; gap: 3px 7px;
-  list-style: none; color: var(--qa-muted); font-size: 12px; cursor: pointer; line-height: 1.6;
-}
-.qa-first-source > summary::-webkit-details-marker { display: none; }
-.qa-first-source > summary::after { content: '›'; margin-left: auto; }
-.qa-first-source[open] > summary::after { transform: rotate(90deg); }
-.qa-first-source > summary strong { color: var(--qa-ink); font-size: 13px; }
-.qa-first-source-index { border-radius: 6px; padding: 3px 7px; background: var(--qa-tint); color: var(--qa-accent); font: 650 11px/1.4 ui-monospace, monospace; }
-.qa-first-source blockquote {
-  background: var(--qa-bg); border-left: 3px solid var(--qa-accent); border-radius: 0 8px 8px 0; padding: 9px 12px;
-  margin: 9px 0 0; max-height: 13rem; overflow: auto; white-space: pre-wrap; font-size: 13px; line-height: 1.65;
-}
-.qa-chat-published { color: hsl(148 32% 32%); }
-.qa-chat-published::before { content: ''; display: inline-block; width: 6px; height: 6px; margin: 0 5px 2px 0; background: currentColor; border-radius: 50%; }
-.qa-first-original { display: block; margin-left: auto; color: var(--qa-accent); font-size: 12px; text-align: right; }
+.qa-first-document-list li { padding: 8px 0; font-size: 13px; line-height: 1.55; }
+.qa-first-document-list li + li { border-top: 1px solid var(--qa-line); }
+.qa-first-document-list li > span { margin-inline-start: 9px; color: var(--qa-muted); font-size: 12px; }
+.qa-first-document-list button { text-align: start; color: var(--qa-accent); }
+.qa-first-document-list button:hover { text-decoration: underline; text-underline-offset: 3px; }
 .qa-chat-guest, .qa-chat-error {
   padding: 8px 12px; border: 1px dashed var(--qa-line); border-radius: 9px; color: var(--qa-muted); background: var(--qa-card);
   font-size: 13px; line-height: 1.65;

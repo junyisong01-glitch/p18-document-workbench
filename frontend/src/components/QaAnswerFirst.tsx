@@ -1,9 +1,8 @@
-import { Fragment, useRef, useState, type ReactNode } from 'react'
+import { Fragment, type ReactNode } from 'react'
 import { documentTitleParts } from '../lib/document-title'
 import type { QaExample } from '../lib/qa-examples'
 import type { Doc } from '../lib/types'
-import { FileText, Lock } from 'lucide-react'
-import { SearchEvidence } from './SearchEvidence'
+import { Lock } from 'lucide-react'
 import './QaAnswerFirst.css'
 
 export type QaCitation = {
@@ -49,101 +48,29 @@ export function QaNoEvidence({ question, examples, onAsk }: SuggestionsProps & {
   </section>
 }
 
-type SourceEntry = { source: QaCitation; numbers: number[] }
-type SourceGroup = { key: string; document: QaCitation; entries: Map<string, SourceEntry> }
-type OpenSource = (source: QaCitation, view?: 'file') => void
+type OpenSource = (source: QaCitation) => void
 
-function documentKey(source: QaCitation) {
-  return JSON.stringify([source.document_id, source.revision, source.index_token])
-}
-
-function sourceKey(source: QaCitation) {
-  return JSON.stringify([documentKey(source), source.chunk_id])
-}
-
-function groupSources(sources: QaCitation[], numbered: boolean) {
-  const groups = new Map<string, SourceGroup>()
-  sources.forEach((citation, index) => {
-    for (const source of [citation, ...citation.members || []]) {
-      const key = documentKey(source)
-      let group = groups.get(key)
-      if (!group) {
-        group = { key, document: source, entries: new Map() }
-        groups.set(key, group)
-      }
-      const entryKey = sourceKey(source)
-      let entry = group.entries.get(entryKey)
-      if (!entry) {
-        entry = { source, numbers: [] }
-        group.entries.set(entryKey, entry)
-      }
-      if (numbered && !entry.numbers.includes(index + 1)) entry.numbers.push(index + 1)
-    }
-  })
-  return Array.from(groups.values())
-}
-
-function SourceRow({ entry, active, setNode, onSource, loadEvidence }: {
-  entry: SourceEntry
-  active?: boolean
-  setNode?: (node: HTMLDetailsElement | null) => void
-  onSource: (source: QaCitation) => void
-  loadEvidence?: boolean
-}) {
-  const [expanded,setExpanded] = useState(false)
-  const { source, numbers } = entry
-  const section = source.section || '文档片段'
-  const spreadsheet = /\.xlsx$/i.test(source.document_name)
-  const fetchEvidence = loadEvidence || spreadsheet
-  return <div className="qa-chat-source-row" data-active={active || undefined}>
-    <details ref={setNode} className="qa-first-source" onToggle={fetchEvidence ? event => setExpanded(event.currentTarget.open) : undefined}>
-      <summary>
-        {numbers.length > 0 && <span className="qa-first-source-index">{numbers.map(number => '[' + number + ']').join(' ')}</span>}
-        <strong>{section}</strong>
-      </summary>
-      {fetchEvidence ? expanded && <div className="mt-2"><SearchEvidence documentId={source.document_id} sourceRef={source} compactSpreadsheet={spreadsheet}/></div> :
-        source.text && <blockquote>{source.text}</blockquote>}
-    </details>
-    <button className="qa-first-original" type="button" aria-label={`查看原文 ${section}`} onClick={() => onSource(source)}>查看原文</button>
-  </div>
-}
-
-function SourceCard({ group, children, document, onSource }: {
-  group: SourceGroup
-  children: ReactNode
-  document?: Doc
-  onSource: OpenSource
-}) {
-  const { title, number } = documentTitleParts(group.document.document_name)
-  return <section className="qa-chat-citation" aria-label={title}>
-    <header className="qa-chat-source-header">
-      <div>
-        <h3>{title}</h3>
-        {(number || document) && <div className="qa-chat-citation-meta">
-          {number && <span>{number}</span>}
-          {document?.version && <span>版本 {document.version}</span>}
-          {document?.status === 'active' && <span className="qa-chat-published">已发布</span>}
-        </div>}
-      </div>
-      <div className="qa-chat-source-actions">
-        <span className="qa-chat-source-count">{group.entries.size} 个片段</span>
-        <button type="button" className="qa-chat-open-file" onClick={() => onSource(group.document, 'file')}>
-          <FileText size={14} aria-hidden="true"/>查看原文件
-        </button>
-      </div>
-    </header>
-    <div className="qa-chat-source-list">{children}</div>
-  </section>
+export function citationLocations(citation: QaCitation) {
+  const locations = new Map<string, QaCitation>()
+  for (const source of [citation, ...citation.members || []]) {
+    const key = JSON.stringify([source.document_id, source.revision, source.index_token, source.chunk_id])
+    if (!locations.has(key)) locations.set(key, source)
+  }
+  return [...locations.values()]
 }
 
 export function QaRelatedSources({ sources, onSource }: { sources: QaCitation[]; onSource: OpenSource }) {
-  const groups = groupSources(sources, false)
-  return <details className="qa-first-card" aria-label="本轮相关资料">
-    <summary className="w-fit cursor-pointer text-sm font-medium">相关资料 {groups.length} 份</summary>
-    <p className="my-3 text-xs text-muted-foreground">展开查看本轮命中的片段和原文。</p>
-    {groups.map(group => <SourceCard key={group.key} group={group} onSource={onSource}>
-      {Array.from(group.entries, ([key, entry]) => <SourceRow key={key} entry={entry} onSource={onSource} loadEvidence/>)}
-    </SourceCard>)}
+  const documentCount = new Set(sources.flatMap(citationLocations).map(source => source.document_id)).size
+  return <details className="qa-first-card qa-first-sources" aria-label="本轮相关资料">
+    <summary>相关资料 <strong>{documentCount} 份</strong></summary>
+    <ul className="qa-first-document-list">{sources.map(source => {
+      const { title } = documentTitleParts(source.document_name)
+      return <li key={JSON.stringify([source.document_id, source.revision, source.index_token, source.chunk_id])}>
+        <button type="button" onClick={() => onSource(source)}>
+          {title}{source.section && <span> · {source.section}</span>}
+        </button>
+      </li>
+    })}</ul>
   </details>
 }
 
@@ -178,25 +105,14 @@ export function QaAnswerFirst({ answer, examples, onAsk, onSource, notice, docum
   documents: Doc[]
   guest?: boolean
 }) {
-  const sources = useRef<HTMLDetailsElement>(null)
-  const rows = useRef(new Map<string, HTMLDetailsElement>())
-  const [activeSource, setActiveSource] = useState<string | null>(null)
   const positions = new Map(Array.from(new Set(answer.answer.match(/\[S\d+\]/g) || []), (id, index) => [id, index]))
   const order = (citation: QaCitation) => positions.get('[' + citation.id + ']') ?? Number.MAX_SAFE_INTEGER
   const citations = (answer.citations || []).slice().sort((first, second) => order(first) - order(second))
   const external = answer.provider?.includes('DeepSeek')
-  const groups = groupSources(citations, true)
-
-  function showCitation(index: number) {
-    if (!sources.current) return
-    const key = sourceKey(citations[index])
-    sources.current.open = true
-    const row = rows.current.get(key)
-    if (!row) return
-    row.open = true
-    setActiveSource(key)
-    row.querySelector('summary')?.focus({ preventScroll: true })
-    row.scrollIntoView({ block: 'nearest' })
+  const references = new Map<string, QaCitation>()
+  for (const source of citations.flatMap(citationLocations)) {
+    const key = JSON.stringify([source.document_id, source.revision])
+    if (!references.has(key)) references.set(key, source)
   }
 
   function cite(value: string): ReactNode {
@@ -204,23 +120,27 @@ export function QaAnswerFirst({ answer, examples, onAsk, onSource, notice, docum
       const citation = citations.findIndex(item => '[' + item.id + ']' === part)
       return citation < 0 ? <Fragment key={index}>{part}</Fragment> :
         <button className="qa-first-reference" type="button" key={index}
-          aria-label={`展开来源 ${citation + 1}`} onClick={() => showCitation(citation)}>[{citation + 1}]</button>
+          aria-label={`查看引用 ${citation + 1}`} onClick={() => onSource(citations[citation])}>[{citation + 1}]</button>
     })
   }
 
   return <article className="qa-first-card" aria-label="本轮回答">
     {notice && <p className="qa-first-notice" role="status">{notice}</p>}
     <AnswerText text={answer.answer} cite={cite}/>
-    {citations.length > 0 && <details className="qa-first-sources" ref={sources}>
-      <summary>参考了 <strong>{groups.length} 份</strong> 资料</summary>
-      {groups.map(group => <SourceCard group={group} key={group.key} onSource={onSource} document={documents.find(doc => doc.id === group.document.document_id)}>
-        {Array.from(group.entries, ([key, entry]) => <SourceRow key={key} entry={entry} active={key === activeSource}
-          setNode={node => { if (node) rows.current.set(key,node); else rows.current.delete(key) }}
-          onSource={onSource}/>)}
-      </SourceCard>)}
+    {references.size > 0 && <details className="qa-first-sources">
+      <summary>参考了 <strong>{references.size} 份</strong> 资料</summary>
+      <ul className="qa-first-document-list">
+        {Array.from(references, ([key, source]) => {
+          const document = documents.find(doc => doc.id === source.document_id)
+          const { title } = documentTitleParts(source.document_name)
+          return <li key={key}>
+            {title}{document?.version && <span>版本 {document.version}</span>}
+          </li>
+        })}
+      </ul>
     </details>}
     {guest && !external && <p className="qa-chat-guest"><Lock size={13}/>内部资料需有权限的内部账号查看。</p>}
     {!!examples.length && <div className="qa-first-followup"><Suggestions examples={examples} onAsk={onAsk}/></div>}
-    <p className="qa-chat-provider">{external ? 'DeepSeek · 外部参考回答' : answer.provider === '本地证据核对' ? '已逐项核对原文' : '已使用本地模型'}</p>
+    {answer.provider && <p className="qa-chat-provider">{external ? 'DeepSeek · 外部参考回答' : answer.provider === '本地证据核对' ? '已逐项核对原文' : '已使用本地模型'}</p>}
   </article>
 }

@@ -5,7 +5,7 @@ import {loadModelConfig,type ModelConfigStatus} from '@/lib/modelConfig'
 import {QaWorkspace,QaChatTurn} from '@/components/QaWorkspace'
 import {DocPreviewDialog} from '@/components/DocView'
 import {AnswerPresentation} from '@/components/AnswerPresentation'
-import {QaAnswerFirst, QaAnswerLoading, QaNoEvidence, QaRelatedSources, type QaCitation, type QaResult} from '@/components/QaAnswerFirst'
+import {QaAnswerFirst, QaAnswerLoading, QaNoEvidence, QaRelatedSources, citationLocations, type QaCitation, type QaResult} from '@/components/QaAnswerFirst'
 import {answerRoute} from '@/lib/qa-answer-first'
 import {QaConfirmation} from '@/components/QaConfirmation'
 import {QaModelRoute} from '@/components/QaModelRoute'
@@ -16,7 +16,7 @@ import {qaExamples} from '@/lib/qa-examples'
 import {api, ApiError} from '@/lib/api'
 import {useKnowledgeBase,useSession} from '@/lib/session'
 import {demoIdentityName} from '@/lib/demo-identity-names'
-import type {Doc} from '@/lib/types'
+import {documentTitleParts} from '@/lib/document-title'
 const widePreviewQuery='(min-width: 1100px)'
 const button='inline-flex items-center justify-center gap-2 rounded-md border border-border bg-card px-4 py-2.5 text-xs font-medium transition-colors hover:border-[hsl(12_74%_42%/0.5)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(12_74%_42%)] disabled:cursor-not-allowed disabled:opacity-45'
 type Turn = {
@@ -51,7 +51,10 @@ export default function QaPage(){
  const [modelConfig,setModelConfig]=useState<ModelConfigStatus|null>(null),[configOpen,setConfigOpen]=useState(false),[configLoading,setConfigLoading]=useState(false),[configError,setConfigError]=useState('')
  const closeConfig=useCallback(()=>setConfigOpen(false),[])
  useEffect(()=>{let active=true;setConfigOpen(false);setModelConfig(null);setConfigError('');setConfigLoading(kbId==='demo');if(kbId==='demo')loadModelConfig().then(value=>{if(active)setModelConfig(value)}).catch(()=>{if(active)setConfigError('无法读取当前模型配置，可打开配置窗口重试；本地检索不受影响。')}).finally(()=>{if(active)setConfigLoading(false)});return()=>{active=false}},[kbId])
- const [question,setQuestion]=useState(''),[draft,setDraft]=useState<any>(null),[selected,setSelected]=useState<string[]>([]),[version,setVersion]=useState(0),[pending,setPending]=useState<any>(null),[consent,setConsent]=useState(false),[answer,setAnswer]=useState<QaResult|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[preview,setPreview]=useState<Doc|null>(null),[sourceRef,setSourceRef]=useState<any>(undefined)
+ const [question,setQuestion]=useState(''),[draft,setDraft]=useState<any>(null),[selected,setSelected]=useState<string[]>([]),[version,setVersion]=useState(0),[pending,setPending]=useState<any>(null),[consent,setConsent]=useState(false),[answer,setAnswer]=useState<QaResult|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false)
+ const [preview,setPreview]=useState<{locations:QaCitation[];index:number;visit:number}|null>(null)
+ const activeSource=preview?.locations[preview.index]
+ const previewDoc=activeSource&&visibleDocs.find(doc=>doc.id===activeSource.document_id)
  const [dockPreview,setDockPreview]=useState(()=>window.matchMedia(widePreviewQuery).matches)
  const previewTrigger=useRef<HTMLElement|null>(null)
  useEffect(()=>{
@@ -61,7 +64,7 @@ export default function QaPage(){
   media.addEventListener('change',sync)
   return()=>media.removeEventListener('change',sync)
  },[])
- useEffect(()=>{backendSessions.current.clear();setConversations([]);setActive(null);setQuestion('');setAskedQuestion('');setEmpty(false);setRelatedSources([]);setAnswerNotice('');setDraft(null);setPending(null);setAnswer(null);setSelected([]);setConsent(false);setPreview(null);setSourceRef(undefined);setError('')},[kbId,user?.username])
+ useEffect(()=>{backendSessions.current.clear();setConversations([]);setActive(null);setQuestion('');setAskedQuestion('');setEmpty(false);setRelatedSources([]);setAnswerNotice('');setDraft(null);setPending(null);setAnswer(null);setSelected([]);setConsent(false);setPreview(null);setError('')},[kbId,user?.username])
  const currentTurn:Turn={question:askedQuestion,answer,empty,error,sources:relatedSources,notice:answerNotice}
  const previousTurns=conversations.find(conversation=>conversation.id===active)?.turns||[]
  const turnCount=previousTurns.length
@@ -77,7 +80,7 @@ export default function QaPage(){
   if(busy||id!==null&&id===active)return
   archiveTurn()
   setActive(id);setAskedQuestion('');setQuestion('');setAnswer(null);setDraft(null);setPending(null);setConsent(false)
-  setEmpty(false);setError('');setRelatedSources([]);setAnswerNotice('');setPreview(null);setSourceRef(undefined)
+  setEmpty(false);setError('');setRelatedSources([]);setAnswerNotice('');setPreview(null)
   requestAnimationFrame(()=>questionInput.current?.focus())
  }
  function finishAnswer(result:QaResult){
@@ -156,13 +159,13 @@ export default function QaPage(){
   archiveTurn()
   backendSessions.current.clear()
   setAskedQuestion('')
-  setBusy(true);setError('');setDraft(null);setPending(null);setAnswer(null);setEmpty(false);setRelatedSources([]);setAnswerNotice('');setSelected([]);setConsent(false);setPreview(null);setSourceRef(undefined)
+  setBusy(true);setError('');setDraft(null);setPending(null);setAnswer(null);setEmpty(false);setRelatedSources([]);setAnswerNotice('');setSelected([]);setConsent(false);setPreview(null)
   try{await api.post('/api/rag/provider',{provider,confirm_external:provider==='deepseek'});const next=await api.get<any>('/api/rag');setRoute(next);const credential=await loadModelConfig();setModelConfig(credential);if(provider==='deepseek'&&!credential.configured)setConfigOpen(true)}catch(e){void api.get('/api/rag').then(setRoute).catch(()=>{});throw e}finally{setBusy(false)}
  }
- function openSource(source:QaCitation,view?:'file'){
+ function openSource(source:QaCitation){
   previewTrigger.current=document.activeElement instanceof HTMLElement?document.activeElement:null
-  setSourceRef(view==='file'?undefined:{revision:source.revision,index_token:source.index_token,chunk_id:source.chunk_id})
-  setPreview(visibleDocs.find(doc=>doc.id===source.document_id)||null)
+  const locations=citationLocations(source)
+  setPreview(previous=>({locations,index:0,visit:(previous?.visit??0)+1}))
  }
  function closePreview(){
   setPreview(null)
@@ -202,16 +205,29 @@ export default function QaPage(){
    {questionOnly&&(noEvidence||turn.error)&&sources.length>0&&<QaRelatedSources sources={sources} onSource={openSource}/>}
    {turn.answer&&(!questionOnly||!noEvidence)&&<div id={isCurrent?'qa-answer':undefined}>
     {!sourcesAvailable?<p className="qa-chat-error">引用资料已变更或当前不可查看，请重新提问。</p>:
-    questionOnly?<QaAnswerFirst answer={turn.answer} notice={turn.notice} examples={suggestions} onAsk={runQuestion}
-      onSource={openSource} documents={searchableDocs} guest={guest}/>:<AnswerPresentation answer={turn.answer} onSource={openSource}/>}
+    noEvidence?<AnswerPresentation answer={turn.answer} onSource={openSource}/>:
+      <QaAnswerFirst answer={turn.answer} notice={turn.notice} examples={suggestions} onAsk={runQuestion}
+        onSource={openSource} documents={searchableDocs} guest={guest}/>}
    </div>}
   </>
  }
 
  return <>
   <QaWorkspace library={kb.name} name={name} role={guest?'外部参观':user?.role.name??''} settings={settings}
-    previewDocked={dockPreview&&!!preview} preview={preview&&<DocPreviewDialog presentation={dockPreview?'panel':'drawer'}
-      sourceRef={sourceRef} doc={preview} open onClose={closePreview}/>}
+    previewDocked={dockPreview&&!!previewDoc} preview={preview&&activeSource&&previewDoc&&
+      <DocPreviewDialog presentation={dockPreview?'panel':'drawer'} sourceRef={activeSource} sourceVisit={preview.visit}
+        doc={previewDoc} open onClose={closePreview} navigation={preview.locations.length>1&&
+          <label className="qa-preview-selector">
+            引用位置
+            <select value={preview.index} onChange={event=>{
+              const index=Number(event.currentTarget.value)
+              setPreview(current=>current&&{...current,index})
+            }}>
+              {preview.locations.map((source,index)=><option key={index} value={index}>
+                {index+1}. {documentTitleParts(source.document_name).title}{source.section&&' · '+source.section}
+              </option>)}
+            </select>
+          </label>}/> }
     history={conversations} active={active} hasTurns={!!askedQuestion||previousTurns.length>0} busy={busy}
     ready={!!route} question={question} inputRef={questionInput} examples={examples.slice(0,3)}
     externalSelected={!!route?.external_selected||!!route&&!route.local&&kbId==='demo'}
