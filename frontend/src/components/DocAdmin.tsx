@@ -13,7 +13,7 @@ const DEPTS = ['研发部', '财务部', '人力资源部', '行政安全部', '
 // 现有密级分类
 const CONFIDENTIALITY = ['公开', '内部', '机密'] as const
 // 现有后端支持的上传格式
-const ACCEPT = '.docx,.doc,.pdf,.xlsx'
+const ACCEPT = '.doc,.docx,.xlsx,.xls,.pdf,.txt,.md,.csv,.jpg,.jpeg,.png'
 
 interface UploadForm {
   file: File | null
@@ -104,16 +104,16 @@ export function UploadDialog({ open, onClose }: { open: boolean; onClose: () => 
   const pickFile = (file: File | null) => {
     if (!file) return
     const ext = file.name.toLowerCase().split('.').pop()
-    if (!['docx','doc','pdf','xlsx'].includes(ext||'')) {
-      setErrors(['现有上传能力支持 PDF / DOC / DOCX / XLSX 格式，请重新选择文件。'])
+    if (!['doc', 'docx', 'xlsx', 'xls', 'pdf', 'txt', 'md', 'csv', 'jpg', 'jpeg', 'png'].includes(ext||'')) {
+      setErrors(['现有上传能力支持 PDF / Word / Excel / TXT / Markdown / CSV / JPG / PNG 格式，请重新选择文件。'])
       return
     }
     setErrors([])
     setForm((f) => ({
       ...f,
       file,
-      name: f.name || file.name.replace(/\.(docx|doc|pdf|xlsx)$/i, ''),
-      docType: ext === 'xlsx' ? 'Excel（XLSX）' : ext === 'pdf' ? 'PDF' : ext === 'doc' ? 'Word（DOC）' : 'Word（DOCX）',
+      name: f.name || file.name.replace(/\.(docx?|pdf|xlsx?|txt|md|csv|jpe?g|png)$/i, ''),
+      docType: (ext || '').toUpperCase(),
     }))
   }
 
@@ -219,7 +219,7 @@ export function UploadDialog({ open, onClose }: { open: boolean; onClose: () => 
           ) : (
             <>
               {/* 文件选择（拖放仅为现有文件选择的前端操作方式） */}
-              <Field label="选择文件" required hint="支持 PDF / DOC / DOCX / XLSX">
+              <Field label="选择文件" required hint="支持 PDF / Word / Excel / TXT / Markdown / CSV / JPG / PNG">
                 <div
                   onDragOver={(e) => {
                     e.preventDefault()
@@ -306,7 +306,7 @@ export function UploadDialog({ open, onClose }: { open: boolean; onClose: () => 
                     onChange={(e) => set('docType', e.target.value)}
                     className={inputCls}
                   >
-                    <option>Word（DOCX）</option>
+                    <option>Word（DOCX）</option><option>DOC</option><option>DOCX</option><option>XLSX</option><option>XLS</option><option>PDF</option><option>TXT</option><option>MD</option><option>CSV</option><option>JPG</option><option>JPEG</option><option>PNG</option>
                     <option>Excel（XLSX）</option>
                   </select>
                 </Field>

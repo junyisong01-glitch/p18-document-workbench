@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.parser import soffice_path
+from app.parser import soffice_path, SUPPORTED_EXTENSIONS, SUPPORTED_LABEL
 from app.admission import categories, requirements, confirmed, sync_admission
 from app.chunking import configuration, digest, fingerprint, prepare
 
@@ -807,8 +807,8 @@ async def upload(files: list[UploadFile] = File(...), mode: str = Form("ask"), r
     with LOCK:
         for name, content in loaded:
             ext = Path(name).suffix.lower()
-            if len(content) > MAX_FILE or not content or ext not in {".docx", ".doc", ".pdf", ".xlsx"}:
-                responses.append({"name": name, "status": "rejected", "message": "文件为空、超过 20 MB，或不属于 PDF / DOCX / DOC / XLSX。"})
+            if len(content) > MAX_FILE or not content or ext not in SUPPORTED_EXTENSIONS:
+                responses.append({"name": name, "status": "rejected", "message": "文件为空、超过 20 MB，或不属于 " + SUPPORTED_LABEL + "。"})
                 continue
             digest = hashlib.sha256(content).hexdigest()
             existing = [d for d in all_docs() if d["state"] not in {"deleted", "deleting", "delete_failed", "superseded"}]

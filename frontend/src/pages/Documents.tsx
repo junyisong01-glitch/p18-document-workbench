@@ -161,6 +161,14 @@ const TYPE_META: Record<DocFormat, { label: string; en: string; icon: typeof Fil
   docx: { label: 'Word 文档', en: 'DOCX', icon: FileText },
   xlsx: { label: 'Excel 表格', en: 'XLSX', icon: FileSpreadsheet },
   pdf: { label: 'PDF 文档', en: 'PDF', icon: FileText },
+  doc: {label: '旧版 Word', en: 'DOC', icon: FileText},
+  xls: {label: '旧版 Excel', en: 'XLS', icon: FileText},
+  txt: {label: '纯文本', en: 'TXT', icon: FileText},
+  md: {label: 'Markdown 文档', en: 'MD', icon: FileText},
+  csv: {label: 'CSV 表格', en: 'CSV', icon: FileText},
+  jpg: {label: '图片', en: 'JPG', icon: FileText},
+  jpeg: {label: '图片', en: 'JPEG', icon: FileText},
+  png: {label: '图片', en: 'PNG', icon: FileText},
 }
 
 function TypeCards({

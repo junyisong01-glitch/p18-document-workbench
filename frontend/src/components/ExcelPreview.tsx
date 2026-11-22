@@ -106,7 +106,7 @@ export function ExcelPreview({ sheets, matches, contextual }: { sheets: ExcelShe
         <select value={sheet.name} onChange={event=>setName(event.currentTarget.value)}>
           {sheets.map(item=><option key={item.name} value={item.name}>{item.name}</option>)}
         </select>
-      </label>:<p className="text-xs text-muted-foreground">工作表预览使用 Excel 已读取的数据，原始格式及公式可下载原文件核对。</p>}
+      </label>:<p className="text-xs text-muted-foreground">表格预览使用文件中已读取的数据，原始格式及公式可下载原文件核对。</p>}
       {!contextual&&sheets.length>1&&<nav aria-label="切换工作表" className="mt-3 flex flex-wrap gap-2">
         {sheets.map(item=><button type="button" key={item.name} aria-pressed={item.name===sheet.name}
           className="rounded-md border border-border px-3 py-1.5 text-xs aria-pressed:border-primary aria-pressed:bg-primary/10"

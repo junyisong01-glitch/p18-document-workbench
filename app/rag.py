@@ -273,7 +273,7 @@ class RagService:
             'untrusted_evidence':model_evidence(evidence)}
         title=re.search(r'《([^》]{1,80})》',question)
         if title and re.search(r'适用范围|主要要求|使用规定|使用要求',question) and any(
-            Path(source['document_name']).suffix.lower()=='.xlsx' and title.group(1) in source['document_name']
+            Path(source['document_name']).suffix.lower() in {'.xlsx','.xls','.csv'} and title.group(1) in source['document_name']
             for group in evidence for source in group.get('members',[group])
         ):
             payload['answer_guidance']=(

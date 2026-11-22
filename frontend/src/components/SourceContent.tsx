@@ -15,6 +15,9 @@ export interface SourceBlock {
   text: string
   label?: string
   section?: string
+  style?: string
+  line_start?: number
+  line_end?: number
   heading_level?: number
   tables?: SourceTable[]
   cells?: { coordinate: string; text: string; warning?: string }[]
@@ -56,6 +59,7 @@ export function OriginalBlock({ block }: { block: SourceBlock }) {
       </div>)}</dl>
     </details>
   </section>
+  if(block.style==='Code')return <pre className="overflow-x-auto whitespace-pre rounded-sm bg-secondary p-3 text-[13px]"><code>{block.text}</code></pre>
   if (block.heading_level || block.text.trim() === block.section?.trim()) {
     return <h4 className="pt-2 font-display text-[16px] font-semibold leading-relaxed">{block.text}</h4>
   }

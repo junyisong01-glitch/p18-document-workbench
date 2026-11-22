@@ -104,7 +104,7 @@ export function DocPreviewDialog({
       const mappedPage=sourcePages(locations)[0]
       const blocks:SourceBlock[]=document.result?.blocks||[]
       const hasMappedBlock=blocks.some(block=>locations.some(location=>location.block_id===block.id))
-      if(doc.format==='xlsx'&&document.result?.excel_sheets?.length)setTab('full')
+      if(document.result?.excel_sheets?.length||['txt','md'].includes(doc.format))setTab('full')
       else if(contextual&&sourceRef){
         if((doc.format==='pdf'||!hasMappedBlock)&&mappedPage&&document.result?.preview?.original)setTab('original')
         else if(hasMappedBlock)setTab('full')
@@ -156,7 +156,7 @@ export function DocPreviewDialog({
   const matched=detail?.matchedSource
   const sources:SourceLocation[]=matched?.sources||[]
   const blocks:(SourceBlock & { sheet?:string; row_start?:number; row_end?:number; table_id?:string|null })[]=detail?.result?.blocks||[]
-  const excelSheets:ExcelSheet[]=doc.format==='xlsx' ? detail?.result?.excel_sheets||[] : []
+  const excelSheets:ExcelSheet[]=detail?.result?.excel_sheets||[]
   const excelMatches:ExcelMatch[]=excelSheets.length ? sources.flatMap(location=>{
     const block=blocks.find(item=>item.id===location.block_id)
     const sheet=location.sheet??block?.sheet
@@ -203,7 +203,7 @@ export function DocPreviewDialog({
         <div ref={previewBody} className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
           {!contextual&&<div role="tablist" aria-label="来源查看方式" onKeyDown={e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const tabs=Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role=tab]'));const current=tabs.indexOf(document.activeElement as HTMLButtonElement);const next=e.key==='Home'?0:e.key==='End'?tabs.length-1:(current+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;tabs[next]?.focus();tabs[next]?.click()}} className="mb-5 flex flex-wrap gap-1 border-b border-border">
             {([['evidence','命中证据'],['original','原文件'],['full',excelSheets.length?'工作表预览':'全文解析']] as const)
-              .filter(([key])=>(key!=='evidence'||!!sourceRef)&&(key!=='original'||!excelSheets.length))
+              .filter(([key])=>(key!=='evidence'||!!sourceRef)&&(key!=='original'||(!excelSheets.length&&!['txt','md'].includes(doc.format))))
               .map(([key,label])=><button key={key} role="tab" tabIndex={tab===key?0:-1} aria-selected={tab===key} aria-controls="source-panel" id={'source-tab-'+key} onClick={()=>setTab(key)} className={`border-b-2 px-4 py-3 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(12_74%_42%)] ${tab===key?'border-[hsl(12_74%_42%)] font-semibold text-[hsl(12_74%_38%)]':'border-transparent text-muted-foreground hover:text-foreground'}`}>{label}</button>)}
           </div>}
           {error&&<p role="alert">{error}</p>}
@@ -233,7 +233,7 @@ export function DocPreviewDialog({
               </details>}
             </>}
             {tab==='original'&&<>
-              {doc.format!=='xlsx'&&<p className="text-[12px] leading-relaxed text-muted-foreground">{doc.format==='pdf'?'原始 PDF 分页预览。':'原件转换后的分页预览；版式可能与本机 Office 存在差异。'}{mappedPages.length?` 已记录的来源页：${mappedPages.join('、')}。`:' 未记录精确页映射，从第1页开始。'}不保证逐字高亮。</p>}
+              {doc.format!=='xlsx'&&<p className="text-[12px] leading-relaxed text-muted-foreground">{['jpg','jpeg','png'].includes(doc.format)?'图片预览（按图片方向信息纠正方向），下载可获取上传的原文件。':doc.format==='pdf'?'原始 PDF 分页预览。':'原件转换后的分页预览；版式可能与本机 Office 存在差异。'}{mappedPages.length?` 已记录的来源页：${mappedPages.join('、')}。`:' 未记录精确页映射，从第1页开始。'}不保证逐字高亮。</p>}
               {previewError&&<p role="alert" className="rounded-sm border border-border p-4 text-[13px]">{previewError}</p>}
               {!pages&&!previewError&&<p role="status">正在读取预览页数…</p>}
               {pages&&<>
@@ -260,10 +260,10 @@ export function DocPreviewDialog({
 
           {/* 能力边界说明（真实约束，不虚构） */}
           <div className="mt-6 space-y-1.5 border-t border-dashed border-border pt-4 text-[11px] leading-relaxed text-muted-foreground">
-            {doc.format === 'docx' && (
+            {['docx','doc'].includes(doc.format) && (
               <p>· Word 预览展示解析后的节选内容，原文精确高亮定位不保证成功。</p>
             )}
-            {doc.format === 'xlsx' && !excelSheets.length && (
+            {['xlsx','xls','csv'].includes(doc.format) && !excelSheets.length && (
               <p>· Excel 支持结构化内容查看，暂不支持从检索结果精确跳转到原始单元格。</p>
             )}
             {doc.status === 'archived' && (

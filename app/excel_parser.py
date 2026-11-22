@@ -57,9 +57,13 @@ def header_candidates(sheet):
 
 
 def parse_excel(path):
-    from app.parser import MAX_TEXT, issue
     book = load_workbook(path, data_only=False, keep_links=False)
     cache = load_workbook(path, data_only=True, keep_links=False)
+    return parse_workbooks(book, cache)
+
+
+def parse_workbooks(book, cache):
+    from app.parser import MAX_TEXT, issue
     blocks, issues, views, total = [], [], [], 0
     try:
         if len(book.worksheets) > MAX_SHEETS: raise ValueError('Excel 超过50个工作表限制。')

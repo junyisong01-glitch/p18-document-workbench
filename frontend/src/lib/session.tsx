@@ -74,7 +74,7 @@ function roleOf(identity: string): Role {
 /** 服务端库记录 → 界面文档模型。字段缺失就留空，界面自行隐藏。 */
 export function toDoc(record: LibraryRecord): Doc {
   const extension = (record.format || '').toLowerCase()
-  const format: DocFormat = extension === 'xlsx' ? 'xlsx' : extension === 'pdf' ? 'pdf' : 'docx'
+  const format: DocFormat = ['doc', 'docx', 'xlsx', 'xls', 'pdf', 'txt', 'md', 'csv', 'jpg', 'jpeg', 'png'].includes(extension) ? extension as DocFormat : 'docx'
   const indexed = record.status === '可检索' || !!record.reviewSearchable
   return {
     id: record.id,

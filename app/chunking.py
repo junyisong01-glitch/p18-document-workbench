@@ -57,7 +57,7 @@ CODE = re.compile(r'^\s*(?:```|~~~|(?:async\s+)?def\s+\w+\s*\(|class\s+\w+|funct
 def source_for(doc, block, start=0, end=None):
     src = {'block_id': block.get('id'), 'label': block.get('label', '文档级来源'),
            'variant': 'converted' if doc['ext'] == '.doc' else 'original'}
-    for key in ('sheet','row_start','row_end'):
+    for key in ('sheet','row_start','row_end','line_start','line_end'):
         if key in block: src[key]=block[key]
     if block.get('preview_pages'):
         src['preview_pages'] = block['preview_pages']
@@ -187,7 +187,7 @@ def split_text(text, target):
 
 
 def _prepare_legacy(doc, config):
-    if doc.get('ext') == '.xlsx' and doc.get('result',{}).get('excel_parser_version'):
+    if doc.get('ext') in {'.xlsx', '.xls', '.csv'} and doc.get('result',{}).get('excel_parser_version'):
         return prepare_excel(doc,config)
     units, warnings = units_from(doc)
     target, overlap = config['target_chars'], config['overlap_chars']

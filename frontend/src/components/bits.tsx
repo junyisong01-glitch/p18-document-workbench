@@ -16,7 +16,7 @@ export function DemoTag({ className = '' }: { className?: string }) {
 
 /** 文档格式标记（等宽编号风格，不用彩色图标容器） */
 export function FormatMark({ format, className = '' }: { format: DocFormat; className?: string }) {
-  const Icon = format === 'xlsx' ? FileSpreadsheet : FileText
+  const Icon = ['xlsx','xls','csv'].includes(format) ? FileSpreadsheet : FileText
   return (
     <span
       className={`inline-flex size-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground ${className}`}
