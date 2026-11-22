@@ -2,8 +2,8 @@ import {Check, Circle, CircleAlert, CircleDot} from 'lucide-react'
 import {useId} from 'react'
 import type {LibraryRecord} from '@/lib/api'
 export const BUSINESS_DEPARTMENTS=['研发部','生产制造部','财务部','人力资源部','行政安全部']
-export type Workflow={version:number;owner:string;department:string;status:string;archived:boolean;deleted:boolean;company_public:boolean;restricted:boolean;legacy:boolean;series:string;read_jobs?:string[];correction?:boolean;correction_error?:string}
-export type BusinessRow=LibraryRecord&{workflow:Workflow;technical_state:string;technical_index_ready:boolean;technical_error?:string}
+export type Workflow={version:number;owner:string;department:string;status:string;archived:boolean;deleted:boolean;company_public:boolean;restricted:boolean;legacy:boolean;series:string;read_jobs?:string[];correction?:boolean;correction_error?:string;published_by?:string}
+export type BusinessRow=LibraryRecord&{workflow:Workflow;technical_state:string;technical_index_ready:boolean;technical_error?:string;publication_stage?:string;review_reasons?:string[];parse_reasons?:string[];index_error?:string}
 export const workflowControl='rounded-md border border-border bg-card px-3 py-2 text-[12px] transition-colors hover:border-[hsl(12_74%_42%/0.5)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(12_74%_42%)] disabled:cursor-not-allowed disabled:opacity-45'
 export function WorkflowButton({children,onClick,reason,busy=false,danger=false}:{children:string;onClick:()=>void;reason?:string;busy?:boolean;danger?:boolean}){
  const id=useId()
@@ -12,7 +12,12 @@ export function WorkflowButton({children,onClick,reason,busy=false,danger=false}
 export function workflowState(row:BusinessRow){
  const b=row.workflow
  if(b.deleted)return{label:'回收站',tone:'muted'}
+ if(b.status==='taken_down')return{label:'已下架',tone:'muted'}
  if(b.archived)return{label:'历史归档',tone:'muted'}
+ if(b.status==='withdrawn')return{label:'已撤回',tone:'muted'}
+ if(row.index_error)return{label:'索引失败',tone:'error'}
+ if(row.publication_stage)return{label:row.publication_stage==='待发布'&&!row.technical_index_ready?'索引准备中':row.publication_stage,
+   tone:row.publication_stage==='解析异常'?'error':row.publication_stage==='待发布'&&row.technical_index_ready?'ready':'pending'}
  if(row.technical_state==='failed')return{label:'解析失败',tone:'error'}
  if(b.status==='correction_pending')return{label:b.correction_error?'勘误冲突':'勘误处理中',tone:b.correction_error?'error':'pending'}
  if(b.status==='returned')return{label:'已退回',tone:'error'}
@@ -28,6 +33,7 @@ export function WorkflowBadge({row}:{row:BusinessRow}){
 }
 export function WorkflowTimeline({row}:{row:BusinessRow}){
  const b=row.workflow
+ if(row.publication_stage)return null
  const labels=b.correction?['已提交勘误','解析与必要复核','索引准备','自动切换生效']:['已提交','解析与技术复核','业务审核','索引准备','待发布','已发布']
  const interrupted=row.technical_state==='failed'||b.status==='returned'||b.deleted||!!b.correction_error||b.status==='withdrawn'
  let stage=b.correction?(b.status==='published'?3:row.technical_state==='ready'?2:1):(b.status==='published'||b.status==='legacy_archived'?5:b.status==='approved'?row.technical_index_ready?4:3:row.technical_state==='ready'?2:1)

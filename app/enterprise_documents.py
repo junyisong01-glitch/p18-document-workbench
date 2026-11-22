@@ -6,6 +6,7 @@ from dataclasses import replace
 from fastapi import HTTPException,UploadFile,File,Form
 from pydantic import BaseModel,ConfigDict,Field
 from app import library_store
+from app.business_review import review_reasons, technical_ready
 
 class HistorySearch(BaseModel):
     model_config=ConfigDict(extra='forbid',strict=True)
@@ -61,10 +62,10 @@ def install_updates(store,central,user,read,manager,write,summary,visible):
     def editing_view(identifier:str):
         with store.LOCK:
             u,doc,b=assert_edit(identifier)
-            if doc['ext']!='.docx':return {'expected':b['version'],'format':doc['ext'],'paragraphs':[],'notice':'此格式请上传勘误后的同格式原稿，免业务审批并保留旧内容。'}
+            if doc['ext']!='.docx':return {'expected':b['version'],'format':doc['ext'],'paragraphs':[],'notice':'此格式请上传同格式的勘误文件，通过检查前旧内容继续生效。'}
             from docx import Document
             paragraphs=[{'ordinal':i,'text':p.text,'editable':editable(p)}for i,p in enumerate(Document(original(doc)).paragraphs)if p.text]
-            return {'expected':b['version'],'format':'.docx','paragraphs':paragraphs,'notice':'普通段落支持正文勘误；改动段落的局部字形可能重排。表格/复杂对象请上传修正版；免业务审批不等于可跳过必要解析复核。'}
+            return {'expected':b['version'],'format':'.docx','paragraphs':paragraphs,'notice':'普通段落支持正文勘误；改动段落的局部字形可能重排。表格/复杂对象请上传修正版；勘误文件仍会执行解析和内容风险检查。'}
     async def stage(identifier,expected,reason,declaration,file):
         if declaration is not True or not reason.strip()or len(reason)>2000:raise HTTPException(422,'须声明为轻量勘误并说明原因；核心修改请上传新版本')
         with store.LOCK:
@@ -94,8 +95,11 @@ def install_updates(store,central,user,read,manager,write,summary,visible):
             except Exception:
                 store.delete(new_id)
                 raise HTTPException(409,'勘误提交冲突，原生效内容未改变')from None
-            store.schedule_chunks(store.get(new_id))
-            return {'document':summary(store.get(new_id)),'notice':'勘误免业务审批；旧正文继续生效，新原稿解析和索引有效后自动切换。必要解析复核不能跳过。'}
+            new=store.get(new_id)
+            new['publication_rules']=1
+            store.save(new)
+            store.schedule_chunks(new)
+            return {'document':summary(store.get(new_id)),'notice':'旧正文继续生效。普通勘误通过检查和索引后自动切换，命中内容风险时送审。'}
     @store.app.post('/api/business/documents/{identifier}/correction-file')
     async def correction_file(identifier:str,file:UploadFile=File(...),expected:int=Form(...),reason:str=Form(...),declaration:bool=Form(...)):
         return await stage(identifier,expected,reason,declaration,file)
@@ -122,7 +126,10 @@ def install_updates(store,central,user,read,manager,write,summary,visible):
             b=read(identifier)
             if not b or b['status']!='correction_pending':return result
             doc=store.get(identifier)
-            if doc['state']!='ready'or not store.business_raw_index_status(identifier).get('searchable'):return False
+            if not technical_ready(doc) or not store.business_raw_index_status(identifier).get('searchable'):
+                return False
+            if doc.get('publication_rules')==1 and review_reasons(doc,b):
+                return True  # Index stays private while content is reviewed.
             with store.connect()as c:
                 edit=c.execute('SELECT * FROM business_edits WHERE document_id=?',(identifier,)).fetchone()
                 old=read(edit['previous_id'],c)if edit else None
@@ -133,7 +140,8 @@ def install_updates(store,central,user,read,manager,write,summary,visible):
                         c.execute('INSERT INTO business_events(document_id,at,actor,action,body)VALUES(?,?,?,?,?)',(identifier,time.time(),edit['editor']if edit else'background','minor_correction_conflict',json.dumps({'note':b['correction_error']},ensure_ascii=False)))
                     return False
                 old.update(archived=True,version=old['version']+1)
-                b.update(status='published',approved_fingerprint=store.fingerprint(doc),version=b['version']+1)
+                b.update(status='published',approved_fingerprint=store.fingerprint(doc),version=b['version']+1,
+                         published_by=edit['editor'])
                 # Public and explicit read grants continue for this logical same-version correction.
                 b['company_public']=old.get('company_public',False)
                 c.execute('UPDATE business_documents SET body=?WHERE document_id=?',(json.dumps(old,ensure_ascii=False),edit['previous_id']))

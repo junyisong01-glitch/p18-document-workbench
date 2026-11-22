@@ -516,3 +516,69 @@ def test_reinvite_revokes_old_code_without_resetting_active_accounts(rig):
     assert r.c.post(activate,headers=headers,json={'invitation_code':second.json()['invitation_code'],'password':'fictional-password-123'}).status_code==200
     assert r.c.post(route,headers=r.h['boss'],json={'username':'pending_staff'}).status_code==409
     assert r.c.post(route,headers=r.h['boss'],json={'username':'boss'}).status_code==409
+
+
+def test_uploaded_internal_document_uses_direct_department_release_and_takedown(rig):
+    r=rig
+    def upload(version,replaces=None):
+        metadata={'name':'发布流程演示','code':'RELEASE-01','version':version,'classification':'内部'}
+        if replaces:
+            metadata['replaces']=replaces
+        response=r.c.post('/api/business/upload',headers=r.h['rd'],
+                          files={'file':('release.docx',b'test')},data={'metadata_json':json.dumps(metadata)})
+        assert response.is_success, response.text
+        row=response.json()
+        assert row['publication_stage']=='待发布'
+        assert row['review_reasons']==[]
+        assert row['id'] in r.scheduled
+        return row['id']
+    old=upload('V1')
+    assert r.c.get('/api/documents/'+old,headers=r.h['qa']).status_code==404
+    assert r.action(old,'rd','publish').is_success
+    assert r.c.get('/api/documents/'+old,headers=r.h['qa']).status_code==200
+    assert r.c.get('/api/documents/'+old,headers=r.h['prd']).status_code==404
+    new=upload('V2',old)
+    assert r.q.business_read(old)['archived'] is False
+    assert r.action(new,'rd','publish').is_success
+    assert r.q.business_read(old)['archived'] is True
+    query='/source?revision=1&index_token=old&chunk_id=old&current_only=true'
+    assert r.c.get('/api/documents/'+old+query,headers=r.h['rd']).status_code==409
+    assert r.action(new,'qa','take_down',note='越权用例').status_code==403
+    assert r.action(new,'rd','take_down',note='撤下测试').is_success
+    assert r.c.get('/api/documents/'+new,headers=r.h['qa']).status_code==404
+    assert r.c.get('/api/documents/'+new+query,headers=r.h['rd']).status_code==409
+    assert r.c.get('/api/documents/'+new,headers=r.h['rd']).status_code==200
+
+
+def test_sensitive_content_and_supervisor_self_review_go_through_separate_gate(rig):
+    r=rig
+    id=r.create(owner='head',status='submitted')
+    with r.q.connect() as conn:
+        row=r.q.business_read(id,conn)
+        row['read_jobs']=['研发']
+        conn.execute('UPDATE business_documents SET body=? WHERE document_id=?',(json.dumps(row),id))
+    doc=r.q.get(id)
+    doc.update(publication_rules=1,characters=18,result={'blocks':[{'text':'报价金额：8000元'}]})
+    r.q.save(doc)
+    assert r.action(id,'head','publish').status_code==409
+    assert r.action(id,'head','approve_publish').status_code==403
+    response=r.action(id,'boss','approve_publish')
+    assert response.is_success, response.text
+    assert response.json()['classification']=='机密'
+    assert r.c.get('/api/documents/'+id,headers=r.h['rd']).status_code==404
+
+
+def test_parse_exception_priority_and_withdrawn_draft(rig):
+    r=rig
+    id=r.create(status='submitted',restricted=True)
+    doc=r.q.get(id)
+    doc.update(publication_rules=1,state='review',result={'blocks':[], 'issues':[{'kind':'table','message':'原表错列'}]})
+    r.q.save(doc)
+    rows=r.c.get('/api/business/documents',headers=r.h['head']).json()
+    row=next(row for row in rows if row['id']==id)
+    assert row['publication_stage']=='解析异常'
+    assert row['parse_reasons']==['原表错列'] and row['review_reasons']==['标为机密']
+    assert r.action(id,'head','approve_publish').status_code==409
+    assert r.action(id,'rd','withdraw').is_success
+    assert r.q.business_read(id)['status']=='withdrawn'
+    assert r.action(id,'rd','publish').status_code==409

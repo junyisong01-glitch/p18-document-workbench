@@ -39,12 +39,20 @@ def confirmed(doc):
             and all(review.get('checks', {}).get(r['key']) is True for r in requirements(doc)))
 
 
+def only_preview_warning(doc):
+    result = doc.get('result') or {}
+    return (doc['state'] == 'review' and doc.get('characters', 0) > 0
+            and bool(result.get('preview_warnings')) and not result.get('issues') and not result.get('error'))
+
+
 def sync_admission(doc):
     kinds = categories(doc)
     needs_review = bool(kinds) or doc.get('quality') == 'review'
     excel_warning_mode = (doc.get('ext') == '.xlsx' and (doc.get('result') or {}).get('excel_review_policy') == 'record-warning-v1')
     eligible = (doc['state'] == 'ready' and doc.get('characters', 0) > 0
                 and 'unusable' not in kinds and (not needs_review or confirmed(doc)))
+    if doc.get('publication_rules') == 1 and only_preview_warning(doc):
+        eligible = True
     if excel_warning_mode and doc['state'] in {'ready','review'} and doc.get('characters',0)>0 and 'unusable' not in kinds:
         eligible = True  # Explicit user policy: retain review flags; never override held/failed.
     doc['admission'] = {
