@@ -5,12 +5,13 @@ Technical readiness never grants publication. No model or egress authorization.
 """
 from pathlib import Path
 import json,time,uuid,threading,importlib.util,sys
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from fastapi import HTTPException,UploadFile,File,Form,Request
 from pydantic import BaseModel,ConfigDict,Field
 from app import library_api,library_store
 from app.library_policy import LibraryMetadata,can_view
 from app.business_roles import DEPARTMENTS
+from app.business_review import review_reasons, technical_ready
 
 class Action(BaseModel):
     model_config=ConfigDict(extra='forbid',strict=True)
@@ -47,6 +48,14 @@ def install(store,central,legacy_acl):
             c.execute('INSERT OR REPLACE INTO business_documents VALUES (?,?)',(identifier,json.dumps(b,ensure_ascii=False)))
             c.execute('INSERT INTO business_events(document_id,at,actor,action,body) VALUES (?,?,?,?,?)',(identifier,time.time(),u['username'],action,json.dumps({'version':b['version'],'note':note},ensure_ascii=False)))
     def manager(u,b):return u['role']=='boss' or (u['role']=='supervisor' and u['department']==b['department'])
+    def owner(u,b):
+        return (u['role']!='guest' and u['username']==b['owner']
+                and (u['role']=='boss' or u['department']==b['department']))
+    def reviewer(u,b):
+        return manager(u,b) and (u['role']=='boss' or not owner(u,b))
+    def prepare_index(doc,b):
+        return (doc.get('publication_rules') == 1 and b['status']=='submitted'
+                and not b.get('deleted') and not b['archived'] and technical_ready(doc))
     def visible(doc,u,*,evidence=False):
         if not u or 'role' not in u:return False
         with central.connect() as c:
@@ -93,13 +102,14 @@ def install(store,central,legacy_acl):
             if getattr(central,'DEMO_LIBRARY_OFFLINE',False) or provider_name()=='ollama':return
         if method=='POST' and path.startswith('/api/documents/') and path.endswith('/review'):
             identifier=path.split('/')[3];b=read(identifier)
-            if b and manager(u,b) and b['status']in {'submitted','correction_pending'}:return
+            if b and manager(u,b) and b['status']in {'submitted','correction_pending','approved'}:return
         raise HTTPException(403,'业务库仅允许受控提交与审批接口；禁止直接修改、删除或外发')
     store.authorize_operation=operation
     old_schedule=store.schedule_chunks
     def schedule(doc,retry_failed=False):
         b=read(doc['id'])
-        if b and b['status'] in {'approved','published','legacy_archived','correction_pending'}:return old_schedule(doc,retry_failed)
+        if b and (b['status'] in {'approved','published','legacy_archived','correction_pending'} or prepare_index(doc,b)):
+            return old_schedule(doc,retry_failed)
     store.schedule_chunks=schedule
     old_public=store.public
     def public(doc,detailed=False):
@@ -130,10 +140,33 @@ def install(store,central,legacy_acl):
         result['technical_index_ready']=bool(original_index_status(doc['id']).get('searchable'))
         result['technical_state']=doc['state']
         result['technical_error']=doc.get('error')
+        if b['status'] in {'submitted','correction_pending','approved'} and not b.get('deleted') and not b['archived']:
+            reasons=review_reasons(doc,b) if doc.get('publication_rules')==1 else []
+            result['review_reasons']=reasons
+            if doc['state'] in {'review','held','failed'} and not technical_ready(doc):
+                result['publication_stage']='解析异常'
+                issues=(doc.get('result') or {}).get('issues',[])
+                result['parse_reasons']=[item['message'] for item in issues[:4]]
+            elif not technical_ready(doc):
+                result['publication_stage']='解析处理中'
+            elif b['status']=='approved':
+                result['publication_stage']='待发布'
+            elif reasons or b['status']=='submitted' and doc.get('publication_rules')!=1:
+                result['publication_stage']='内容待审'
+            elif b['status']=='submitted':
+                result['publication_stage']='待发布'
+            else:
+                result['publication_stage']='勘误处理中'
+            index=original_index_status(doc['id'])
+            if index.get('status')=='failed':
+                result['index_error']=index.get('message') or '索引失败，请重试。'
         if b['archived']:result['lifecycle']='已废止'
         if b.get('deleted'):result['status']='回收站'
         elif b['archived']:result['status']='历史归档'
-        elif b['status']!='published':result['status']={'submitted':'待业务审核','approved':'审批通过待发布','returned':'已退回','correction_pending':'勘误处理中（免业务审批）'}.get(b['status'],b['status'])
+        elif b['status']=='published' and doc.get('publication_rules')==1 and technical_ready(doc):
+            if result['technical_index_ready']:
+                result['status']='可检索'
+        elif b['status']!='published':result['status']=result.get('publication_stage') or {'submitted':'待业务审核','approved':'审批通过待发布','returned':'已退回','correction_pending':'勘误处理中','taken_down':'已下架','withdrawn':'已撤回'}.get(b['status'],b['status'])
     store.decorate_library_record=decorate
     def assert_write(u,b):
         if not manager(u,b):raise HTTPException(403,'仅老板或本部门主管可操作')
@@ -169,9 +202,9 @@ def install(store,central,legacy_acl):
         with store.LOCK:
             if m.get('replaces'):
                 previous=read(m['replaces'])
-                if not previous or previous['department']!=dept or not visible(store.get(m['replaces']),u) or previous['status']not in {'published','returned'} or previous.get('deleted')or previous['archived']:raise HTTPException(409,'不能替换此文档版本')
+                if not previous or previous['department']!=dept or not visible(store.get(m['replaces']),u) or previous['status']not in {'published','returned','withdrawn','taken_down'} or previous.get('deleted')or previous['archived']:raise HTTPException(409,'不能替换此文档版本')
                 with store.connect()as c:old_meta=library_store.read(c,m['replaces'])[1]
-                if m['code']!=old_meta.code or m['version']==old_meta.version:raise HTTPException(409,'新版本须保留文档编号并使用不同版本号')
+                if m['code']!=old_meta.code or (m['version']==old_meta.version and previous['status']!='withdrawn'):raise HTTPException(409,'新版本须保留文档编号并使用不同版本号')
                 if old_meta.classification=='机密'and classification!='机密':raise HTTPException(422,'新版本不得降低原机密级别；扩大读取须另行明确批准')
                 if previous['owner']!=u['username'] and not manager(u,previous):raise HTTPException(403,'仅上传者或主管可提交新版本')
                 with store.connect()as c:
@@ -184,10 +217,11 @@ def install(store,central,legacy_acl):
         # Native parser/storage, never client-supplied text/chunks or vector data.
         response=(await store.upload(files=[file],mode='keep' if previous else 'ask',replace_id=''))[0]
         if response['status']!='accepted':raise HTTPException(409,response['message'])
-        identifier=response['id'];doc=store.get(identifier)
+        identifier=response['id']
         with store.LOCK:
+            doc=store.get(identifier)
             meta=LibraryMetadata(code=m['code'],name=m['name'],folder=dept,department=dept,doc_type='业务资料',classification=classification,version=m['version'],lifecycle='现行有效',viewers=(u['identity'],)if classification=='机密'else())
-            b=dict(version=0,owner=u['username'],department=dept,series=previous['series']if previous else str(uuid.uuid4()),replaces=(previous.get('replaces') if previous and previous['status']=='returned' else m.get('replaces')),revises=m.get('replaces'),status='submitted',archived=False,deleted=False,company_public=False,restricted=classification=='机密',legacy=False,approved_by=None,approved_fingerprint=None)
+            b=dict(version=0,owner=u['username'],department=dept,series=previous['series']if previous else str(uuid.uuid4()),replaces=(previous.get('replaces') if previous and previous['status'] in {'returned','withdrawn'} else m.get('replaces')),revises=m.get('replaces'),status='submitted',archived=False,deleted=False,company_public=False,restricted=classification=='机密',legacy=False,approved_by=None,approved_fingerprint=None)
             if previous:
                 b['restricted']=b['restricted']or previous.get('restricted',False)
                 inherited=previous.get('read_jobs')
@@ -198,6 +232,9 @@ def install(store,central,legacy_acl):
                 if inherited is not None:b['read_jobs']=list(inherited)
             try:
                 with store.connect()as c:
+                    if not previous and any(json.loads(row[0]).get('code')==meta.code
+                                            for row in c.execute('SELECT body FROM library_metadata')):
+                        raise ValueError('Document code already exists')
                     library_store.write(c,identifier,meta,0)
                     if previous:
                         latest=read(m['replaces'],c)
@@ -211,6 +248,42 @@ def install(store,central,legacy_acl):
             except Exception:
                 store.delete(identifier)
                 raise HTTPException(409,'提交冲突，未发布本次文件，请检查是否已有待审版本')from None
+            doc['publication_rules']=1
+            store.save(doc)
+            store.schedule_chunks(doc)
+        return summary(doc)
+
+    def publish(doc,b,u,*,reviewed=False):
+        identifier=doc['id']
+        if not technical_ready(doc) or not original_index_status(identifier).get('searchable'):
+            raise HTTPException(409,'解析或索引尚未就绪')
+        with store.connect()as c:
+            if b.get('replaces'):
+                old=read(b['replaces'],c)
+                if not old or old['status'] not in {'published','taken_down'} or old['archived'] or old.get('deleted'):
+                    raise HTTPException(409,'上一版本已变化')
+                if b.get('correction'):
+                    edit=c.execute('SELECT previous_version FROM business_edits WHERE document_id=?',(identifier,)).fetchone()
+                    if not edit or old['version']!=edit[0]:
+                        raise HTTPException(409,'原生效版本或授权已变化，请重新提交勘误')
+                    c.execute('UPDATE business_edits SET completed=? WHERE document_id=?',(time.time(),identifier))
+                old.update(archived=True,version=old['version']+1)
+                c.execute('UPDATE business_documents SET body=? WHERE document_id=?',
+                          (json.dumps(old,ensure_ascii=False),b['replaces']))
+            reasons=review_reasons(doc,b) if reviewed and doc.get('publication_rules')==1 else []
+            if reasons:
+                b['restricted']=True
+                b.pop('read_jobs',None)
+                meta_row=library_store.read(c,identifier)
+                library_store.write(c,identifier,replace(meta_row[1],classification='机密'),meta_row[0])
+            b.update(status='published',published_by=u['username'],version=b['version']+1)
+            c.execute('UPDATE business_documents SET body=? WHERE document_id=?',
+                      (json.dumps(b,ensure_ascii=False),identifier))
+            event='publish_version' if b.get('replaces') else 'publish'
+            c.execute('INSERT INTO business_events(document_id,at,actor,action,body)VALUES(?,?,?,?,?)',
+                      (identifier,time.time(),u['username'],event,json.dumps({
+                          'previous':b.get('replaces'),'version':b['version'],'reviewed':reviewed,
+                          'approved_by':b.get('approved_by'),'review_reasons':reasons},ensure_ascii=False)))
         return summary(doc)
 
     @store.app.post('/api/business/documents/{identifier}/action')
@@ -221,42 +294,80 @@ def install(store,central,legacy_acl):
             if not b or not(visible(doc,u) or (body.action=='purge' and u['role']=='boss' and b.get('deleted'))):raise HTTPException(404,'文档不可访问')
             if b['version']!=body.expected:raise HTTPException(409,'文档状态已变化，请刷新')
             a=body.action
-            if a in {'approve','return','publish'}:
-                assert_write(u,b)
+            if a in {'approve','return','publish','approve_publish','withdraw','take_down','retry_index'}:
                 if b.get('deleted')or b['archived']:raise HTTPException(409,'归档或回收站文件不能发布')
-            if a=='cancel_correction':
+            if a=='withdraw':
+                if not owner(u,b) or b['status'] not in {'submitted','approved','returned'}:
+                    raise HTTPException(403,'仅上传者可撤回本人未发布的提交')
+                b.update(status='withdrawn',approved_by=None,approved_fingerprint=None)
+            elif a=='take_down':
+                own_regular=(owner(u,b) and b.get('published_by')==u['username']
+                             and not b['restricted'] and not b['company_public'])
+                if not (manager(u,b) or own_regular):
+                    raise HTTPException(403,'无权下架此文档')
+                if b['status']!='published':
+                    raise HTTPException(409,'仅可下架现行文档')
+                if not body.note.strip():
+                    raise HTTPException(422,'请填写下架原因')
+                b.update(status='taken_down',company_public=False)
+            elif a=='retry_index':
+                if not (owner(u,b) or manager(u,b)):
+                    raise HTTPException(403,'无权重试索引')
+                if b['status'] not in {'submitted','approved','correction_pending'} or not technical_ready(doc):
+                    raise HTTPException(409,'当前资料不能重试索引')
+                if original_index_status(identifier).get('status')!='failed':
+                    raise HTTPException(409,'当前索引未处于失败状态')
+                chunk_run=store.load_chunk_run(identifier)
+                if chunk_run and chunk_run['status']=='complete' and store.INDEX_SERVICE is not None:
+                    store.INDEX_SERVICE.schedule(identifier,retry=True)
+                else:
+                    store.schedule_chunks(doc,retry_failed=True)
+                return summary(doc)
+            elif a=='cancel_correction':
                 if not b.get('correction')or b['status']!='correction_pending'or b['owner']!=u['username']:raise HTTPException(403,'仅本人可取消未生效勘误')
                 b.update(status='withdrawn',archived=True);write(identifier,b,u,'cancel_correction')
                 return summary(doc)
-            if a=='retry_parse':
-                if b['owner']!=u['username'] or doc['state']!='failed' or b.get('deleted'):raise HTTPException(403,'仅上传者可重试本人解析失败资料')
+            elif a=='retry_parse':
+                if not owner(u,b) or b['status'] not in {'submitted','correction_pending','approved'} or doc['state']!='failed' or b.get('deleted'):raise HTTPException(403,'仅上传者可重试本人解析失败资料')
                 b.update(status='correction_pending'if b.get('correction')else'submitted',approved_by=None,approved_fingerprint=None)
                 write(identifier,b,u,'retry_parse')
                 store.retry(identifier)
                 return summary(store.get(identifier))
-            if a=='return':
-                if b['status']!='submitted' or not body.note.strip():raise HTTPException(409,'退回须提供原因且处于待审状态')
+            elif a=='return':
+                assert_write(u,b)
+                if b['status'] not in {'submitted','correction_pending'} or not body.note.strip():raise HTTPException(409,'退回须提供原因且处于待审状态')
                 b.update(status='returned',approved_by=None,approved_fingerprint=None)
             elif a=='resubmit':
                 if b['owner']!=u['username'] or b['status']!='returned':raise HTTPException(403,'仅本人可重新提交被退回资料')
-                b.update(status='submitted')
-            elif a=='approve':
-                if b['status']!='submitted' or doc['state']!='ready':raise HTTPException(409,'请先完成解析及必要的内容复核')
-                b.update(status='approved',approved_by=u['username'],approved_fingerprint=store.fingerprint(doc))
+                b.update(status='correction_pending' if b.get('correction') else 'submitted')
+            elif a in {'approve','approve_publish'}:
+                assert_write(u,b)
+                if b['status'] not in {'submitted','correction_pending'} or not technical_ready(doc):
+                    raise HTTPException(409,'请先完成解析及必要的技术复核')
+                reasons=review_reasons(doc,b) if doc.get('publication_rules')==1 else []
+                if reasons and not reviewer(u,b):
+                    raise HTTPException(403,'主管本人提交的高风险资料须由管理层负责人审核')
+                if b['status']=='correction_pending' and not reasons:
+                    raise HTTPException(409,'常规勘误会自动生效')
+                if a=='approve_publish' and not reasons:
+                    raise HTTPException(409,'此文档可走普通发布流程')
+                b.update(approved_by=u['username'],approved_fingerprint=store.fingerprint(doc))
+                if a=='approve_publish':
+                    return publish(doc,b,u,reviewed=True)
+                b['status']='approved'
             elif a=='publish':
-                if b['status']!='approved' or b['approved_fingerprint']!=store.fingerprint(doc)or not original_index_status(identifier).get('searchable'):raise HTTPException(409,'审批或索引未就绪，尚未发布')
-                if b.get('replaces'):
-                    old=read(b['replaces'])
-                    if not old or old['status']!='published'or old['archived']or old.get('deleted'):raise HTTPException(409,'上一版本已变化')
-                    old['archived']=True
-                    # Publish both pointers in one SQLite transaction; retain all source artifacts.
-                    with store.connect()as c:
-                        c.execute('UPDATE business_documents SET body=? WHERE document_id=?',(json.dumps(dict(old,version=old['version']+1),ensure_ascii=False),b['replaces']))
-                        b.update(status='published');b['version']+=1
-                        c.execute('UPDATE business_documents SET body=? WHERE document_id=?',(json.dumps(b,ensure_ascii=False),identifier))
-                        c.execute('INSERT INTO business_events(document_id,at,actor,action,body)VALUES(?,?,?,?,?)',(identifier,time.time(),u['username'],'publish_version',json.dumps({'previous':b['replaces']})))
-                    return summary(doc)
-                b.update(status='published')
+                if not (owner(u,b) or manager(u,b)):
+                    raise HTTPException(403,'仅上传者或本部门主管可发布')
+                if b['status']=='approved':
+                    assert_write(u,b)
+                    if b['approved_fingerprint']!=store.fingerprint(doc):
+                        raise HTTPException(409,'审批对应的文件已变化')
+                    if doc.get('publication_rules')==1 and review_reasons(doc,b) and not reviewer(u,b):
+                        raise HTTPException(403,'主管本人提交的高风险资料须由管理层负责人发布')
+                    return publish(doc,b,u,reviewed=True)
+                if not prepare_index(doc,b) or review_reasons(doc,b):
+                    raise HTTPException(409,'资料尚未完成所需审核或解析检查')
+                return publish(doc,b,u)
             elif a in {'archive','trash','restore'}:
                 assert_write(u,b)
                 if a=='archive':b['archived']=True
@@ -279,6 +390,9 @@ def install(store,central,legacy_acl):
                 return summary(doc)
             elif a in {'make_public','revoke_public'}:
                 if u['role']!='boss':raise HTTPException(403,'仅老板可批准全公司公开')
+                if a=='make_public' and (b['status']!='published' or b['archived'] or b.get('deleted')
+                                         or doc.get('publication_rules')==1 and b.get('restricted')):
+                    raise HTTPException(409,'只有现行且符合公开条件的资料可以公开')
                 b['company_public']=a=='make_public'
             elif a=='purge':
                 if u['role']!='boss' or not b.get('deleted') or body.confirm!=identifier:raise HTTPException(403,'彻底删除仅限老板，并须先软删除及确认文件ID')
@@ -295,7 +409,7 @@ def install(store,central,legacy_acl):
                 return {'purged':True}
             else:raise HTTPException(422,'未知操作')
             write(identifier,b,u,a,body.note)
-            if a=='approve':store.schedule_chunks(doc)
+            if a in {'approve','resubmit'}:store.schedule_chunks(doc)
             return summary(doc)
 
     @store.app.get('/api/business/documents/{identifier}/audit')
@@ -356,7 +470,10 @@ def create_store(central,cfg):
         if doc['state']in q.STATES:
             doc.update(state='failed',quality='failed',error='上次业务处理被中断，请重新提交新版本；未发布。');q.save(doc)
         b=q.business_read(doc['id'])
-        if b and b['status']in {'approved','correction_pending'} and doc['state']=='ready':q.schedule_chunks(doc,retry_failed=True)
+        if (b and technical_ready(doc)
+                and (b['status'] in {'approved','correction_pending'}
+                     or b['status']=='submitted' and doc.get('publication_rules')==1)):
+            q.schedule_chunks(doc,retry_failed=True)
     q.INDEX_SERVICE.recover()
     if not hasattr(central,'BUSINESS_CHILDREN'):central.BUSINESS_CHILDREN=[]
     central.BUSINESS_CHILDREN.append(q)

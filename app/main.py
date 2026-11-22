@@ -986,8 +986,14 @@ def available(identifier):
     return doc
 
 
-def source_guard(doc, revision=None, index_token=None, chunk_id=None):
+def source_guard(doc, revision=None, index_token=None, chunk_id=None, current_only=False):
     """Optional guards keep legacy previews compatible; new QA supplies all three."""
+    workflow_read = globals().get('business_read')
+    if workflow_read and (current_only or chunk_id):
+        workflow = workflow_read(doc['id'])
+        if workflow and (workflow['status'] in {'taken_down','withdrawn'}
+                         or current_only and (workflow['status'] != 'published' or workflow['archived'] or workflow.get('deleted'))):
+            raise HTTPException(409, {"code": "source_stale", "message": "来源已下架或归档，请重新检索。"})
     if all(x is None for x in (revision, index_token, chunk_id)):
         return None
     if revision is not None and index_token is None and chunk_id is None:
@@ -1009,20 +1015,20 @@ def source_guard(doc, revision=None, index_token=None, chunk_id=None):
 
 
 @app.get("/api/documents/{identifier}/source")
-def source_read(identifier: str, revision: int, index_token: str, chunk_id: str):
+def source_read(identifier: str, revision: int, index_token: str, chunk_id: str, current_only: bool = False):
     with LOCK:
         doc = available(identifier)
-        chunk = source_guard(doc, revision, index_token, chunk_id)
+        chunk = source_guard(doc, revision, index_token, chunk_id, current_only)
         return {"source": chunk, "document": public(doc, detailed=True)}
 
 
 @app.get("/api/documents/{identifier}/source/highlight")
-def source_highlight(identifier: str, revision: int, index_token: str, chunk_id: str):
+def source_highlight(identifier: str, revision: int, index_token: str, chunk_id: str, current_only: bool = False):
     """Read-only exact text geometry, with the same current-source guard as preview."""
     from app.qa_highlight import locate
     with LOCK:
         doc = available(identifier)
-        chunk = source_guard(doc, revision, index_token, chunk_id)
+        chunk = source_guard(doc, revision, index_token, chunk_id, current_only)
         relative = (doc.get("result") or {}).get("preview", {}).get("original")
         if not relative:
             return {"status": "unavailable", "pages": [], "message": "暂无可靠预览位置；以下为真实提取片段。"}
@@ -1030,10 +1036,10 @@ def source_highlight(identifier: str, revision: int, index_token: str, chunk_id:
 
 
 @app.get("/api/documents/{identifier}/file/{variant}")
-def file_download(identifier: str, variant: str, revision: int | None = None, index_token: str | None = None, chunk_id: str | None = None):
+def file_download(identifier: str, variant: str, revision: int | None = None, index_token: str | None = None, chunk_id: str | None = None, current_only: bool = False):
     with LOCK:
         doc = available(identifier)
-        source_guard(doc, revision, index_token, chunk_id)
+        source_guard(doc, revision, index_token, chunk_id, current_only)
         if variant == "original":
             relative = "original" + doc["ext"]
             name = doc["name"]
@@ -1046,10 +1052,10 @@ def file_download(identifier: str, variant: str, revision: int | None = None, in
 
 
 @app.get("/api/documents/{identifier}/preview/{variant}/meta")
-def preview_meta(identifier: str, variant: str, revision: int | None = None, index_token: str | None = None, chunk_id: str | None = None):
+def preview_meta(identifier: str, variant: str, revision: int | None = None, index_token: str | None = None, chunk_id: str | None = None, current_only: bool = False):
     with LOCK:
         doc = available(identifier)
-        source_guard(doc, revision, index_token, chunk_id)
+        source_guard(doc, revision, index_token, chunk_id, current_only)
         relative = (doc.get("result") or {}).get("preview", {}).get(variant)
         if not relative:
             raise HTTPException(404, "预览尚未生成，可下载原文件查看。")
@@ -1058,10 +1064,10 @@ def preview_meta(identifier: str, variant: str, revision: int | None = None, ind
 
 
 @app.get("/api/documents/{identifier}/preview/{variant}/{page}")
-def preview_page(identifier: str, variant: str, page: int, zoom: float = Query(1, ge=1, le=3), revision: int | None = None, index_token: str | None = None, chunk_id: str | None = None):
+def preview_page(identifier: str, variant: str, page: int, zoom: float = Query(1, ge=1, le=3), revision: int | None = None, index_token: str | None = None, chunk_id: str | None = None, current_only: bool = False):
     with LOCK:
         doc = available(identifier)
-        source_guard(doc, revision, index_token, chunk_id)
+        source_guard(doc, revision, index_token, chunk_id, current_only)
         relative = (doc.get("result") or {}).get("preview", {}).get(variant)
         if not relative:
             raise HTTPException(404, "预览尚未生成。")

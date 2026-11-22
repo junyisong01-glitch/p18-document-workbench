@@ -7,7 +7,7 @@ export function DocumentFormat({format,secret=false,legacy=false}:{format:string
  return <span aria-label={'文件格式 '+format} className={'dm-format '+(secret?'dm-format-secret':legacy?'dm-format-legacy':'')}>{format||'文件'}</span>
 }
 export function DocumentViews({tabs,active,counts,loaded,onSelect}:{tabs:string[];active:string;counts:Record<string,number>;loaded:boolean;onSelect:(tab:string)=>void}){
- const groups=[{name:'流转',items:['已发布','我的提交']},{name:'待办',items:['待审核','待发布']},{name:'库',items:['历史归档','回收站']},{name:'管理',items:['人员职责','邀请建号']}]
+ const groups=[{name:'流转',items:['已发布','我的提交']},{name:'待办',items:['解析异常','内容待审','待发布']},{name:'库',items:['历史归档','已下架','回收站']},{name:'管理',items:['人员职责','邀请建号']}]
  return <nav aria-label="业务流程视图" className="dm-view-groups">{groups.map(group=>{const items=group.items.filter(item=>tabs.includes(item));return items.length?<fieldset key={group.name}><legend>{group.name}</legend>{items.map(item=><button type="button" aria-label={item} aria-pressed={active===item} className={active===item?'active':''} key={item} onClick={()=>onSelect(item)}>{item}{item in counts&&<span aria-hidden="true" className={group.name==='待办'?'dm-count-pending':''}>{loaded?counts[item]:'…'}</span>}</button>)}</fieldset>:null})}</nav>
 }
 export function BusinessFilePicker({file,busy,onFile,onError}:{file:File|null;busy:boolean;onFile:(file:File|null)=>void;onError:(message:string)=>void}){

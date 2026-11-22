@@ -9,7 +9,7 @@
 | 登录与激活 | `frontend/src/pages/Login.tsx`、`LoginFlow.css`、`components/DemoIdentityCards.tsx` | 演示身份卡按五组展示中文姓名、岗位与部门，点击填入账号和临时口令后确认登录 |
 | 业务文档 | `frontend/src/pages/BusinessPage.tsx`、`components/DocumentLayout*`、`EnterpriseActions.tsx` | 真实提交进度、部门分类、审核发布、历史/回收站与邀请入口 |
 | 角色及账号 | `app/business_roles.py`、`enterprise_accounts.py` | 唯一老板、主管/员工/访客；老板与人事主管邀请建号；任免使旧会话失效 |
-| 状态与版本 | `app/business.py`、`enterprise_documents.py` | 老板/主管自审留审计；普通本部门发布件主管可读；普通件明确借阅；本人轻量勘误保留旧内容、索引后切换；核心修改走新版审批 |
+| 状态与版本 | `app/business.py`、`enterprise_documents.py` | 普通内部件由上传者或本部门主管发布；机密或敏感件走归属部门审核；新版就绪后切换并归档旧版；勘误也重新检查风险 |
 | 检索 | `app/semantic.py`、`app/qa_scope.py` | 关键词和向量融合，按产品、版本和字段优先选择证据；旧版从历史归档查阅 |
 | 问答 | `frontend/src/pages/QaPage.tsx`、`components/QaWorkspace.tsx`、`components/QaAnswerFirst.tsx` | 统一问答入口，本地直接生成，按资料合并引用、定位片段及右侧原文预览 |
 | 模型与路由 | `app/llm.py`、`app/external_model.py`、`app/rag.py` | Ollama 默认；系统级 DeepSeek 默认关闭，启用后执行来源检查、逐轮确认和审计 |
@@ -19,9 +19,9 @@
 
 ## 保留的安全边界
 
-- 主搜索/RAG只接受当前身份可读、已发布且索引有效的资料；待审、历史、回收站不混入RAG。
+- 主搜索/RAG只接受当前身份可读、已发布且索引有效的资料；待审、下架、历史、回收站不混入RAG。
 - 启辰模式的 DeepSeek 只在系统开关开启、命中资料均为公开级且用户确认本轮时调用。外部请求仅发送用户问题。管理员可以关闭开关并查看审计。
-- 员工无审核、发布、删除权限；部门以外仅可读公司公开与明确借阅的资料。机密不因同部门或主管身份自动开放。
+- 员工可上传本部门资料，发布本人通过检查的普通件，并可下架本人发布的普通内部件。部门以外按公司公开与明确借阅读取。机密权限仍按单独授权判断。
 - 物理删除仅老板可执行，先软删除，输入完整ID，按所选版本处理并保留审计墓碑。
 - 16384上下文显式保留；本地故障不悄悄外发。切换Provider不改变Embedding、切分或检索排序。
 

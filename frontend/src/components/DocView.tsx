@@ -81,7 +81,7 @@ export function DocPreviewDialog({
   const opener=useRef<HTMLElement|null>(null)
   const closeButton=useRef<HTMLButtonElement>(null)
   const contextual=presentation!=='dialog'
-  const sourceQuery=sourceRef?'?'+new URLSearchParams({revision:String(sourceRef.revision),index_token:sourceRef.index_token,chunk_id:sourceRef.chunk_id}).toString():''
+  const sourceQuery=sourceRef?'?'+new URLSearchParams({revision:String(sourceRef.revision),index_token:sourceRef.index_token,chunk_id:sourceRef.chunk_id,...(contextual?{current_only:'true'}:{})}).toString():''
   const loadKey=JSON.stringify([kbId,user?.username,doc?.id,doc?.format,sourceQuery,sourceVisit,contextual])
   const detail=loaded.key===loadKey?loaded.detail:undefined
   const error=loaded.key===loadKey?loaded.error:undefined
