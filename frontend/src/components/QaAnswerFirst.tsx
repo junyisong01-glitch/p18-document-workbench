@@ -93,13 +93,15 @@ function SourceRow({ entry, active, setNode, onSource, loadEvidence }: {
   const [expanded,setExpanded] = useState(false)
   const { source, numbers } = entry
   const section = source.section || '文档片段'
+  const spreadsheet = /\.xlsx$/i.test(source.document_name)
+  const fetchEvidence = loadEvidence || spreadsheet
   return <div className="qa-chat-source-row" data-active={active || undefined}>
-    <details ref={setNode} className="qa-first-source" onToggle={loadEvidence ? event => setExpanded(event.currentTarget.open) : undefined}>
+    <details ref={setNode} className="qa-first-source" onToggle={fetchEvidence ? event => setExpanded(event.currentTarget.open) : undefined}>
       <summary>
         {numbers.length > 0 && <span className="qa-first-source-index">{numbers.map(number => '[' + number + ']').join(' ')}</span>}
         <strong>{section}</strong>
       </summary>
-      {loadEvidence ? expanded && <div className="mt-2"><SearchEvidence documentId={source.document_id} sourceRef={source}/></div> :
+      {fetchEvidence ? expanded && <div className="mt-2"><SearchEvidence documentId={source.document_id} sourceRef={source} compactSpreadsheet={spreadsheet}/></div> :
         source.text && <blockquote>{source.text}</blockquote>}
     </details>
     <button className="qa-first-original" type="button" aria-label={`查看原文 ${section}`} onClick={() => onSource(source)}>查看原文</button>
