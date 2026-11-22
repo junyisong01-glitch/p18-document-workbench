@@ -1,4 +1,19 @@
-from app.qa_facts import checked_answer, contains_anchor, parts
+import pytest
+
+from app.qa_facts import checked_answer, contains_anchor, parts, ticket_lookup
+
+
+@pytest.mark.parametrize(('question', 'expected'), [
+    ('工单 QC-TKT-261118-02 是几点转交的？谁接手，设备又是几点恢复的？', 'QC-TKT-261118-02'),
+    ('qc–tkt–261118–02 什么时候恢复？', 'QC-TKT-261118-02'),
+    ('对照离线手册，QC-TKT-261118-02 应该何时转交？', None),
+    ('QC-TKT-261118-01 和 QC-TKT-261118-02 几点恢复？', None),
+    ('一般离线多久应该转单？', None),
+])
+def test_exact_ticket_gate_is_limited_to_record_lookups(question, expected):
+    assert ticket_lookup(question) == expected
+    assert contains_anchor('工单 QC–TKT–261118–02 已恢复', 'QC-TKT-261118-02')
+    assert not contains_anchor('工单 QC-TKT-261118-020 已恢复', 'QC-TKT-261118-02')
 
 
 def source(number, title, text):

@@ -302,11 +302,12 @@ class RagService:
     def tune_query(self, question, query, session, turn_id):
         return query, ''
 
-    def draft_search(self, service, query, question):
+    def draft_search(self, service, query, question, *, chunk_filter=None):
         from app.library_api import principal
         # Preserve pre-cutoff authorization for both retrieval lanes.
-        authorized=service.search(query,top_k=20,document_filter=self.external_allowed)
-        local=service.search(query,top_k=20,document_filter=self.can_read) if principal.get() is not None else service.search(query,top_k=20)
+        options={'chunk_filter':chunk_filter} if chunk_filter is not None else {}
+        authorized=service.search(query,top_k=20,document_filter=self.external_allowed,**options)
+        local=service.search(query,top_k=20,document_filter=self.can_read if principal.get() is not None else None,**options)
         return authorized, local
 
     def prioritize_candidates(self, question, candidates):
@@ -592,7 +593,7 @@ class RagService:
                         answer_status,answer,citations=self.validate_answer(raw,ticket['evidence'])
                     except RagError as error:
                         if retry:
-                            raise RagError(error.code,'本次回答的出处未能核对，请展开相关资料查看原文。') from None
+                            raise RagError(error.code,'本次回答的出处未能核对，请换一种问法后重试。') from None
                         if checked is not None or cfg.get('provider')!='ollama' or error.code!='citation_mismatch':
                             raise
                         self.audit_request('local_citation_retry',ticket,error.code)

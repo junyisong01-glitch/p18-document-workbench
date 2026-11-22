@@ -5,7 +5,7 @@ import {loadModelConfig,type ModelConfigStatus} from '@/lib/modelConfig'
 import {QaWorkspace,QaChatTurn} from '@/components/QaWorkspace'
 import {DocPreviewDialog} from '@/components/DocView'
 import {AnswerPresentation} from '@/components/AnswerPresentation'
-import {QaAnswerFirst, QaAnswerLoading, QaNoEvidence, QaRelatedSources, citationLocations, type QaCitation, type QaResult} from '@/components/QaAnswerFirst'
+import {QaAnswerFirst, QaAnswerLoading, QaNoEvidence, citationLocations, type QaCitation, type QaResult} from '@/components/QaAnswerFirst'
 import {answerRoute} from '@/lib/qa-answer-first'
 import {QaConfirmation} from '@/components/QaConfirmation'
 import {QaModelRoute} from '@/components/QaModelRoute'
@@ -24,7 +24,6 @@ type Turn = {
  answer:QaResult|null
  empty:boolean
  error:string
- sources:QaCitation[]
  notice:string
 }
 type Conversation = { id:string; title:string; turns:Turn[] }
@@ -43,7 +42,6 @@ export default function QaPage(){
  const [askedQuestion,setAskedQuestion]=useState('')
  const [phase,setPhase]=useState<'search'|'answer'|null>(null)
  const [empty,setEmpty]=useState(false)
- const [relatedSources,setRelatedSources]=useState<QaCitation[]>([])
  const [answerNotice,setAnswerNotice]=useState('')
  const examples=ready?qaExamples(kbId,searchableDocs):[]
  const [route,setRoute]=useState<any>(null),[fallbackConsent,setFallbackConsent]=useState(false)
@@ -64,8 +62,8 @@ export default function QaPage(){
   media.addEventListener('change',sync)
   return()=>media.removeEventListener('change',sync)
  },[])
- useEffect(()=>{backendSessions.current.clear();setConversations([]);setActive(null);setQuestion('');setAskedQuestion('');setEmpty(false);setRelatedSources([]);setAnswerNotice('');setDraft(null);setPending(null);setAnswer(null);setSelected([]);setConsent(false);setPreview(null);setError('')},[kbId,user?.username])
- const currentTurn:Turn={question:askedQuestion,answer,empty,error,sources:relatedSources,notice:answerNotice}
+ useEffect(()=>{backendSessions.current.clear();setConversations([]);setActive(null);setQuestion('');setAskedQuestion('');setEmpty(false);setAnswerNotice('');setDraft(null);setPending(null);setAnswer(null);setSelected([]);setConsent(false);setPreview(null);setError('')},[kbId,user?.username])
+ const currentTurn:Turn={question:askedQuestion,answer,empty,error,notice:answerNotice}
  const previousTurns=conversations.find(conversation=>conversation.id===active)?.turns||[]
  const turnCount=previousTurns.length
  useEffect(()=>{turnAnchor.current?.scrollIntoView({block:'start'})},[active,askedQuestion,turnCount])
@@ -80,7 +78,7 @@ export default function QaPage(){
   if(busy||id!==null&&id===active)return
   archiveTurn()
   setActive(id);setAskedQuestion('');setQuestion('');setAnswer(null);setDraft(null);setPending(null);setConsent(false)
-  setEmpty(false);setError('');setRelatedSources([]);setAnswerNotice('');setPreview(null)
+  setEmpty(false);setError('');setAnswerNotice('');setPreview(null)
   requestAnimationFrame(()=>questionInput.current?.focus())
  }
  function finishAnswer(result:QaResult){
@@ -97,7 +95,7 @@ export default function QaPage(){
    setConversations(items=>[{id,title:current,turns:[]},...items])
    setActive(id)
   }
-  setQuestion('');setAskedQuestion(current);setEmpty(false);setRelatedSources([]);setAnswerNotice('')
+  setQuestion('');setAskedQuestion(current);setEmpty(false);setAnswerNotice('')
   setBusy(true);setError('');setPending(null);setConsent(false);setAnswer(null);setDraft(null);setSelected([])
   if(questionOnly)setPhase('search')
   try{
@@ -113,14 +111,7 @@ export default function QaPage(){
     setDraft(next);setSelected(ids);setVersion(next.selection_version||0)
     return
    }
-   const candidates: Array<{evidence: QaCitation; selectable: boolean}> = next.candidates || []
-   const hits = new Map<string, QaCitation>()
-   for (const {evidence} of candidates) {
-    for (const source of [evidence, ...evidence.members || []]) {
-     hits.set(source.document_id + '/' + source.chunk_id, source)
-    }
-   }
-   setRelatedSources([...hits.values()])
+   const candidates: Array<{selectable: boolean}> = next.candidates || []
    if(!ids.length){
     if(candidates.some(candidate=>candidate.selectable)){
      setError('命中的资料超出本地模型的可用容量。请缩小问题范围后再试。')
@@ -159,7 +150,7 @@ export default function QaPage(){
   archiveTurn()
   backendSessions.current.clear()
   setAskedQuestion('')
-  setBusy(true);setError('');setDraft(null);setPending(null);setAnswer(null);setEmpty(false);setRelatedSources([]);setAnswerNotice('');setSelected([]);setConsent(false);setPreview(null)
+  setBusy(true);setError('');setDraft(null);setPending(null);setAnswer(null);setEmpty(false);setAnswerNotice('');setSelected([]);setConsent(false);setPreview(null)
   try{await api.post('/api/rag/provider',{provider,confirm_external:provider==='deepseek'});const next=await api.get<any>('/api/rag');setRoute(next);const credential=await loadModelConfig();setModelConfig(credential);if(provider==='deepseek'&&!credential.configured)setConfigOpen(true)}catch(e){void api.get('/api/rag').then(setRoute).catch(()=>{});throw e}finally{setBusy(false)}
  }
  function openSource(source:QaCitation){
@@ -194,7 +185,6 @@ export default function QaPage(){
  function renderResult(turn:Turn, isCurrent:boolean){
   const suggestions=isCurrent?examples.filter(example=>example.question!==turn.question).slice(0,2):[]
   const noEvidence=turn.empty||turn.answer?.answer_status==='insufficient_evidence'
-  const sources=turn.sources.filter(source=>documentIds.has(source.document_id))
   const citations=turn.answer?.citations||[]
   const sourcesAvailable=citations.every(source=>
    documentIds.has(source.document_id)&&(source.members||[]).every(member=>documentIds.has(member.document_id)))
@@ -202,7 +192,6 @@ export default function QaPage(){
    {turn.error&&<p role="alert" className="qa-chat-error">{turn.error}{turn.error.includes('历史归档 → 查正文')&&
     <> <a className="underline" href={`/documents?view=${encodeURIComponent('历史归档')}`}>打开历史归档</a></>}</p>}
    {questionOnly&&noEvidence&&<QaNoEvidence question={turn.question} examples={suggestions} onAsk={runQuestion}/>}
-   {questionOnly&&(noEvidence||turn.error)&&sources.length>0&&<QaRelatedSources sources={sources} onSource={openSource}/>}
    {turn.answer&&(!questionOnly||!noEvidence)&&<div id={isCurrent?'qa-answer':undefined}>
     {!sourcesAvailable?<p className="qa-chat-error">引用资料已变更或当前不可查看，请重新提问。</p>:
     noEvidence?<AnswerPresentation answer={turn.answer} onSource={openSource}/>:

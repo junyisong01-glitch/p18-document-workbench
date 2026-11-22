@@ -320,7 +320,7 @@ def test_local_citation_mismatch_retries_once_with_same_messages(rig,monkeypatch
         assert answer['answer_status']=='partial'
         assert [source['id'] for source in answer['citations']]==['S2']
     else:
-        with pytest.raises(RagError,match='请展开相关资料查看原文') as error:
+        with pytest.raises(RagError,match='请换一种问法后重试') as error:
             rig.rag.answer(prepared['ticket'],True)
         assert error.value.code=='citation_mismatch'
     assert len(calls)==2

@@ -59,21 +59,6 @@ export function citationLocations(citation: QaCitation) {
   return [...locations.values()]
 }
 
-export function QaRelatedSources({ sources, onSource }: { sources: QaCitation[]; onSource: OpenSource }) {
-  const documentCount = new Set(sources.flatMap(citationLocations).map(source => source.document_id)).size
-  return <details className="qa-first-card qa-first-sources" aria-label="本轮相关资料">
-    <summary>相关资料 <strong>{documentCount} 份</strong></summary>
-    <ul className="qa-first-document-list">{sources.map(source => {
-      const { title } = documentTitleParts(source.document_name)
-      return <li key={JSON.stringify([source.document_id, source.revision, source.index_token, source.chunk_id])}>
-        <button type="button" onClick={() => onSource(source)}>
-          {title}{source.section && <span> · {source.section}</span>}
-        </button>
-      </li>
-    })}</ul>
-  </details>
-}
-
 const numberedLine = /^\s*(\d+)(?:[.][ \t]+|[、）)]\s*)/
 
 function AnswerText({ text, cite }: { text: string; cite: (text: string) => ReactNode }) {
