@@ -29,3 +29,15 @@ test('review queue excludes supervisor own risky submissions and other departmen
  assert.equal(canReviewSubmission(r,'boss',true,false,'管理层'),true);
  assert.equal(canReviewSubmission({...r,workflow:{...r.workflow,archived:true}},'boss',true,false,'管理层'),false);
 });
+
+test('three submission groups distinguish employee work from waiting for review',()=>{
+ const {submissionGroup,submissionLabel,submissionDate}=m.exports;
+ const review=row({}, {technical_state:'review',publication_stage:'解析异常'});
+ assert.equal(submissionGroup(review,false),'处理中');assert.equal(submissionGroup(review,true),'需要处理');
+ assert.equal(submissionLabel(review,false).label,'等待解析核对');
+ assert.equal(submissionGroup(row({}, {publication_stage:'内容待审'}),false),'处理中');
+ assert.equal(submissionGroup(row({}, {technical_state:'failed'}),false),'需要处理');
+ for(const status of ['published','withdrawn','taken_down'])assert.equal(submissionGroup(row({status},{technical_state:'failed'}),false),'提交记录');
+ assert.equal(submissionLabel(row({status:'published'},{technical_index_ready:false}),false).label,'已发布 · 暂不可检索');
+ assert.equal(submissionDate(''),'提交时间未记录');assert.match(submissionDate('2026-11-22T16:30:00Z'),/2026\/11\/23 00:30/);
+});

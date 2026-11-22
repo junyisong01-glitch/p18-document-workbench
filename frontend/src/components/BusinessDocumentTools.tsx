@@ -7,9 +7,9 @@ import {DocumentModal} from './DocumentLayout'
 import {businessRoleName,type BusinessRow} from './BusinessPresentation'
 
 export type DocumentAction={label:string;run:()=>void;danger?:boolean;disabled?:boolean}
-export function DocumentMore({actions}:{actions:DocumentAction[]}){
+export function DocumentMore({actions,compact=false}:{actions:DocumentAction[];compact?:boolean}){
  if(!actions.length)return null
- return <Menu.Root><Menu.Trigger asChild><button type="button" className="dm-more-trigger" aria-label="更多操作"><MoreHorizontal size={16}/><span>更多</span></button></Menu.Trigger><Menu.Portal><Menu.Content align="end" sideOffset={6} className="dm-action-menu">{actions.map(a=><Menu.Item key={a.label} disabled={a.disabled} onSelect={a.run} className={'dm-menu-item '+(a.danger?'dm-menu-danger':'')}>{a.label}</Menu.Item>)}</Menu.Content></Menu.Portal></Menu.Root>
+ return <Menu.Root><Menu.Trigger asChild><button type="button" className={"dm-more-trigger "+(compact?"dm-more-compact":"")} aria-label="更多操作"><MoreHorizontal size={16}/>{!compact&&<span>更多</span>}</button></Menu.Trigger><Menu.Portal><Menu.Content align="end" sideOffset={6} className="dm-action-menu">{actions.map(a=><Menu.Item key={a.label} disabled={a.disabled} onSelect={a.run} className={'dm-menu-item '+(a.danger?'dm-menu-danger':'')}>{a.label}</Menu.Item>)}</Menu.Content></Menu.Portal></Menu.Root>
 }
 
 export function documentScope(row:BusinessRow){
