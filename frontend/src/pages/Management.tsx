@@ -2,7 +2,7 @@ import {Link} from 'react-router'
 import {PageHeader} from '@/components/bits'
 const sections=[
  {title:'授权与公开范围',items:[['跨部门授权与公开设置','选择资料，在“更多”中授权指定人员、设置公司内部共享或对外公开。','/documents'],['查看我的身份','查看当前账号与权限信息。','/identity']]},
- {title:'人员管理',items:[['人员职责','设置部门主管、员工职责与所属部门。','/documents?view=人员职责'],['邀请建号','邀请员工或访客使用知识库。','/documents?view=邀请建号']]},
+ {title:'人员管理',items:[['人员职责','设置部门主管、员工职责与所属部门。','/documents?view=人员职责'],['邀请建号','邀请员工或访客使用知识库。','/management?invite=1']]},
  {title:'资料管理与追溯',items:[['紧急下架与操作记录','找到资料，在“更多”中紧急下架或查看操作记录；下架须填写原因。','/documents'],['已下架资料','查看已经停止提供检索的资料与操作记录。','/documents?view=已下架'],['回收站','恢复记录，或按要求确认后彻底删除。','/documents?view=回收站'],['历史归档','查看旧版资料与历史内容。','/documents?view=历史归档']]},
 ]
 export default function Management(){return <div className="mx-auto max-w-6xl space-y-8"><PageHeader kicker="Management" title="权限与人员管理" desc="管理全公司授权、人员职责和资料处置。普通资料由上传者或部门主管发布。"/>

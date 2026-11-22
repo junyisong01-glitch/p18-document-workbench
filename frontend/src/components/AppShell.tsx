@@ -1,5 +1,6 @@
 // 应用外壳：左侧深色窄边栏（品牌、知识库切换、导航、用户）+ 右侧内容区。
 import {useEffect,useState} from 'react'
+import {InvitationOverlay} from './EnterpriseActions'
 import {Menu,X} from 'lucide-react'
 import { NavLink, Outlet, useNavigate } from 'react-router'
 import {
@@ -77,7 +78,7 @@ export default function AppShell() {
   const kb = useKnowledgeBase()
   const navigate = useNavigate()
   const business=kb.id==='business',guest=business&&user?.accessRole==='guest',boss=business&&user?.accessRole==='boss'
-  const navigation=NAV.filter(item=>guest?['/documents','/qa'].includes(item.to):(item.to!=='/knowledge-gaps'||boss)).map(item=>({...item,label:item.to==='/documents'?(guest?'公开资料':boss?'全公司资料':item.label):item.to==='/workbench'&&boss?'管理概览':item.to==='/identity'&&boss?'权限与人员管理':item.label,to:item.to==='/identity'&&boss?'/management':item.to}))
+  const navigation=NAV.filter(item=>guest?['/documents','/qa'].includes(item.to):(item.to!=='/knowledge-gaps'||boss)).map(item=>({...item,label:item.to==='/documents'?(guest?'公开资料':boss?'全公司资料':item.label):item.to==='/identity'&&boss?'权限与人员管理':item.label,to:item.to==='/identity'&&boss?'/management':item.to}))
   const [menuOpen,setMenuOpen]=useState(false)
   useEffect(()=>setMenuOpen(false),[kb.id])
 
@@ -171,6 +172,7 @@ export default function AppShell() {
         </header>
         <main className="min-w-0 flex-1 px-4 py-6 sm:px-8 sm:py-8">
           <Outlet />
+          <InvitationOverlay />
         </main>
         <footer className="border-t border-border px-8 py-4">
           <div className="flex items-center justify-between text-[11px] text-muted-foreground">
