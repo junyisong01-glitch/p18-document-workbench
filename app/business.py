@@ -478,6 +478,8 @@ def install(store,central,legacy_acl):
             return [dict(username=r[0],role=r[1],department=r[2],job=r[3],granted=r[0] in grants,expires_at=grants.get(r[0])) for r in c.execute("SELECT p.username,p.role,p.department,p.job FROM business_profiles p JOIN library_accounts a ON a.username=p.username WHERE a.active=1 AND p.role IN ('employee','supervisor','boss') ORDER BY p.department,p.username")]
     from app.knowledge_gaps import install as install_gaps
     install_gaps(store,user,read,visible)
+    from app.qa_feedback import install as install_feedback
+    install_feedback(store,user,visible)
     from app.enterprise_documents import install_updates
     install_updates(store,central,user,read,manager,write,summary,visible)
     return store

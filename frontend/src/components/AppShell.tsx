@@ -21,7 +21,7 @@ const NAV = [
   { to: '/workbench', label: '工作台', en: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/documents', label: '文档管理', en: 'Documents', icon: FileStack },
   { to: '/qa', label: '知识问答', en: 'Ask', icon: MessageSquareText },
-  { to: '/knowledge-gaps', label: '未解决问题', en: 'Questions', icon: MessageSquareText },
+  { to: '/knowledge-gaps', label: '问答反馈', en: 'Feedback', icon: MessageSquareText },
   { to: '/identity', label: '权限与身份', en: 'Identity', icon: KeyRound },
 ] as const
 
@@ -94,7 +94,7 @@ export default function AppShell() {
           <div className="px-2 pb-2 font-mono2 text-[9px] font-medium uppercase tracking-[0.28em] text-[#6e6656]">
             Workspace
           </div>
-          {NAV.filter(item=>item.to!=='/knowledge-gaps'||kb.id==='business'&&['employee','supervisor'].includes(user?.accessRole||'')).map((item) => (
+          {NAV.filter(item=>item.to!=='/knowledge-gaps'||kb.id==='business'&&user?.accessRole==='boss').map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
