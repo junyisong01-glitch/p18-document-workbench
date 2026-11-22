@@ -2,6 +2,7 @@ import {useEffect,useRef,useState,type ReactNode} from 'react'
 import {CloudUpload,FileText,X} from 'lucide-react'
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from './ui/dialog'
 import './DocumentLayout.css'
+import './DocumentInteractions.css'
 
 export function DocumentFormat({format,secret=false,legacy=false}:{format:string;secret?:boolean;legacy?:boolean}){
  return <span aria-label={'文件格式 '+format} className={'dm-format '+(secret?'dm-format-secret':legacy?'dm-format-legacy':'')}>{format||'文件'}</span>

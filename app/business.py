@@ -4,7 +4,7 @@ Visibility is always checked from SQLite, including every RRF/dedup member.
 Technical readiness never grants publication. No model or egress authorization.
 """
 from pathlib import Path
-import json,time,uuid,threading,importlib.util,sys
+import json,time,uuid,threading,importlib.util,sys,re,unicodedata
 from dataclasses import asdict, replace
 from fastapi import HTTPException,UploadFile,File,Form,Request
 from pydantic import BaseModel,ConfigDict,Field
@@ -21,6 +21,19 @@ class Action(BaseModel):
     username:str=Field(default='',max_length=100)
     expires_at:int|None=None
     confirm:str=''
+
+class UploadMatch(BaseModel):
+    model_config=ConfigDict(extra='forbid',strict=True)
+    name:str=Field(min_length=1,max_length=200)
+    code:str=Field(default='',max_length=200)
+    department:str=Field(max_length=100)
+
+def match_title(value):
+    value=unicodedata.normalize('NFKC',value).casefold().strip()
+    value=re.sub(r'^(?:ext[-–]\d+|qc(?:[-–][a-z]+)+[-–]\d+)[ _\u3000]+','',value)
+    value=re.sub(r'\.(docx?|xlsx?|pdf|txt|md|csv|jpe?g|png)$','',value)
+    value=re.sub(r'[_\s-]*v\d+(?:\.\d+)*(?:版)?$','',value)
+    return re.sub(r'[\s_—–-]+','',value)
 
 def initialize(store):
     with store.connect() as c:
@@ -64,7 +77,7 @@ def install(store,central,legacy_acl):
         u=current;b=read(doc['id'])
         if not b or b.get('purged'):return False
         if b.get('deleted'):
-            return not evidence and manager(u,b)
+            return not evidence and (manager(u,b) or owner(u,b) and b['status']=='withdrawn')
         if evidence and (b['status']!='published' or b['archived']):return False
         if u['role']=='boss':return True
         if b['status'] not in {'published','legacy_archived'}:
@@ -190,7 +203,8 @@ def install(store,central,legacy_acl):
         if u['role']=='guest':raise HTTPException(403,'访客不能上传')
         try:
             m=json.loads(metadata_json)
-            if not isinstance(m,dict) or set(m)-{'name','code','version','department','classification','replaces'}:raise ValueError()
+            if not isinstance(m,dict) or set(m)-{'name','code','version','department','classification','replaces','replaces_expected'}:raise ValueError()
+            if 'replaces_expected' in m and (type(m['replaces_expected']) is not int or m['replaces_expected']<0 or not m.get('replaces')):raise ValueError()
             if m.get('replaces')is not None and (not isinstance(m['replaces'],str) or str(uuid.UUID(m['replaces']))!=m['replaces']):raise ValueError()
             dept=m.get('department') if u['role']=='boss' else u['department']
             if dept not in DEPARTMENTS or (u['role']!='boss' and m.get('department',dept)!=dept):raise ValueError()
@@ -203,19 +217,22 @@ def install(store,central,legacy_acl):
             if classification not in {'内部','机密'}:raise ValueError()
         except (ValueError,TypeError):raise HTTPException(422,'提交字段无效；部门由身份决定，公开须另行批准')from None
         previous=None
+        replacing_failed=False
         with store.LOCK:
             if m.get('replaces'):
                 previous=read(m['replaces'])
-                if not previous or previous['department']!=dept or not visible(store.get(m['replaces']),u) or previous['status']not in {'published','returned','withdrawn','taken_down'} or previous.get('deleted')or previous['archived']:raise HTTPException(409,'不能替换此文档版本')
+                replacing_failed=bool(previous and previous['status'] in {'submitted','approved'} and store.get(m['replaces'])['state']=='failed')
+                if not previous or previous['department']!=dept or not visible(store.get(m['replaces']),u) or (previous['status']not in {'published','returned','withdrawn','taken_down'} and not replacing_failed) or previous.get('deleted')or previous['archived']:raise HTTPException(409,'不能替换此文档版本')
+                if 'replaces_expected' in m and m['replaces_expected']!=previous['version']:raise HTTPException(409,'原资料已变化，请重新检查匹配结果')
                 with store.connect()as c:old_meta=library_store.read(c,m['replaces'])[1]
                 if not m['code']:m['code']=old_meta.code
-                if m['code']!=old_meta.code or (m['version']==old_meta.version and previous['status']!='withdrawn'):raise HTTPException(409,'新版本须保留文档编号并使用不同版本号')
+                if m['code']!=old_meta.code or (m['version']==old_meta.version and previous['status']!='withdrawn' and not replacing_failed):raise HTTPException(409,'新版本须保留文档编号并使用不同版本号')
                 if old_meta.classification=='机密'and classification!='机密':raise HTTPException(422,'新版本不得降低原机密级别；扩大读取须另行明确批准')
                 if previous['owner']!=u['username'] and not manager(u,previous):raise HTTPException(403,'仅上传者或主管可提交新版本')
                 with store.connect()as c:
                     for r in c.execute('SELECT body FROM business_documents'):
                         v=json.loads(r[0])
-                        if v['series']==previous['series'] and not(v.get('owner')==previous['owner'] and v['version']==previous['version'] and v['status']=='returned') and not v.get('deleted') and v['status']in {'submitted','approved','returned','correction_pending'}:raise HTTPException(409,'已有未发布的新版本')
+                        if v['series']==previous['series'] and not(v==previous and (previous['status']=='returned' or replacing_failed)) and not v.get('deleted') and v['status']in {'submitted','approved','returned','correction_pending'}:raise HTTPException(409,'已有未发布的新版本')
             else:
                 with store.connect()as c:
                     if m['code'] and any(json.loads(r[0]).get('code')==m['code'] for r in c.execute('SELECT body FROM library_metadata')):raise HTTPException(409,'文档编号已存在，请使用上传新版本或联系主管')
@@ -226,7 +243,7 @@ def install(store,central,legacy_acl):
         with store.LOCK:
             doc=store.get(identifier)
             meta=LibraryMetadata(code=m['code'],name=m['name'],folder=dept,department=dept,doc_type='业务资料',classification=classification,version=m['version'],lifecycle='现行有效',viewers=(u['identity'],)if classification=='机密'else())
-            b=dict(version=0,owner=u['username'],department=dept,series=previous['series']if previous else str(uuid.uuid4()),replaces=(previous.get('replaces') if previous and previous['status'] in {'returned','withdrawn'} else m.get('replaces')),revises=m.get('replaces'),status='submitted',archived=False,deleted=False,company_public=False,restricted=classification=='机密',legacy=False,approved_by=None,approved_fingerprint=None)
+            b=dict(version=0,owner=u['username'],department=dept,series=previous['series']if previous else str(uuid.uuid4()),replaces=(previous.get('replaces') if previous and (previous['status'] in {'returned','withdrawn'} or replacing_failed) else m.get('replaces')),revises=m.get('replaces'),status='submitted',archived=False,deleted=False,company_public=False,restricted=classification=='机密',legacy=False,approved_by=None,approved_fingerprint=None)
             if previous:
                 b['restricted']=b['restricted']or previous.get('restricted',False)
                 inherited=previous.get('read_jobs')
@@ -244,9 +261,10 @@ def install(store,central,legacy_acl):
                     if previous:
                         latest=read(m['replaces'],c)
                         if not latest or latest['version']!=previous['version']:raise ValueError('Previous version changed')
-                        if previous['status']=='returned':
+                        if previous['status'] in {'returned','withdrawn'} or replacing_failed:
                             previous.update(status='withdrawn',archived=True,version=previous['version']+1)
                             c.execute('UPDATE business_documents SET body=? WHERE document_id=?',(json.dumps(previous,ensure_ascii=False),m['replaces']))
+                            c.execute('INSERT INTO business_events(document_id,at,actor,action,body)VALUES(?,?,?,?,?)',(m['replaces'],time.time(),u['username'],'replaced_submission',json.dumps({'version':previous['version'],'new_document':identifier})))
                     b['version']=1
                     c.execute('INSERT INTO business_documents VALUES (?,?)',(identifier,json.dumps(b,ensure_ascii=False)))
                     c.execute('INSERT INTO business_events(document_id,at,actor,action,body)VALUES(?,?,?,?,?)',(identifier,time.time(),u['username'],'submitted',json.dumps({'version':1,'revises':m.get('replaces')})))
@@ -333,7 +351,7 @@ def install(store,central,legacy_acl):
                 b.update(status='withdrawn',archived=True);write(identifier,b,u,'cancel_correction')
                 return summary(doc)
             elif a=='retry_parse':
-                if not owner(u,b) or b['status'] not in {'submitted','correction_pending','approved'} or doc['state']!='failed' or b.get('deleted'):raise HTTPException(403,'仅上传者可重试本人解析失败资料')
+                if not (owner(u,b) or manager(u,b)) or b['status'] not in {'submitted','correction_pending','approved'} or doc['state']!='failed' or b.get('deleted') or b['archived']:raise HTTPException(403,'仅上传者或归属主管可重试当前解析失败资料')
                 b.update(status='correction_pending'if b.get('correction')else'submitted',approved_by=None,approved_fingerprint=None)
                 write(identifier,b,u,'retry_parse')
                 store.retry(identifier)
@@ -374,7 +392,7 @@ def install(store,central,legacy_acl):
                     raise HTTPException(409,'资料尚未完成所需审核或解析检查')
                 return publish(doc,b,u)
             elif a in {'archive','trash','restore'}:
-                assert_write(u,b)
+                if not (a in {'trash','restore'} and owner(u,b) and b['status']=='withdrawn'):assert_write(u,b)
                 if a=='archive':b['archived']=True
                 elif a=='trash':b['deleted']=True
                 else:b['deleted']=False
@@ -426,6 +444,38 @@ def install(store,central,legacy_acl):
         u=user();b=read(identifier)
         if not b or not(manager(u,b)or b['owner']==u['username']):raise HTTPException(404,'不可查看审计')
         with store.connect()as c:return [dict(r)for r in c.execute('SELECT at,actor,action,body FROM business_events WHERE document_id=? ORDER BY id',(identifier,))]
+
+    @store.app.post('/api/business/upload-match')
+    def upload_match(body:UploadMatch):
+        u=user()
+        if u['role']=='guest':raise HTTPException(403,'访客不能上传')
+        dept=body.department if u['role']=='boss' else u['department']
+        if dept not in DEPARTMENTS or dept!=body.department:raise HTTPException(422,'部门与当前身份不符')
+        matches=[]
+        for doc in store.all_docs():
+            b=read(doc['id'])
+            if not b or b['department']!=dept or b['deleted'] or b['archived'] or not (owner(u,b) or manager(u,b)) or not visible(doc,u):continue
+            with store.connect()as c:record=library_store.read(c,doc['id'])
+            if not record:continue
+            meta=record[1]
+            same_code=bool(body.code.strip() and body.code.strip()==meta.code)
+            if not same_code and match_title(body.name)!=match_title(meta.name):continue
+            can_replace=b['status'] in {'published','returned','withdrawn','taken_down'} or b['status'] in {'submitted','approved'} and doc['state']=='failed'
+            matches.append({'id':doc['id'],'name':meta.name,'code':meta.code,'version':meta.version,
+              'department':dept,'classification':'机密' if b['restricted'] else meta.classification,
+              'expected':b['version'],'status':b['status'],'failed':doc['state']=='failed',
+              'can_replace':can_replace,'reason':'编号相同' if same_code else '名称相同或仅版本后缀不同'})
+        return matches
+
+    @store.app.get('/api/business/documents/{identifier}/borrowers')
+    def borrowers(identifier:str):
+        u=user();b=read(identifier)
+        if not b or not manager(u,b) or not visible(store.get(identifier),u):raise HTTPException(404,'不可管理此资料借阅')
+        if b['restricted'] and u['role']!='boss':raise HTTPException(403,'机密资料借阅由管理层负责人管理')
+        if b['status']!='published' or b['archived'] or b['deleted']:raise HTTPException(409,'仅管理当前已发布资料的借阅')
+        with store.connect()as c:grants={r[0]:r[1] for r in c.execute('SELECT username,expires FROM business_grants WHERE document_id=?',(identifier,)) if r[1] is None or r[1]>time.time()}
+        with central.connect()as c:
+            return [dict(username=r[0],role=r[1],department=r[2],job=r[3],granted=r[0] in grants,expires_at=grants.get(r[0])) for r in c.execute("SELECT p.username,p.role,p.department,p.job FROM business_profiles p JOIN library_accounts a ON a.username=p.username WHERE a.active=1 AND p.role IN ('employee','supervisor','boss') ORDER BY p.department,p.username")]
     from app.knowledge_gaps import install as install_gaps
     install_gaps(store,user,read,visible)
     from app.enterprise_documents import install_updates

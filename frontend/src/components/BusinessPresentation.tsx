@@ -33,6 +33,8 @@ export function WorkflowBadge({row}:{row:BusinessRow}){
 }
 export function WorkflowTimeline({row}:{row:BusinessRow}){
  const b=row.workflow
+ if(b.status==='withdrawn'&&!b.archived&&!b.deleted)return <p className="dm-terminal-note">已撤回，不会进入检索。需要继续时可重新上传；不再使用可移入回收站。</p>
+ if(b.deleted||b.archived||b.status==='taken_down')return null
  if(row.publication_stage)return null
  const labels=b.correction?['已提交勘误','解析与必要复核','索引准备','自动切换生效']:['已提交','解析与技术复核','业务审核','索引准备','待发布','已发布']
  const interrupted=row.technical_state==='failed'||b.status==='returned'||b.deleted||!!b.correction_error||b.status==='withdrawn'

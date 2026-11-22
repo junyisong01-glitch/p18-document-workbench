@@ -23,7 +23,7 @@ class GapCreate(BaseModel):
 class GapUpdate(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     expected: int = Field(ge=0)
-    status: Literal['open', 'in_progress', 'resolved']
+    status: Literal['open', 'in_progress', 'resolved', 'closed']
     note: str = Field(default='', max_length=1000)
     document_id: str | None = None
 
@@ -129,6 +129,8 @@ def install(store, user, read, visible):
                 raise HTTPException(409, '问题已更新，请刷新后重试')
             if body.status == 'resolved' and not body.document_id:
                 raise HTTPException(422, '请关联已发布的补充资料')
+            if body.status == 'closed' and not body.note.strip():
+                raise HTTPException(422, '请说明关闭原因，例如记录不存在或问题不适用')
             if body.document_id:
                 b = read(body.document_id, c)
                 if (not b or b['status'] != 'published' or b.get('archived') or b.get('deleted')
