@@ -1,3 +1,4 @@
+import {canRetryParse} from '../lib/document-workflow'
 import {DocumentMore,type DocumentAction} from './BusinessDocumentTools'
 import {WorkflowButton,type BusinessRow} from './BusinessPresentation'
 
@@ -15,15 +16,16 @@ export function DocumentRowActions({row,own,manage,boss,busy,review,start,act,au
  }
  if(pending&&own&&b.status==='correction_pending')add('取消本次勘误','cancel_correction')
  if(pending&&own&&['submitted','approved','returned'].includes(b.status))add('撤回提交','withdraw')
- if(pending&&(manage||own)&&row.technical_state==='failed')add('重试解析','retry_parse')
+
  if(pending&&manage&&row.publication_stage==='解析异常'&&b.status==='submitted')add('退回并说明原因','return')
  if(!b.deleted&&(manage||own&&b.status==='withdrawn'))add('移入回收站','trash',true)
  if(b.deleted&&(manage||own&&b.status==='withdrawn'))add('恢复记录','restore')
  if(b.deleted&&boss)add('彻底删除','purge',true)
  return <div className="dm-row-actions">
  {pending&&manage&&row.publication_stage==='解析异常'&&row.technical_state==='review'&&<WorkflowButton onClick={review}>核对解析内容</WorkflowButton>}
- {pending&&(manage||own)&&row.technical_state==='failed'&&['submitted','approved'].includes(b.status)&&<WorkflowButton onClick={reupload}>重新上传</WorkflowButton>}
- {!b.deleted&&!b.archived&&['withdrawn','returned'].includes(b.status)&&(own||manage)&&<WorkflowButton onClick={reupload}>重新上传</WorkflowButton>}
+ {pending&&(manage||own)&&row.technical_state==='failed'&&canRetryParse(row)&&<WorkflowButton busy={busy} onClick={()=>start('retry_parse')}>重试处理</WorkflowButton>}
+ {pending&&(manage||own)&&row.technical_state==='failed'&&['submitted','approved'].includes(b.status)&&<WorkflowButton busy={busy} onClick={reupload}>更换文件</WorkflowButton>}
+ {!b.deleted&&!b.archived&&['withdrawn','returned'].includes(b.status)&&(own||manage)&&<WorkflowButton busy={busy} onClick={reupload}>重新上传</WorkflowButton>}
  {pending&&manage&&row.publication_stage==='内容待审'&&<><WorkflowButton busy={busy} reason={reviewReason||(row.review_reasons?.length?indexReason:undefined)} onClick={()=>start(row.review_reasons?.length?'approve_publish':'approve')}>{row.review_reasons?.length?'审核并发布':'审核通过'}</WorkflowButton><WorkflowButton busy={busy} onClick={()=>start('return')}>退回修改</WorkflowButton></>}
  {pending&&row.publication_stage==='待发布'&&(manage||own&&b.status==='submitted')&&<WorkflowButton busy={busy} reason={indexReason||reviewReason} onClick={()=>act('publish')}>发布入库</WorkflowButton>}
  {pending&&(manage||own)&&row.index_error&&<WorkflowButton busy={busy} onClick={()=>act('retry_index')}>重试索引</WorkflowButton>}

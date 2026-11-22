@@ -15,12 +15,12 @@ export function workflowState(row:BusinessRow){
  if(b.status==='taken_down')return{label:'已下架',tone:'muted'}
  if(b.archived)return{label:'历史归档',tone:'muted'}
  if(b.status==='withdrawn')return{label:'已撤回',tone:'muted'}
+ if(b.status==='returned')return{label:'已退回',tone:'error'}
  if(row.index_error)return{label:'索引失败',tone:'error'}
  if(row.publication_stage)return{label:row.publication_stage==='待发布'&&!row.technical_index_ready?'索引准备中':row.publication_stage,
    tone:row.publication_stage==='解析异常'?'error':row.publication_stage==='待发布'&&row.technical_index_ready?'ready':'pending'}
  if(row.technical_state==='failed')return{label:'解析失败',tone:'error'}
  if(b.status==='correction_pending')return{label:b.correction_error?'勘误冲突':'勘误处理中',tone:b.correction_error?'error':'pending'}
- if(b.status==='returned')return{label:'已退回',tone:'error'}
  if(b.status==='submitted')return{label:row.technical_state==='review'?'待解析复核':row.technical_state==='ready'?'待业务审核':'解析处理中',tone:'pending'}
  if(b.status==='approved')return{label:row.technical_index_ready?'待发布 · 索引就绪':'审核通过 · 索引准备',tone:row.technical_index_ready?'ready':'pending'}
  if(b.status==='published')return{label:row.technical_index_ready?'已发布 · 可检索':'已发布 · 索引待就绪',tone:row.technical_index_ready?'success':'pending'}
@@ -34,7 +34,7 @@ export function WorkflowBadge({row}:{row:BusinessRow}){
 export function WorkflowTimeline({row}:{row:BusinessRow}){
  const b=row.workflow
  if(b.status==='withdrawn'&&!b.archived&&!b.deleted)return <p className="dm-terminal-note">已撤回，不会进入检索。需要继续时可重新上传；不再使用可移入回收站。</p>
- if(b.deleted||b.archived||b.status==='taken_down')return null
+ if(b.deleted||b.archived||['taken_down','published'].includes(b.status))return null
  if(row.publication_stage)return null
  const labels=b.correction?['已提交勘误','解析与必要复核','索引准备','自动切换生效']:['已提交','解析与技术复核','业务审核','索引准备','待发布','已发布']
  const interrupted=row.technical_state==='failed'||b.status==='returned'||b.deleted||!!b.correction_error||b.status==='withdrawn'
