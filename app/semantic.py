@@ -307,7 +307,7 @@ class IndexService:
                     found[self.point_id(snap, chunk)] = (snap, chunk)
         return found
 
-    def search(self, query, identifier=None, top_k=5, mode=None, document_filter=None):
+    def search(self, query, identifier=None, top_k=5, mode=None, document_filter=None, chunk_filter=None):
         from app.retrieval import bm25, fuse, groups
         mode = mode or os.environ.get('P18_SEARCH_MODE', 'vector')
         if mode not in {'vector', 'hybrid', 'hybrid_dedup'}:
@@ -319,11 +319,20 @@ class IndexService:
             raise SemanticError('search_configuration', '内部候选数量必须为5–50。')
         if not self.current_config():
             raise SemanticError('configuration_changed', '模型配置已变化，需重启并重建索引。')
+        def eligible_chunks(chunks):
+            if chunk_filter is None:
+                return chunks
+            return {point: pair for point, pair in chunks.items() if chunk_filter(pair[1])}
+
         with self.store.LOCK:
             candidates = self.candidates(identifier, document_filter)
         if not candidates:
             return {'status': 'no_index', 'results': [], 'retrieval_mode': mode,
                     'message': '没有当前有效的已建立索引，请查看构建状态。'}
+        candidates = eligible_chunks(candidates)
+        if not candidates:
+            return {'status': 'no_results', 'results': [], 'retrieval_mode': mode,
+                    'message': '没有命中指定内容的资料。'}
 
         def record(snap, chunk, score):
             return {'score': score, 'document_id': snap['doc']['id'],
@@ -369,7 +378,7 @@ class IndexService:
         with self.store.LOCK:
             if not self.current_config():
                 raise SemanticError('configuration_changed', '模型配置已变化，结果未返回，请重启并重建。')
-            current = self.candidates(identifier, document_filter)
+            current = eligible_chunks(self.candidates(identifier, document_filter))
             def valid_hit(hit):
                 pair = current.get(str(hit.id))
                 if not pair:return None

@@ -23,8 +23,6 @@
 .qa-first-document-list li { padding: 8px 0; font-size: 13px; line-height: 1.55; }
 .qa-first-document-list li + li { border-top: 1px solid var(--qa-line); }
 .qa-first-document-list li > span { margin-inline-start: 9px; color: var(--qa-muted); font-size: 12px; }
-.qa-first-document-list button { text-align: start; color: var(--qa-accent); }
-.qa-first-document-list button:hover { text-decoration: underline; text-underline-offset: 3px; }
 .qa-chat-guest, .qa-chat-error {
   padding: 8px 12px; border: 1px dashed var(--qa-line); border-radius: 9px; color: var(--qa-muted); background: var(--qa-card);
   font-size: 13px; line-height: 1.65;

@@ -45,3 +45,12 @@ def test_search_filters_before_vector_and_lexical_cutoffs_and_rechecks(mode,monk
     assert service.search('负责人',top_k=20,mode=mode,document_filter=predicate)['results']==[]
     # Optional filter must not change the unscoped knowledge-search behavior.
     assert len(service.search('负责人',top_k=20,mode=mode)['results'])==20
+    service.client.query_points=query_points
+    chunk_filter=lambda chunk:chunk['text'].endswith(' 测试 25')
+    exact=service.search('负责人',top_k=1,mode=mode,chunk_filter=chunk_filter)
+    assert [hit['document_id'] for hit in exact['results']]==['25']
+    before=len(queries)
+    denied=service.search('负责人',top_k=1,mode=mode,
+                          document_filter=lambda doc:doc['id']!='25',chunk_filter=chunk_filter)
+    assert denied['status']=='no_results' and denied['results']==[]
+    assert len(queries)==before

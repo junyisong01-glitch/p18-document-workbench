@@ -172,8 +172,12 @@ class QuestionOnlyRag(LocalRag):
         return query, ''
 
     def draft_search(self, service, query, question):
-        authorized, local = super().draft_search(service, query, question)
         plan = qa_facts.parts(question)
+        anchor = qa_facts.ticket_lookup(question) if not plan else None
+        if anchor:
+            return super().draft_search(service, query, question,
+                                        chunk_filter=lambda chunk: qa_facts.contains_anchor(chunk['text'], anchor))
+        authorized, local = super().draft_search(service, query, question)
         if not plan:
             return authorized, local
         extra = []

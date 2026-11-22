@@ -39,6 +39,18 @@ _RATE = re.compile(r'(?:启辰)?设备监控平台\s*(V\d+(?:\.\d+)+)\s*按每�
 _INCIDENT = re.compile(r'^((?:[01]?\d|2[0-3]):[0-5]\d)\s+[^。\n]*?出现\s+HTTP\s*429\s*和\s*E4291\b[^。\n]*?(同一\s*token)[^。\n]*?(一?分钟|一?秒|一?小时)\s*(?:共|合计|共计)\s*(\d+)\s*次', re.I | re.ASCII)
 _REPORT = re.compile(r'状态\s*(?:按[^；。]{0,14})?每\s*(\d+)\s*(秒|分钟|小时)\s*上报(?:一次)?')
 _OFFLINE = re.compile(r'(持续离线(?:达到|超过))\s*(\d+)\s*(秒|分钟|小时)\s*(仍未恢复)时\s*(?:提交|发起)\s*(?:IT\s*)?工单(?:[,，]转平台运维)?')
+_TICKET = re.compile(r'(?<![\w-])(?:[A-Z][A-Z0-9]*-)*TKT-\d+(?:-\d+)*(?![\w-])', re.I | re.ASCII)
+_TICKET_DASHES = str.maketrans({dash: '-' for dash in '‐‑‒–—−'})
+
+
+def ticket_lookup(question):
+    """Apply the exact gate to a direct lookup of one ticket's recorded fields."""
+    text = unicodedata.normalize('NFKC', question).translate(_TICKET_DASHES)
+    tickets = {match[0].upper() for match in _TICKET.finditer(text)}
+    if (len(tickets) == 1 and re.search(r'转交|转单|转派|接手|恢复|发现|报障时间|处理记录|工单状态', text)
+            and not re.search(r'对比|比较|相比|对照|指南|手册|规则|制度|按流程|一般|通常|应该|应当', text)):
+        return next(iter(tickets))
+    return None
 
 
 def parts(question):
@@ -74,7 +86,7 @@ def matches(part, group, document_has_anchor):
 
 
 def contains_anchor(text, anchor):
-    text = unicodedata.normalize('NFKC', text)
+    text = unicodedata.normalize('NFKC', text).translate(_TICKET_DASHES)
     return re.search(rf'(?<![\w-]){re.escape(anchor)}(?![\w-])', text, re.I | re.ASCII) is not None
 
 
