@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import type { SourceLocation } from '@/lib/source-presentation'
 
 type ExcelCell = { coordinate: string; text: string; warning?: string; formula_cached?: boolean }
 type ExcelRow = { row: number; cells: ExcelCell[] }
@@ -12,15 +13,54 @@ type ExcelTableData = {
 }
 export type ExcelSheet = { name: string; metadata: ExcelRow[]; tables: ExcelTableData[]; other_rows: ExcelRow[] }
 export type ExcelMatch = { sheet: string; start: number; end: number; tableId?: string | null }
+export type ExcelEvidenceBlock = { id: string; table_id?: string | null; sheet?: string; row_start?: number }
 
 const rowLimit = 40
 const matchesRow = (match: ExcelMatch, row: number) => match.start <= row && row <= match.end
 
-function CellText({ cell }: { cell: ExcelCell }) {
+function CellText({ cell, text = cell.text }: { cell: ExcelCell; text?: string }) {
   const hint=cell.warning || (cell.formula_cached?'公式的已保存结果':undefined)
   return <span title={hint ? `${cell.coordinate} · ${hint}` : cell.coordinate}>
-    {cell.text}{cell.warning&&<small className="mt-1 block text-amber-800">{cell.warning}</small>}
+    {text}{cell.warning&&<small className="mt-1 block text-amber-800">{cell.warning}</small>}
   </span>
+}
+
+function displayCellText(text: string) {
+  return text.replace(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(:\d{2})?$/, (_, date, time, seconds) =>
+    `${date} ${time}${seconds === ':00' ? '' : seconds ?? ''}`)
+}
+
+export function ExcelCitationEvidence({ sheets, locations, blocks, fallback }: {
+  sheets: ExcelSheet[]
+  locations: SourceLocation[]
+  blocks: ExcelEvidenceBlock[]
+  fallback: ReactNode
+}) {
+  const rows = locations.map(location => {
+    const block = blocks.find(block => block.id === location.block_id &&
+      block.sheet === location.sheet && block.row_start === location.row_start)
+    const sheet = sheets.find(sheet => sheet.name === location.sheet)
+    const table = sheet?.tables.find(table => table.id === block?.table_id)
+    if (!table?.header_confirmed || location.row_start !== location.row_end) return null
+    const row = table.rows.find(row => row.row === location.row_start)
+      ?? table.summary_rows.find(row => row.row === location.row_start)
+    if (!row || row.cells.length !== table.headers.length) return null
+    return { row, headers: table.headers, id: location.block_id }
+  })
+  if (!rows.length || rows.some(row => row === null)) return fallback
+
+  return <div className="se-excel-records" aria-label="命中的工作表记录" role="group">
+    {rows.map(record => record && <div className="se-excel-record" key={record.id}>
+      <p className="se-excel-row-number">第 {record.row.row} 行</p>
+      <dl>
+        {record.row.cells.map((cell, index) => <div key={cell.coordinate}
+          className={cell.text.length > 34 || cell.text.includes('\n') ? 'se-excel-wide-field' : undefined}>
+          <dt>{record.headers[index]}</dt>
+          <dd><CellText cell={cell} text={cell.text ? displayCellText(cell.text) : '未填写'}/></dd>
+        </div>)}
+      </dl>
+    </div>)}
+  </div>
 }
 
 function SpreadsheetTable({ table, sheetName, matches, initialRow }: {

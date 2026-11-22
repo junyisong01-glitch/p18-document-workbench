@@ -2,11 +2,12 @@ import {useEffect,useState} from 'react'
 import {api} from '@/lib/api'
 import {useSession} from '@/lib/session'
 import {OriginalTable,type SourceBlock,type SourceTable} from './SourceContent'
+import {ExcelCitationEvidence,type ExcelEvidenceBlock,type ExcelSheet} from './ExcelPreview'
 import {originalRange,type SourceLocation} from '@/lib/source-presentation'
 import './SearchEvidence.css'
 
 export type MatchedSource={text:string;section?:string;tables?:SourceTable[];sources?:SourceLocation[]}
-type SourceResponse={source:MatchedSource;document:{result?:{blocks?:SourceBlock[]}}}
+type SourceResponse={source:MatchedSource;document:{result?:{blocks?:(SourceBlock&ExcelEvidenceBlock)[];excel_sheets?:ExcelSheet[]}}}
 
 export function MatchedSearchContent({source,blocks}:{source:MatchedSource;blocks:SourceBlock[]}){
  const tables=source.tables||[]
@@ -25,7 +26,11 @@ export function MatchedSearchContent({source,blocks}:{source:MatchedSource;block
  <details className="se-raw"><summary>查看检索原始文本</summary><pre>{source.text}</pre></details></>
 }
 
-export function SearchEvidence({documentId,sourceRef}:{documentId:string;sourceRef?:{revision:number;index_token:string;chunk_id:string}}){
+export function SearchEvidence({documentId,sourceRef,compactSpreadsheet}:{
+ documentId:string
+ sourceRef?:{revision:number;index_token:string;chunk_id:string}
+ compactSpreadsheet?:boolean
+}){
  const {kbId,user}=useSession()
  const query=sourceRef?new URLSearchParams({revision:String(sourceRef.revision),index_token:sourceRef.index_token,chunk_id:sourceRef.chunk_id}).toString():''
  const key=JSON.stringify([kbId,user?.username,documentId,query])
@@ -41,5 +46,9 @@ export function SearchEvidence({documentId,sourceRef}:{documentId:string;sourceR
  const current=state.key===key?state:undefined
  if(current?.error)return <div className="se-error" role="status"><p>{current.error}</p><button type="button" onClick={()=>setRetry(value=>value+1)}>重试加载来源</button></div>
  if(!current?.data)return <p className="se-loading" role="status">正在核验命中来源…</p>
- return <MatchedSearchContent source={current.data.source} blocks={current.data.document.result?.blocks||[]}/>
+ const {source,document}=current.data
+ const blocks=document.result?.blocks||[]
+ const fallback=<MatchedSearchContent source={source} blocks={blocks}/>
+ return compactSpreadsheet?<ExcelCitationEvidence sheets={document.result?.excel_sheets||[]}
+  locations={source.sources||[]} blocks={blocks} fallback={fallback}/>:fallback
 }
