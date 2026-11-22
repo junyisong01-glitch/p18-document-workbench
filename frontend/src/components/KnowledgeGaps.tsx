@@ -1,0 +1,39 @@
+import {useEffect,useState} from 'react'
+import {Link} from 'react-router'
+import {ArrowUpRight,Plus} from 'lucide-react'
+import {api} from '@/lib/api'
+import {useSession} from '@/lib/session'
+import {DocumentModal} from './DocumentLayout'
+import {documentTitleParts} from '@/lib/document-title'
+import type {BusinessRow} from './BusinessPresentation'
+export type Gap={id:string;department:string;question:string;status:'open'|'in_progress'|'resolved';note:string;version:number;updated:number;reporter_count:number;document:{id:string;name:string}|null}
+const labels={open:'待补资料',in_progress:'处理中',resolved:'已补充'}
+const input='w-full rounded-md border border-border bg-card px-3 py-2 text-sm'
+export function RecordGap({question,onClose,onSaved}:{question:string;onClose:()=>void;onSaved:()=>void}){
+ const {user}=useSession();const [text,setText]=useState(question),[busy,setBusy]=useState(false),[error,setError]=useState('')
+ return <DocumentModal open title="记录未解决问题" description={`交给${user?.role.dept}主管，作为补充资料的线索。你可以先修改问题，删去不宜分享的内容。不会提交整段聊天记录。`} busy={busy} onClose={onClose}>
+ <form className="space-y-4" onSubmit={async e=>{e.preventDefault();if(!text.trim()||busy)return;setBusy(true);try{await api.post('/api/business/gaps',{question:text.trim()});onSaved()}catch(err){setError((err as Error).message)}finally{setBusy(false)}}}>
+ <label className="grid gap-2 text-sm">希望补充的问题<textarea aria-label="希望补充的问题" className={input+' min-h-28'} value={text} maxLength={1000} onChange={e=>setText(e.target.value)}/></label>
+ <p className="text-xs leading-relaxed text-muted-foreground">仅你和归属部门主管可查看这条记录。相同问题合并统计，同一个人重复提交不会增加人数。管理层只看汇总数量。</p>
+ {error&&<p role="alert" className="text-sm text-red-700">{error}</p>}<div className="dm-modal-actions"><button type="button" onClick={onClose} disabled={busy} className="px-4 text-sm">取消</button><button className="dm-primary" disabled={busy||!text.trim()}>{busy?'正在记录…':'确认记录'}</button></div>
+ </form></DocumentModal>
+}
+export function KnowledgeGapList({compact=false}:{compact?:boolean}){
+ const {user}=useSession(),head=user?.accessRole==='supervisor'
+ const [rows,setRows]=useState<Gap[]>([]),[loaded,setLoaded]=useState(false),[error,setError]=useState(''),[filter,setFilter]=useState('active')
+ const [editing,setEditing]=useState<Gap|null>(null),[status,setStatus]=useState<Gap['status']>('in_progress'),[note,setNote]=useState(''),[documentId,setDocumentId]=useState(''),[docs,setDocs]=useState<BusinessRow[]>([]),[busy,setBusy]=useState(false)
+ const [record,setRecord]=useState(false)
+ async function load(){try{setRows(await api.get<Gap[]>('/api/business/gaps'));setLoaded(true);setError('')}catch(e){setError((e as Error).message)}}
+ useEffect(()=>{void load()},[])
+ async function edit(row:Gap){setEditing(row);setStatus(row.status==='open'?'in_progress':row.status);setNote(row.note);setDocumentId(row.document?.id||'');setError('');setDocs([]);try{setDocs((await api.get<BusinessRow[]>('/api/business/documents')).filter(d=>d.workflow.status==='published'&&!d.workflow.archived&&!d.workflow.deleted&&d.technical_index_ready))}catch(e){setError((e as Error).message)}}
+ const visible=rows.filter(r=>filter==='all'||(filter==='active'?r.status!=='resolved':r.status==='resolved')).sort((a,b)=>b.reporter_count-a.reporter_count||b.updated-a.updated)
+ const list=compact?visible.slice(0,3):visible
+ return <section className="space-y-4">
+ <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">{head?'团队未解决问题':'我记录的问题'}</h2><p className="mt-1 text-xs text-muted-foreground">{head?'先补多人遇到的问题；补充资料后，请提交人再次提问核对。':'主管补充资料后，你可以再次提问验证。'}</p></div>{compact?<Link to="/knowledge-gaps" className="text-xs text-primary">查看全部 →</Link>:<button type="button" className="dm-primary" onClick={()=>setRecord(true)}><Plus size={15}/>记录问题</button>}</div>
+ {!compact&&<div className="flex gap-2">{[['active','待处理'],['resolved','已补充'],['all','全部']].map(([key,label])=><button key={key} className={'rounded-full border px-4 py-1.5 text-xs '+(filter===key?'bg-foreground text-background':'bg-card text-muted-foreground')} onClick={()=>setFilter(key)} aria-pressed={filter===key}>{label}</button>)}<button type="button" className="ml-auto text-xs text-muted-foreground" onClick={()=>void load()}>刷新</button></div>}
+ {error&&<p role="alert" className="text-sm text-red-700">{error}</p>}
+ {!loaded?<p className="p-6 text-sm text-muted-foreground">正在读取问题…</p>:!list.length?<div className="rounded-lg border border-dashed p-7 text-sm text-muted-foreground">{head?'暂时没有待补问题。员工在问答页主动记录后，会出现在这里。':'当前没有这类记录。问不到答案时，可以点击“记录未解决问题”。'}</div>:<div className="divide-y rounded-lg border border-border bg-card">{list.map(row=><article key={row.id} className="space-y-3 p-5" data-gap-id={row.id}><div className="flex items-start justify-between gap-4"><h3 className="text-sm font-medium leading-7 whitespace-pre-wrap break-words">{row.question}</h3><span className={'shrink-0 rounded-full px-2 py-1 text-[11px] '+(row.status==='resolved'?'bg-emerald-50 text-emerald-800':'bg-secondary text-muted-foreground')}>{labels[row.status]}</span></div><p className="text-xs text-muted-foreground">{row.reporter_count} 人记录 · {new Date(row.updated*1000).toLocaleDateString('zh-CN')}</p>{row.note&&<p className="whitespace-pre-wrap text-xs leading-6 text-muted-foreground">处理说明：{row.note}</p>}{row.document&&<p className="text-xs">补充资料：<Link className="text-primary underline underline-offset-4" to={'/documents?search='+encodeURIComponent(documentTitleParts(row.document.name).title)}>{documentTitleParts(row.document.name).title}</Link></p>}{row.status==='resolved'&&!row.document&&<p className="text-xs text-muted-foreground">补充资料当前不可查看，请联系主管确认适用范围。</p>}<div className="flex gap-5 text-xs"><Link to={'/qa?question='+encodeURIComponent(row.question)} className="inline-flex items-center gap-1 text-primary">{row.status==='resolved'?'重新提问验证':'去问答页试试'}<ArrowUpRight size={13}/></Link>{head&&<button type="button" className="text-primary" onClick={()=>void edit(row)}>处理这个问题</button>}</div></article>)}</div>}
+ {record&&<RecordGap question="" onClose={()=>setRecord(false)} onSaved={()=>{setRecord(false);void load()}}/>}
+ {editing&&<DocumentModal open title="处理未解决问题" busy={busy} description="处理说明会显示给记录过这个问题的员工。标记已补充不代表系统已经验证答案。" onClose={()=>setEditing(null)}><form className="space-y-4" onSubmit={async e=>{e.preventDefault();setBusy(true);try{await api.put('/api/business/gaps/'+editing.id,{expected:editing.version,status,note,document_id:documentId||null});setEditing(null);await load()}catch(e){setError((e as Error).message)}finally{setBusy(false)}}}><p className="text-sm leading-7">{editing.question}</p><label className="grid gap-2 text-sm">处理状态<select className={input} value={status} onChange={e=>setStatus(e.target.value as Gap['status'])}>{Object.entries(labels).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label><label className="grid gap-2 text-sm">关联补充资料{status==='resolved'?'（必选）':'（选填）'}<select className={input} value={documentId} onChange={e=>setDocumentId(e.target.value)} required={status==='resolved'}><option value="">选择已经发布的资料</option>{docs.map(d=><option key={d.id} value={d.id}>{documentTitleParts(d.name).title} · {d.version}</option>)}</select></label><label className="grid gap-2 text-sm">处理说明<textarea className={input+' min-h-24'} value={note} maxLength={1000} onChange={e=>setNote(e.target.value)}/></label>{error&&<p role="alert" className="text-sm text-red-700">{error}</p>}<div className="dm-modal-actions"><button type="button" disabled={busy} onClick={()=>setEditing(null)}>取消</button><button className="dm-primary" disabled={busy}>保存处理结果</button></div></form></DocumentModal>}
+ </section>
+}

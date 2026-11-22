@@ -1098,6 +1098,8 @@ def demo_page():
 @app.get("/search")
 @app.get("/qa")
 @app.get("/identity")
+@app.get("/workbench")
+@app.get("/knowledge-gaps")
 @app.get("/")
 def index():
     return FileResponse(ROOT/'web/app/index.html')

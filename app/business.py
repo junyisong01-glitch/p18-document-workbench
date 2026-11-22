@@ -71,9 +71,10 @@ def install(store,central,legacy_acl):
             return not evidence and ((u['username']==b['owner'] and u['department']==b['department']) or (manager(u,b) and u['username']!=b['owner']))
         with store.connect() as c:
             grant=c.execute('SELECT expires FROM business_grants WHERE document_id=? AND username=?',(doc['id'],u['username'])).fetchone()
-        if grant and (grant[0] is None or grant[0]>time.time()):return True
-        if b.get('company_public'):return True
+        if b.get('company_public'):return True  # Existing public records remain explicitly external-public.
         if u['role']=='guest':return False
+        if grant and (grant[0] is None or grant[0]>time.time()):return True
+        if b.get('company_internal') and not b.get('restricted'):return True
         if b.get('legacy'):
             rule=legacy_acl.get(doc['id'])
             if not rule or doc.get('sha256')!=rule['file_sha256']:return False
@@ -306,14 +307,14 @@ def install(store,central,legacy_acl):
                 b.update(status='withdrawn',approved_by=None,approved_fingerprint=None)
             elif a=='take_down':
                 own_regular=(owner(u,b) and b.get('published_by')==u['username']
-                             and not b['restricted'] and not b['company_public'])
+                             and not b['restricted'] and not b['company_public'] and not b.get('company_internal'))
                 if not (manager(u,b) or own_regular):
                     raise HTTPException(403,'无权下架此文档')
                 if b['status']!='published':
                     raise HTTPException(409,'仅可下架现行文档')
                 if not body.note.strip():
                     raise HTTPException(422,'请填写下架原因')
-                b.update(status='taken_down',company_public=False)
+                b.update(status='taken_down',company_public=False,company_internal=False)
             elif a=='retry_index':
                 if not (owner(u,b) or manager(u,b)):
                     raise HTTPException(403,'无权重试索引')
@@ -382,8 +383,9 @@ def install(store,central,legacy_acl):
                 if a=='share'and(b['status']!='published'or b['archived']or b['deleted']):raise HTTPException(409,'仅可借阅当前已发布资料')
                 if b.get('restricted'):
                     if u['role']!='boss':raise HTTPException(403,'受限资料共享需老板明确授权')
-                with central.connect()as c:target=c.execute('SELECT active FROM library_accounts WHERE username=?',(body.username,)).fetchone()
+                with central.connect()as c:target=c.execute('SELECT a.active,p.role FROM library_accounts a LEFT JOIN business_profiles p ON p.username=a.username WHERE a.username=?',(body.username,)).fetchone()
                 if not target or not target[0]:raise HTTPException(422,'目标账号不可用')
+                if a=='share' and target[1] not in {'employee','supervisor','boss'}:raise HTTPException(403,'仅可向内部成员授权借阅；访客只能查看对外公开资料')
                 if a=='share' and body.expires_at is not None and body.expires_at<=time.time():raise HTTPException(422,'授权已过期')
                 with store.connect()as c:
                     if a=='share':c.execute('INSERT OR REPLACE INTO business_grants VALUES (?,?,?)',(identifier,body.username,body.expires_at))
@@ -392,12 +394,15 @@ def install(store,central,legacy_acl):
                     c.execute('UPDATE business_documents SET body=? WHERE document_id=?',(json.dumps(b,ensure_ascii=False),identifier))
                     c.execute('INSERT INTO business_events(document_id,at,actor,action,body)VALUES(?,?,?,?,?)',(identifier,time.time(),u['username'],a,json.dumps({'username':body.username,'expires_at':body.expires_at,'version':b['version']},ensure_ascii=False)))
                 return summary(doc)
-            elif a in {'make_public','revoke_public'}:
-                if u['role']!='boss':raise HTTPException(403,'仅老板可批准全公司公开')
-                if a=='make_public' and (b['status']!='published' or b['archived'] or b.get('deleted')
-                                         or doc.get('publication_rules')==1 and b.get('restricted')):
+            elif a in {'make_public','revoke_public','make_internal','revoke_internal'}:
+                if u['role']!='boss':raise HTTPException(403,'仅管理层负责人可调整公司级可见范围')
+                if a in {'make_public','make_internal'} and (b['status']!='published' or b['archived'] or b.get('deleted')
+                                         or b.get('restricted')):
                     raise HTTPException(409,'只有现行且符合公开条件的资料可以公开')
-                b['company_public']=a=='make_public'
+                if a=='make_public':b.update(company_public=True,company_internal=False)
+                elif a=='make_internal':b.update(company_internal=True,company_public=False)
+                elif a=='revoke_public':b['company_public']=False
+                else:b['company_internal']=False
             elif a=='purge':
                 if u['role']!='boss' or not b.get('deleted') or body.confirm!=identifier:raise HTTPException(403,'彻底删除仅限老板，并须先软删除及确认文件ID')
                 # Durable tombstone first: any failure remains inaccessible and retryable.
@@ -421,6 +426,8 @@ def install(store,central,legacy_acl):
         u=user();b=read(identifier)
         if not b or not(manager(u,b)or b['owner']==u['username']):raise HTTPException(404,'不可查看审计')
         with store.connect()as c:return [dict(r)for r in c.execute('SELECT at,actor,action,body FROM business_events WHERE document_id=? ORDER BY id',(identifier,))]
+    from app.knowledge_gaps import install as install_gaps
+    install_gaps(store,user,read,visible)
     from app.enterprise_documents import install_updates
     install_updates(store,central,user,read,manager,write,summary,visible)
     return store

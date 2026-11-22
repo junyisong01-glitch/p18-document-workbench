@@ -5,6 +5,7 @@ import LoginPage from './pages/Login'
 import DashboardPage from './pages/Dashboard'
 import DocumentsPage from './pages/Documents'
 import QaPage from './pages/QaPage'
+import KnowledgeGapsPage from './pages/KnowledgeGaps'
 import IdentityPage from './pages/Identity'
 
 /** 未登录访问受保护资源时拒绝访问，回到登录入口 */
@@ -16,6 +17,8 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   }
   return <>{children}</>
 }
+
+function RoleHome(){const {user,kbId}=useSession();return <Navigate to={kbId==='business'&&['employee','guest'].includes(user?.accessRole||'')?'/qa':'/workbench'} replace/>}
 
 function AppRoutes() {
   const { user, ready } = useSession()
@@ -40,7 +43,9 @@ function AppRoutes() {
           </RequireAuth>
         }
       >
-        <Route path="/" element={<DashboardPage />} />
+        <Route path="/" element={<RoleHome />} />
+        <Route path="/workbench" element={<DashboardPage />} />
+        <Route path="/knowledge-gaps" element={<KnowledgeGapsPage />} />
         <Route path="/documents" element={<DocumentsPage />} />
         <Route path="/search" element={<Navigate to="/qa" replace />} />
         <Route path="/identity" element={<IdentityPage />} />

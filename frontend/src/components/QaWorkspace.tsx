@@ -9,6 +9,7 @@ type WorkspaceProps = {
   name: string
   role: string
   settings: ReactNode
+  tools?: ReactNode
   preview?: ReactNode
   previewDocked?: boolean
   children: ReactNode
@@ -54,7 +55,7 @@ export function QaWorkspace(props: WorkspaceProps) {
   const drag = useRef<{ id: number; startX: number; startWidth: number; width: number } | null>(null)
   const {
     library, name, role, history, active, hasTurns, busy, ready, externalSelected, question, inputRef, examples,
-    settings, preview, previewDocked, onChange, onAsk, onNew, onSelect, children,
+    settings, tools, preview, previewDocked, onChange, onAsk, onNew, onSelect, children,
   } = props
 
   function startResize(event: PointerEvent<HTMLDivElement>) {
@@ -113,16 +114,17 @@ export function QaWorkspace(props: WorkspaceProps) {
       <div className="qa-chat-brand">
         <button type="button" className="qa-chat-mobile qa-chat-icon" aria-expanded={showHistory}
           aria-controls="qa-conversation-history" aria-label="会话列表" onClick={() => setShowHistory(open => !open)}><PanelLeft size={19}/></button>
-        <Link to="/" className="qa-chat-back" title="返回工作台" aria-label="返回工作台"><ArrowLeft size={17}/></Link>
+        <Link to="/workbench" className="qa-chat-back" title="返回工作台" aria-label="返回工作台"><ArrowLeft size={17}/></Link>
         <span className="qa-chat-mark" aria-hidden="true">启</span>
         <strong>{library}</strong>
         <h1>知识问答</h1>
       </div>
       <div className="qa-chat-top-actions">
-        <details className="qa-chat-settings">
+        {tools&&<nav className="flex items-center gap-4 text-xs text-muted-foreground" aria-label="问答快捷入口">{tools}</nav>}
+        {settings&&<details className="qa-chat-settings">
           <summary title="模型设置"><Settings2 size={16}/><span>模型设置</span></summary>
           <div className="qa-chat-settings-panel">{settings}</div>
-        </details>
+        </details>}
         <Link to="/identity" className="qa-chat-user" title="权限与身份">
           <span aria-hidden="true">{Array.from(name)[0]}</span><b>{name}</b><small>· {role}</small>
         </Link>

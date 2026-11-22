@@ -75,16 +75,19 @@ def test_scoped_manager_self_approval_no_cross_department_and_publication(rig):
 
 def test_grants_public_guest_and_revocation(rig):
     r=rig;id=r.create()
-    assert r.c.get('/api/documents/'+id,headers=r.h['guest']).status_code==404
+    assert r.c.get('/api/documents/'+id,headers=r.h['prd']).status_code==404
     assert r.action(id,'head','make_public').status_code==403
-    assert r.action(id,'head','share',username='guest').status_code==200
-    assert r.c.get('/api/documents/'+id,headers=r.h['guest']).status_code==200
-    assert r.action(id,'head','revoke_share',username='guest').status_code==200
+    assert r.action(id,'head','share',username='prd').status_code==200
+    assert r.c.get('/api/documents/'+id,headers=r.h['prd']).status_code==200
+    assert r.action(id,'head','revoke_share',username='prd').status_code==200
+    assert r.c.get('/api/documents/'+id,headers=r.h['prd']).status_code==404
+    assert r.action(id,'head','share',username='guest').status_code==403
     assert r.c.get('/api/documents/'+id,headers=r.h['guest']).status_code==404
     assert r.action(id,'boss','make_public').status_code==200
     assert r.c.get('/api/documents/'+id,headers=r.h['guest']).status_code==200
+    assert r.c.get('/api/documents/'+id,headers=r.h['prd']).status_code==200
     assert r.action(id,'boss','revoke_public').status_code==200
-    assert r.c.get('/api/documents/'+id,headers=r.h['guest']).status_code==404
+    assert r.c.get('/api/documents/'+id,headers=r.h['prd']).status_code==404
 
 
 def test_compound_qa_respects_publication_grant_revocation_and_archive(rig, monkeypatch):
@@ -447,7 +450,8 @@ def test_history_search_is_separate_and_rechecks_all_group_members(rig):
     for id in [old,pending,trash,secret]:assert not r.q.authorize_document(r.q.get(id),u,evidence=True)
 
 
-def test_minor_correction_real_source_atomic_switch_and_audit(rig):
+@pytest.mark.parametrize('internal', [False, True])
+def test_minor_correction_real_source_atomic_switch_and_audit(rig, internal):
     r=rig;old=r.create();folder=r.q.folder_for(old);folder.mkdir(parents=True)
     from docx import Document
     doc=Document();doc.add_paragraph('Fictional typo.');doc.save(folder/'original.docx')
@@ -459,18 +463,24 @@ def test_minor_correction_real_source_atomic_switch_and_audit(rig):
         (path/'original.docx').write_bytes(await files[0].read());return result
     r.q.upload=upload
     url='/api/business/documents/'+old
+    if internal:
+        assert r.action(old,'boss','make_internal').status_code==200
     assert r.c.get(url+'/editable',headers=r.h['qa']).status_code==403
-    payload={'expected':0,'reason':'Fictional spelling correction','declaration':False,'paragraphs':[{'ordinal':0,'text':'Fictional correction.'}]}
+    payload={'expected':r.q.business_read(old)['version'],'reason':'Fictional spelling correction','declaration':False,'paragraphs':[{'ordinal':0,'text':'Fictional correction.'}]}
     assert r.c.post(url+'/correction',headers=r.h['rd'],json=payload).status_code==422
     response=r.c.post(url+'/correction',headers=r.h['rd'],json={**payload,'declaration':True});assert response.status_code==200,response.text
     new=response.json()['document']['id']
     assert r.q.business_read(new)['status']=='correction_pending'
+    assert not r.q.business_read(new).get('company_internal')
     assert not r.q.business_read(old)['archived']
     assert Document(r.q.folder_for(new)/'original.docx').paragraphs[0].text=='Fictional correction.'
     assert (folder/'original.docx').read_bytes()==old_bytes
     assert r.c.post(url+'/correction',headers=r.h['rd'],json={**payload,'declaration':True}).status_code==409
     assert r.q.finalize_correction(new)
     assert r.q.business_read(old)['archived']and r.q.business_read(new)['status']=='published'
+    assert bool(r.q.business_read(new).get('company_internal')) == internal
+    assert r.c.get('/api/documents/'+new,headers=r.h['prd']).status_code == (200 if internal else 404)
+    assert r.c.get('/api/documents/'+new,headers=r.h['guest']).status_code == 404
     with r.q.connect()as c:
         assert library_store.read(c,old)[1].version==library_store.read(c,new)[1].version
         assert c.execute('SELECT completed FROM business_edits WHERE document_id=?',(new,)).fetchone()[0]

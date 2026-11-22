@@ -1,3 +1,5 @@
+import {useSearchParams,Link} from 'react-router'
+import {RecordGap} from '@/components/KnowledgeGaps'
 import {useCallback,useEffect,useRef,useState} from 'react'
 import {Cpu} from 'lucide-react'
 import {ModelConfigDialog} from '@/components/ModelConfigDialog'
@@ -30,6 +32,8 @@ type Conversation = { id:string; title:string; turns:Turn[] }
 
 export default function QaPage(){
  const {kbId,visibleDocs,searchableDocs,ready,user}=useSession()
+ const [params]=useSearchParams()
+ const [gapQuestion,setGapQuestion]=useState<string|null>(null),[gapSaved,setGapSaved]=useState(false)
  const kb=useKnowledgeBase()
  const questionInput=useRef<HTMLTextAreaElement>(null)
  const turnAnchor=useRef<HTMLElement>(null)
@@ -63,6 +67,7 @@ export default function QaPage(){
   return()=>media.removeEventListener('change',sync)
  },[])
  useEffect(()=>{backendSessions.current.clear();setConversations([]);setActive(null);setQuestion('');setAskedQuestion('');setEmpty(false);setAnswerNotice('');setDraft(null);setPending(null);setAnswer(null);setSelected([]);setConsent(false);setPreview(null);setError('')},[kbId,user?.username])
+ useEffect(()=>{const preset=params.get('question');if(preset)setQuestion(preset.slice(0,2000))},[params])
  const currentTurn:Turn={question:askedQuestion,answer,empty,error,notice:answerNotice}
  const previousTurns=conversations.find(conversation=>conversation.id===active)?.turns||[]
  const turnCount=previousTurns.length
@@ -191,7 +196,7 @@ export default function QaPage(){
   return <>
    {turn.error&&<p role="alert" className="qa-chat-error">{turn.error}{turn.error.includes('历史归档 → 查正文')&&
     <> <a className="underline" href={`/documents?view=${encodeURIComponent('历史归档')}`}>打开历史归档</a></>}</p>}
-   {questionOnly&&noEvidence&&<QaNoEvidence question={turn.question} examples={suggestions} onAsk={runQuestion}/>}
+   {questionOnly&&noEvidence&&<QaNoEvidence question={turn.question} examples={suggestions} onAsk={runQuestion} onRecord={kbId==='business'&&['employee','supervisor'].includes(user?.accessRole||'')?()=>{setGapSaved(false);setGapQuestion(turn.question)}:undefined}/>}
    {turn.answer&&(!questionOnly||!noEvidence)&&<div id={isCurrent?'qa-answer':undefined}>
     {!sourcesAvailable?<p className="qa-chat-error">引用资料已变更或当前不可查看，请重新提问。</p>:
     noEvidence?<AnswerPresentation answer={turn.answer} onSource={openSource}/>:
@@ -202,7 +207,7 @@ export default function QaPage(){
  }
 
  return <>
-  <QaWorkspace library={kb.name} name={name} role={guest?'外部参观':user?.role.name??''} settings={settings}
+  <QaWorkspace library={kb.name} name={name} role={guest?'外部参观':user?.role.name??''} settings={kbId==='business'&&user?.accessRole!=='boss'?null:settings} tools={<><Link to="/documents">{guest?'公开资料':'我的资料'}</Link>{!guest&&user?.accessRole!=='boss'&&<Link to="/knowledge-gaps">{user?.accessRole==='supervisor'?'团队问题':'我的问题'}</Link>}</>}
     previewDocked={dockPreview&&!!previewDoc} preview={preview&&activeSource&&previewDoc&&
       <DocPreviewDialog presentation={dockPreview?'panel':'drawer'} sourceRef={activeSource} sourceVisit={preview.visit}
         doc={previewDoc} open onClose={closePreview} navigation={preview.locations.length>1&&
@@ -236,6 +241,8 @@ export default function QaPage(){
     </QaChatTurn>}
     {routeError&&<p role="alert" className="qa-chat-error">问答服务暂不可用。 <button type="button" onClick={()=>setRouteAttempt(attempt=>attempt+1)}>重试</button></p>}
   </QaWorkspace>
+  {gapQuestion!==null&&<RecordGap question={gapQuestion} onClose={()=>setGapQuestion(null)} onSaved={()=>{setGapQuestion(null);setGapSaved(true)}}/>}
+  {gapSaved&&<div role="status" className="dm-feedback"><span>已记录，可在“我的问题”查看处理进度。</span><button aria-label="关闭记录提示" onClick={()=>setGapSaved(false)}>×</button></div>}
   {(kbId==='demo'||questionOnly)&&<ModelConfigDialog open={configOpen} onClose={closeConfig} onStatus={setModelConfig}
     onChanged={()=>{setPending(null);setConsent(false);setConfigError('')}}/>}
  </>

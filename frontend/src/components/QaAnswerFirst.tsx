@@ -40,11 +40,12 @@ export function QaAnswerLoading({ phase }: { phase: 'search' | 'answer' }) {
   </section>
 }
 
-export function QaNoEvidence({ question, examples, onAsk }: SuggestionsProps & { question: string }) {
+export function QaNoEvidence({ question, examples, onAsk, onRecord }: SuggestionsProps & { question: string; onRecord?:()=>void }) {
   return <section className="qa-first-card qa-first-empty" aria-label="没找到可靠依据" role="status">
     <h2>没找到可靠依据</h2>
     <p>当前可查阅的已发布资料中，暂未找到能回答「{question}」的依据。</p>
     <Suggestions examples={examples} onAsk={onAsk}/>
+    {onRecord&&<button type="button" onClick={onRecord} className="mt-5 rounded-full border border-border bg-card px-4 py-2 text-sm text-primary">记录未解决问题</button>}
   </section>
 }
 

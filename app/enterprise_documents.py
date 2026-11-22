@@ -84,7 +84,7 @@ def install_updates(store,central,user,read,manager,write,summary,visible):
                     if latest['version']!=expected:raise ValueError()
                     meta=library_store.read(c,identifier)[1]
                     library_store.write(c,new_id,meta,0)
-                    target=dict(b,version=1,status='correction_pending',archived=False,deleted=False,company_public=False,legacy=False,replaces=identifier,correction=True,approved_by=u['username'])
+                    target=dict(b,version=1,status='correction_pending',archived=False,deleted=False,company_public=False,company_internal=False,legacy=False,replaces=identifier,correction=True,approved_by=u['username'])
                     if b.get('legacy'):
                         # Preserve the old explicit job ACL independently of the new source hash.
                         rule=store.business_legacy_acl.get(identifier,{})
@@ -144,6 +144,7 @@ def install_updates(store,central,user,read,manager,write,summary,visible):
                          published_by=edit['editor'])
                 # Public and explicit read grants continue for this logical same-version correction.
                 b['company_public']=old.get('company_public',False)
+                b['company_internal']=old.get('company_internal',False)
                 c.execute('UPDATE business_documents SET body=?WHERE document_id=?',(json.dumps(old,ensure_ascii=False),edit['previous_id']))
                 c.execute('UPDATE business_documents SET body=?WHERE document_id=?',(json.dumps(b,ensure_ascii=False),identifier))
                 c.execute('INSERT OR REPLACE INTO business_grants SELECT ?,username,expires FROM business_grants WHERE document_id=?',(identifier,edit['previous_id']))
