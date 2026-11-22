@@ -617,3 +617,23 @@ def test_parse_exception_priority_and_withdrawn_draft(rig):
     assert r.action(id,'rd','withdraw').is_success
     assert r.q.business_read(id)['status']=='withdrawn'
     assert r.action(id,'rd','publish').status_code==409
+
+
+def test_cross_department_read_grant_never_delegates_management(rig):
+    r=rig;document=r.create()
+    assert r.action(document,'head','share',username='otherhead').status_code==200
+    assert r.c.get('/api/documents/'+document,headers=r.h['otherhead']).status_code==200
+    for action,kwargs in [('share',{'username':'prd'}),('revoke_share',{'username':'otherhead'}),('make_public',{}),('make_internal',{}),('take_down',{'note':'attempt'}),('publish',{})]:
+        assert r.action(document,'otherhead',action,**kwargs).status_code==403
+    assert r.c.get('/api/business/documents/'+document+'/borrowers',headers=r.h['otherhead']).status_code==404
+    assert r.action(document,'head','revoke_share',username='otherhead').status_code==200
+    assert r.c.get('/api/documents/'+document,headers=r.h['otherhead']).status_code==404
+    secret=r.create(restricted=True)
+    assert r.action(secret,'boss','share',username='head').status_code==200
+    assert r.c.get('/api/documents/'+secret,headers=r.h['head']).status_code==200
+    assert r.action(secret,'head','share',username='prd').status_code==403
+    assert r.action(secret,'boss','share',username='prd').status_code==200
+    assert r.action(secret,'boss','share',username='guest').status_code==403
+    assert r.action(secret,'boss','take_down',note='isolated emergency test').status_code==200
+    assert r.c.get('/api/documents/'+secret,headers=r.h['prd']).status_code==404
+    assert r.q.business_read(secret)['status']=='taken_down'

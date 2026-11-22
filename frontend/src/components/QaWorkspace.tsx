@@ -5,6 +5,7 @@ import type { QaExample } from '@/lib/qa-examples'
 import './QaWorkspace.css'
 
 type WorkspaceProps = {
+  guest?: boolean
   library: string
   name: string
   role: string
@@ -114,7 +115,7 @@ export function QaWorkspace(props: WorkspaceProps) {
       <div className="qa-chat-brand">
         <button type="button" className="qa-chat-mobile qa-chat-icon" aria-expanded={showHistory}
           aria-controls="qa-conversation-history" aria-label="会话列表" onClick={() => setShowHistory(open => !open)}><PanelLeft size={19}/></button>
-        <Link to="/workbench" className="qa-chat-back" title="返回工作台" aria-label="返回工作台"><ArrowLeft size={17}/></Link>
+        {!props.guest&&<Link to="/workbench" className="qa-chat-back" title="返回工作台" aria-label="返回工作台"><ArrowLeft size={17}/></Link>}
         <span className="qa-chat-mark" aria-hidden="true">启</span>
         <strong>{library}</strong>
         <h1>知识问答</h1>
@@ -125,9 +126,8 @@ export function QaWorkspace(props: WorkspaceProps) {
           <summary title="模型设置"><Settings2 size={16}/><span>模型设置</span></summary>
           <div className="qa-chat-settings-panel">{settings}</div>
         </details>}
-        <Link to="/identity" className="qa-chat-user" title="权限与身份">
-          <span aria-hidden="true">{Array.from(name)[0]}</span><b>{name}</b><small>· {role}</small>
-        </Link>
+        {props.guest?<span className="qa-chat-user"><span aria-hidden="true">{Array.from(name)[0]}</span><b>{name}</b><small>· {role}</small></span>:<Link to="/identity" className="qa-chat-user" title="权限与身份"><span aria-hidden="true">{Array.from(name)[0]}</span><b>{name}</b><small>· {role}</small></Link>}
+
       </div>
     </header>
     <div className={`qa-chat-layout ${resizing ? 'qa-chat-layout-resizing' : ''} ${previewDocked ? 'qa-chat-layout-with-preview' : ''}`}

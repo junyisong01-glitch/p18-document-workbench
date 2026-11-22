@@ -11,8 +11,9 @@ export function DocumentRowActions({row,own,manage,boss,busy,review,start,act,au
  const add=(label:string,action:string,danger=false)=>more.push({label,run:()=>start(action),danger,disabled:busy})
  if(own||manage)more.push({label:'操作记录',run:audit})
  if(current){
+  if(boss)add('紧急下架','take_down',true)
   if(own)more.push({label:'轻量勘误',run:correct})
-  if(manage&&(!b.restricted||boss)){add('授权借阅','share');add('撤销借阅','revoke_share')}
+  if(manage&&(!b.restricted||boss)){add('跨部门授权','share');add('撤销授权','revoke_share')}
   if(boss&&!b.restricted){add(b.company_internal?'撤销公司内部共享':'全公司内部可见',b.company_internal?'revoke_internal':'make_internal');add(b.company_public?'撤销对外公开':'设为对外公开',b.company_public?'revoke_public':'make_public')}
  }
  if(pending&&own&&b.status==='correction_pending')add('取消本次勘误','cancel_correction')

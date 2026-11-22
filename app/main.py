@@ -1110,6 +1110,7 @@ def demo_page():
 @app.get("/identity")
 @app.get("/workbench")
 @app.get("/knowledge-gaps")
+@app.get("/management")
 @app.get("/")
 def index():
     return FileResponse(ROOT/'web/app/index.html')

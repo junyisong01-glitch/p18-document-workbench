@@ -76,6 +76,8 @@ export default function AppShell() {
   const name = demoIdentityName(user?.username) ?? user?.role.name ?? '用户'
   const kb = useKnowledgeBase()
   const navigate = useNavigate()
+  const business=kb.id==='business',guest=business&&user?.accessRole==='guest',boss=business&&user?.accessRole==='boss'
+  const navigation=NAV.filter(item=>guest?['/documents','/qa'].includes(item.to):(item.to!=='/knowledge-gaps'||boss)).map(item=>({...item,label:item.to==='/documents'?(guest?'公开资料':boss?'全公司资料':item.label):item.to==='/workbench'&&boss?'管理概览':item.to==='/identity'&&boss?'权限与人员管理':item.label,to:item.to==='/identity'&&boss?'/management':item.to}))
   const [menuOpen,setMenuOpen]=useState(false)
   useEffect(()=>setMenuOpen(false),[kb.id])
 
@@ -94,7 +96,7 @@ export default function AppShell() {
           <div className="px-2 pb-2 font-mono2 text-[9px] font-medium uppercase tracking-[0.28em] text-[#6e6656]">
             Workspace
           </div>
-          {NAV.filter(item=>item.to!=='/knowledge-gaps'||kb.id==='business'&&user?.accessRole==='boss').map((item) => (
+          {navigation.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -163,7 +165,7 @@ export default function AppShell() {
               可见 {visibleDocs.length} · 可检索 {searchableDocs.length}
             </span>
             <span className="text-border">/</span>
-            <span className="hidden xl:inline">{kb.modeLabel}</span>
+            <span className="hidden xl:inline">{guest?'仅查阅获准对外公开的资料':kb.modeLabel}</span>
           </div>
           <div className="flex flex-wrap items-center gap-3"><span className="text-[11px] text-muted-foreground">{user?.username} · {user?.role.name} · {user?.role.dept}</span><DemoTag /></div>
         </header>

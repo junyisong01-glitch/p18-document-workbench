@@ -6,6 +6,7 @@ import DashboardPage from './pages/Dashboard'
 import DocumentsPage from './pages/Documents'
 import QaPage from './pages/QaPage'
 import KnowledgeGapsPage from './pages/KnowledgeGaps'
+import Management from './pages/Management'
 import IdentityPage from './pages/Identity'
 
 /** 未登录访问受保护资源时拒绝访问，回到登录入口 */
@@ -19,6 +20,13 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 function RoleHome(){const {user,kbId}=useSession();return <Navigate to={kbId==='business'&&['employee','guest'].includes(user?.accessRole||'')?'/qa':'/workbench'} replace/>}
+
+function InternalPage({children,bossOnly=false}:{children:React.ReactNode;bossOnly?:boolean}){
+ const {user,kbId}=useSession()
+ if(kbId==='business'&&(user?.accessRole==='guest'||bossOnly&&user?.accessRole!=='boss'))return <Navigate to="/qa" replace/>
+ if(bossOnly&&kbId!=='business')return <Navigate to="/" replace/>
+ return <>{children}</>
+}
 
 function AppRoutes() {
   const { user, ready } = useSession()
@@ -44,11 +52,12 @@ function AppRoutes() {
         }
       >
         <Route path="/" element={<RoleHome />} />
-        <Route path="/workbench" element={<DashboardPage />} />
-        <Route path="/knowledge-gaps" element={<KnowledgeGapsPage />} />
+        <Route path="/workbench" element={<InternalPage><DashboardPage /></InternalPage>} />
+        <Route path="/knowledge-gaps" element={<InternalPage><KnowledgeGapsPage /></InternalPage>} />
         <Route path="/documents" element={<DocumentsPage />} />
         <Route path="/search" element={<Navigate to="/qa" replace />} />
-        <Route path="/identity" element={<IdentityPage />} />
+        <Route path="/management" element={<InternalPage bossOnly><Management/></InternalPage>} />
+        <Route path="/identity" element={<InternalPage><IdentityPage /></InternalPage>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

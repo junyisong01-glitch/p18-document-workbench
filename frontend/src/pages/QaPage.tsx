@@ -213,7 +213,7 @@ export default function QaPage(){
  }
 
  return <>
-  <QaWorkspace library={kb.name} name={name} role={guest?'外部参观':user?.role.name??''} settings={kbId==='business'&&user?.accessRole!=='boss'?null:settings} tools={<><Link to="/documents">{guest?'公开资料':'我的资料'}</Link></>}
+  <QaWorkspace guest={guest} library={kb.name} name={name} role={guest?'外部参观':user?.role.name??''} settings={kbId==='business'&&user?.accessRole!=='boss'?null:settings} tools={<><Link to="/documents">{guest?'公开资料':'我的资料'}</Link></>}
     previewDocked={dockPreview&&!!previewDoc} preview={preview&&activeSource&&previewDoc&&
       <DocPreviewDialog presentation={dockPreview?'panel':'drawer'} sourceRef={activeSource} sourceVisit={preview.visit}
         doc={previewDoc} open onClose={closePreview} navigation={preview.locations.length>1&&
