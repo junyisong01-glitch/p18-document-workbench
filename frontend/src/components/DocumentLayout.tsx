@@ -13,9 +13,9 @@ export function DocumentViews({tabs,active,counts,loaded,onSelect}:{tabs:string[
 export function BusinessFilePicker({file,busy,onFile,onError}:{file:File|null;busy:boolean;onFile:(file:File|null)=>void;onError:(message:string)=>void}){
  const ref=useRef<HTMLInputElement>(null),[drag,setDrag]=useState(false)
  useEffect(()=>{if(!file&&ref.current)ref.current.value=''},[file])
- function pick(next:File|null){if(!next||busy)return;if(!/\.(docx?|xlsx|pdf)$/i.test(next.name)){onError('现有上传能力仅支持 DOC、DOCX、XLSX 和 PDF，请重新选择。');return}onError('');onFile(next)}
+ function pick(next:File|null){if(!next||busy)return;if(!/\.(docx?|xlsx?|pdf|txt|md|csv|jpe?g|png)$/i.test(next.name)){onError('支持 PDF / Word / Excel / TXT / Markdown / CSV / JPG / PNG，请重新选择。');return}onError('');onFile(next)}
  return <div className="dm-file-picker"><label className={'dm-upload-area '+(drag?'dragging':'')} onDragOver={event=>{event.preventDefault();if(!busy)setDrag(true)}} onDragLeave={()=>setDrag(false)} onDrop={event=>{event.preventDefault();setDrag(false);pick(event.dataTransfer.files[0]||null)}}>
-  <input ref={ref} type="file" aria-label="业务文件" accept=".doc,.docx,.xlsx,.pdf" disabled={busy} className="sr-only" onChange={event=>pick(event.target.files?.[0]||null)}/><CloudUpload size={25} aria-hidden="true"/><strong>{file?'更换已选文件':'点击选择或拖拽文件到这里'}</strong><span>DOC / DOCX / XLSX / PDF · 提交后由服务端解析</span>
+  <input ref={ref} type="file" aria-label="业务文件" accept=".doc,.docx,.xlsx,.xls,.pdf,.txt,.md,.csv,.jpg,.jpeg,.png" disabled={busy} className="sr-only" onChange={event=>pick(event.target.files?.[0]||null)}/><CloudUpload size={25} aria-hidden="true"/><strong>{file?'更换已选文件':'点击选择或拖拽文件到这里'}</strong><span>PDF / Word / Excel / TXT / Markdown / CSV / JPG / PNG · 提交后由服务端解析</span>
  </label>{file&&<div className="dm-picked-file"><FileText size={22}/><div><strong>{file.name}</strong><span>{(file.size/1024).toFixed(1)} KB · 已选择，尚未提交</span></div><button type="button" disabled={busy} aria-label="移除已选文件" onClick={()=>onFile(null)}><X size={16}/></button></div>}</div>
 }
 export function DocumentModal({open,title,label,description,busy=false,onClose,children}:{open:boolean;title:string;label?:string;description:string;busy?:boolean;onClose:()=>void;children:ReactNode}){

@@ -106,7 +106,7 @@ def test_limits_and_csrf(client):
     assert client.post('/api/documents',headers={**HEADERS,'Origin':'https://foreign.example'},files=[('files',('a.pdf',pdf_bytes()))]).status_code==403
     too_many=[('files',(f'{i}.pdf',pdf_bytes())) for i in range(21)]
     assert client.post('/api/documents',headers=HEADERS,files=too_many).status_code==400
-    assert upload(client,name='a.txt',data=b'hello')['status']=='rejected'
+    assert upload(client,name='a.exe',data=b'hello')['status']=='rejected'
     with patch.object(main,'MAX_FILE',10):assert upload(client,data=b'0'*11)['status']=='rejected'
     with patch.object(main,'MAX_BATCH',5):
         assert client.post('/api/documents',headers=HEADERS,files=[('files',('a.pdf',b'123456'))]).status_code==400

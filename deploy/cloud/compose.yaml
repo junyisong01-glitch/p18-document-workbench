@@ -30,6 +30,7 @@ x-runtime: &runtime
     HF_HUB_DISABLE_TELEMETRY: "1"
     HF_HUB_DISABLE_IMPLICIT_TOKEN: "1"
     TOKENIZERS_PARALLELISM: "false"
+    P18_OCR_BACKEND: tesseract
     P18_PARSER: docling
     P18_DOCX_PYTHON: /usr/local/bin/python
     P18_DOCLING_FALLBACK: legacy

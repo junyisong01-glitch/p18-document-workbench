@@ -39,7 +39,7 @@ export interface KnowledgeBase {
   } | null
 }
 
-export type DocFormat = 'docx' | 'xlsx' | 'pdf'
+export type DocFormat = 'doc' | 'docx' | 'xlsx' | 'xls' | 'pdf' | 'txt' | 'md' | 'csv' | 'jpg' | 'jpeg' | 'png'
 export type DocStatus = 'active' | 'archived' // archived = 已废止归档
 export type Confidentiality = '公开' | '内部' | '机密' // 现有密级分类
 

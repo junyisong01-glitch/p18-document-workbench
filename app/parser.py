@@ -18,6 +18,8 @@ from lxml import etree
 from app.pdf_ocr import OcrError, PdfOcr
 from app.word_structure import table_structure, table_text, associate_preview, compatibility_copy, normalized, PARSER_VERSION
 
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt", ".md", ".csv", ".jpg", ".jpeg", ".png"}
+SUPPORTED_LABEL = "PDF / DOCX / DOC / XLSX / XLS / TXT / MD / CSV / JPG / PNG"
 MAX_TEXT = 2_000_000
 MAX_PAGES = 200
 
@@ -59,6 +61,14 @@ def validate(path, ext):
                     raise ValueError("XLSX 解压内容超过安全限制，请拆分文件。")
                 if any('vbaProject' in n for n in archive.namelist()): raise ValueError("不支持带宏的工作簿，请另存为无宏 XLSX。")
         except zipfile.BadZipFile: raise ValueError("XLSX 已损坏、加密或格式不匹配，请重新导出。")
+    elif ext in {'.txt', '.md', '.csv'}:
+        from app.text_formats import read_text
+        read_text(path)
+    elif ext == '.xls':
+        if not olefile.isOleFile(path):
+            raise ValueError('文件不是旧版 XLS，请按实际格式另存后上传。')
+    elif ext in {'.jpg', '.jpeg', '.png'}:
+        validate_image(path, ext)
     elif ext == ".doc":
         if not olefile.isOleFile(path):
             raise ValueError("扩展名与实际格式不一致，请上传 Word 97–2003 DOC 文件。")
@@ -69,8 +79,47 @@ def validate(path, ext):
             if len(fib) >= 12 and int.from_bytes(fib[10:12], "little") & 0x8100:
                 raise ValueError("DOC 文件已加密，请自行解密后重新上传。")
     else:
-        raise ValueError("当前支持 PDF、DOCX、DOC 和 XLSX。")
+        raise ValueError("当前支持 " + SUPPORTED_LABEL + "。")
 
+
+
+def validate_image(path, ext):
+    import warnings
+    from PIL import Image
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', Image.DecompressionBombWarning)
+            with Image.open(path) as image:
+                expected='PNG' if ext=='.png' else 'JPEG'
+                if image.format!=expected:raise ValueError('图片扩展名与实际格式不一致。')
+                if image.width*image.height>20_000_000 or max(image.size)>12000:
+                    raise ValueError('图片超过2000万像素或边长12000像素，请缩小后上传。')
+                if getattr(image,'n_frames',1)!=1:raise ValueError('暂不支持多帧图片，请逐张导出。')
+                image.verify()
+    except (OSError, Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise ValueError('图片无法读取或尺寸过大，请重新导出。') from exc
+
+
+def parse_image(source, folder):
+    from PIL import Image, ImageOps
+    # Correct EXIF orientation and flatten transparency; original bytes remain untouched.
+    with Image.open(source) as image:
+        oriented=ImageOps.exif_transpose(image).convert('RGBA')
+        background=Image.new('RGBA',oriented.size,'white')
+        background.alpha_composite(oriented)
+        buffer=__import__('io').BytesIO()
+        background.convert('RGB').save(buffer,format='PNG')
+    preview=folder/'image-preview.pdf'
+    with fitz.open() as pdf:
+        width,height=background.size
+        page=pdf.new_page(width=width*.5,height=height*.5)
+        page.insert_image(page.rect,stream=buffer.getvalue())
+        pdf.save(preview)
+    result=parse_pdf(preview)
+    result.update(preview={'original':preview.name},parser_version='image-local-ocr-v1')
+    if not result['characters']:
+        result['error']=result['issues'][0]['message'] if result['issues'] else '图片未识别到可检索文字。'
+    return result
 
 def convert(source, target_dir, fmt):
     binary = soffice_path()
@@ -243,6 +292,14 @@ def process(folder, ext):
     source = folder / ("original" + ext)
     validate(source, ext)
     result = {"preview": {}, "preview_warnings": [], "parser_version": PARSER_VERSION}
+    if ext in {'.txt', '.md', '.csv', '.xls'}:
+        from app.text_formats import parse_text, parse_csv, parse_xls
+        result.update(parse_csv(source) if ext=='.csv' else parse_xls(source) if ext=='.xls' else parse_text(source,ext=='.md'))
+        if not result['characters']:result['error']='文件没有可提取的文字或表格内容。'
+        return result
+    if ext in {'.jpg', '.jpeg', '.png'}:
+        result.update(parse_image(source,folder))
+        return result
     word = source
     if ext == ".doc":
         word = convert(source, folder / "converted", "docx")

@@ -33,7 +33,7 @@ function renderList() {
   $('#documents').innerHTML=filtered.map(d=>`<tr><td><div class="file-cell"><span class="file-icon ${d.ext!=='.pdf'?'word':''}">${esc(d.ext.slice(1).toUpperCase())}</span><div><button class="file-title" data-open="${d.id}">${esc(d.name)}</button><div class="file-sub">${size(d.size)}${d.characters?` · ${d.characters.toLocaleString()} 字符`:''}${d.replaces?' · 替换文件':''}</div></div></div></td><td class="timestamp">${date(d.created_at)}</td><td>${badge(d)}</td><td>${qualityBadge(d)}</td><td><div class="row-actions">${d.state!=='delete_failed'?`<button data-open="${d.id}">${d.state==='review'?'去复核':'查看'}</button>`:''}${d.state==='failed'?`<button data-retry="${d.id}">重试</button>`:''}${canIndexRetry(d)?`<button data-index-retry="${d.id}">${d.index.status==='failed'?'重试索引':'建立索引'}</button>`:''}<button class="danger" data-delete="${d.id}">${d.state==='delete_failed'?'重试删除':'删除'}</button></div></td></tr>`).join('');
   $('#empty').hidden=filtered.length>0;
   $('#empty h3').textContent=records.length?'没有匹配的文档':'从第一份文档开始';
-  $('#empty p').innerHTML=records.length?'试试更换搜索词或筛选条件。':'支持文字型 PDF、DOCX 和旧版 DOC。<br>没有企业资料也可以先使用虚构样例体验完整流程。';
+  $('#empty p').innerHTML=records.length?'试试更换搜索词或筛选条件。':'支持 PDF、Word、Excel、文本、CSV 和图片。<br>没有企业资料也可以先使用虚构样例体验完整流程。';
   $('#empty-upload').hidden=records.length>0;
   $('#list-summary').textContent=`显示 ${filtered.length} / ${records.length} 份文档`;
 }
@@ -200,7 +200,7 @@ function chooseFiles(files){if(uploadBusy)return;selected=Array.from(files);$('#
 function renderSelected(){
   const total=selected.reduce((sum,f)=>sum+f.size,0);
   $('#selected-files').innerHTML=selected.map(f=>`<div class="selected-file"><span>${esc(f.name)}</span><span>${size(f.size)}</span></div>`).join('');
-  let error=selected.length>20?'单批最多 20 个文件':total>100e6?'单批总大小不能超过 100 MB':selected.some(f=>f.size>20e6)?'单个文件不能超过 20 MB':selected.some(f=>!f.size)?'不能上传空文件':selected.some(f=>!(/\.(pdf|docx|doc)$/i.test(f.name)))?'仅支持 PDF、DOCX 和 DOC':'';
+  let error=selected.length>20?'单批最多 20 个文件':total>100e6?'单批总大小不能超过 100 MB':selected.some(f=>f.size>20e6)?'单个文件不能超过 20 MB':selected.some(f=>!f.size)?'不能上传空文件':selected.some(f=>!(/\.(pdf|docx?|xlsx?|txt|md|csv|jpe?g|png)$/i.test(f.name)))?'支持 PDF / Word / Excel / TXT / Markdown / CSV / JPG / PNG':'';
   $('#selection-summary').textContent=error||`${selected.length} 份文档 · ${size(total)}`;
   $('#upload-submit').disabled=!selected.length||!!error||uploadBusy;
 }
