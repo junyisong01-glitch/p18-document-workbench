@@ -637,3 +637,22 @@ def test_cross_department_read_grant_never_delegates_management(rig):
     assert r.action(secret,'boss','take_down',note='isolated emergency test').status_code==200
     assert r.c.get('/api/documents/'+secret,headers=r.h['prd']).status_code==404
     assert r.q.business_read(secret)['status']=='taken_down'
+
+
+def test_recent_operations_is_boss_only_bounded_and_keeps_removed_records(rig):
+    r=rig
+    id=r.create()
+    with r.q.connect() as c:
+        for i in range(10):
+            c.execute('INSERT INTO business_events(document_id,at,actor,action,body) VALUES (?,?,?,?,?)',
+                      (id,100+i,'head','return',json.dumps({'note':str(i),'private_extra':'not returned'})))
+    for actor in ['rd','head','guest']:
+        assert r.c.get('/api/business/recent-operations',headers=r.h[actor]).status_code==403
+    response=r.c.get('/api/business/recent-operations',headers=r.h['boss'])
+    assert response.status_code==200
+    rows=response.json()
+    assert len(rows)==8 and [x['note'] for x in rows]==[str(i) for i in range(9,1,-1)]
+    assert rows[0]['document_name']=='虚构样例.docx'
+    assert 'private_extra' not in response.text
+    with r.q.connect() as c:c.execute('DELETE FROM documents WHERE id=?',(id,))
+    assert r.c.get('/api/business/recent-operations',headers=r.h['boss']).json()[0]['document_name']=='已移除的资料'

@@ -439,6 +439,22 @@ def install(store,central,legacy_acl):
             if a in {'approve','resubmit'}:store.schedule_chunks(doc)
             return summary(doc)
 
+    @store.app.get('/api/business/recent-operations')
+    def recent_operations():
+        u=user()
+        if u['role']!='boss':raise HTTPException(403,'仅管理层负责人可查看全公司操作记录')
+        with store.connect() as c:
+            rows=c.execute('SELECT e.id,e.document_id,e.at,e.actor,e.action,e.body,d.body AS document_body FROM business_events e LEFT JOIN documents d ON d.id=e.document_id ORDER BY e.at DESC,e.id DESC LIMIT 8').fetchall()
+        result=[]
+        for row in rows:
+            details=json.loads(row['body'])
+            document=json.loads(row['document_body']) if row['document_body'] else {}
+            result.append(dict(id=row['id'],at=row['at'],actor=row['actor'],action=row['action'],
+                               document_name=document.get('name') or '已移除的资料',
+                               note=str(details.get('note') or details.get('reason') or '')[:500],
+                               recipient=str(details.get('username') or '')))
+        return result
+
     @store.app.get('/api/business/documents/{identifier}/audit')
     def audit(identifier:str):
         u=user();b=read(identifier)

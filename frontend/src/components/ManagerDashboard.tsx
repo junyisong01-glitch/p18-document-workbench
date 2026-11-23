@@ -1,3 +1,4 @@
+import {RecentOperations} from './RecentOperations'
 import {Link} from 'react-router'
 import {ArrowRight,FileUp,Inbox,MessageSquareText,UserRoundPlus,Users,Check} from 'lucide-react'
 import {useSession} from '@/lib/session'
@@ -35,5 +36,6 @@ export function ManagerDashboard({rows,loaded,error}:{rows:BusinessRow[];loaded:
   <section aria-label="快捷入口" className="manager-shortcuts">{shortcuts.map(item=><Link to={item.to} key={item.title} className="manager-shortcut"><item.icon size={22} strokeWidth={1.7}/><div><h2>{item.title}</h2><p>{item.hint}</p></div><ArrowRight size={19}/></Link>)}</section>
   <section aria-labelledby="department-overview-title" className="manager-departments"><h2 id="department-overview-title">五部门资料概览</h2><div>{BUSINESS_DEPARTMENTS.map(department=><Link key={department} to={'/documents?department='+encodeURIComponent(department)}><h3>{department}</h3><strong>{loaded?current.filter(r=>r.department===department).length:'—'}</strong><p>当前发布件</p></Link>)}</div><p>按部门查看当前发布资料；具体查看权限仍以文档授权为准。</p></section>
   <section className="manager-queue" aria-labelledby="manager-queue-title"><h2 id="manager-queue-title">待处理队列</h2><div>{!loaded?<p className="manager-empty">正在读取状态…</p>:queue.length?queue.map(row=><Link key={row.id} to={'/documents?view='+encodeURIComponent(row.publication_stage==='解析异常'?'部门异常':'待我审核')}><div><h3>{documentTitleParts(row.name).title}</h3><p>{row.review_reasons?.join('；')||row.parse_reasons?.join('；')||row.department}</p></div><WorkflowBadge row={row}/></Link>):<p className="manager-empty"><Check size={17}/>当前没有待处理事项。</p>}</div></section>
+  <RecentOperations/>
  </div>
 }
