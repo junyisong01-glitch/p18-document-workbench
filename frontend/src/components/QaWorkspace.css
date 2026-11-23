@@ -22,17 +22,15 @@
   display: flex; justify-content: space-between; align-items: center; gap: 12px;
   background: var(--qa-card); border-bottom: 1px solid var(--qa-line);
 }
-.qa-chat-brand, .qa-chat-top-actions, .qa-chat-user { display: flex; align-items: center; gap: 9px; min-width: 0; }
-.qa-chat-brand strong { font-size: 15px; white-space: nowrap; }
-.qa-chat-brand h1 { color: var(--qa-muted); font-size: 12px; font-weight: 400; white-space: nowrap; }
-.qa-chat-back, .qa-chat-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; flex: none; color: var(--qa-muted); }
-.qa-chat-back:hover, .qa-chat-icon:hover, .qa-chat-settings summary:hover { background: var(--qa-tint); color: var(--qa-accent); }
+.qa-chat-top-actions, .qa-chat-user { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.qa-chat-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; flex: none; color: var(--qa-muted); }
+.qa-chat-icon:hover, .qa-chat-settings summary:hover { background: var(--qa-tint); color: var(--qa-accent); }
 .qa-chat-mark {
   background: var(--qa-accent); color: white;
   display: grid; place-items: center; width: 30px; height: 30px;
   border-radius: 9px; flex: none; font-size: 14px; font-weight: 700;
 }
-.qa-chat-header .qa-chat-mark { width: 24px; height: 24px; border-radius: 7px; font-size: 12px; }
+.qa-chat-top-actions { margin-left: auto; }
 .qa-chat-user { color: var(--qa-muted); font-size: 13px; white-space: nowrap; }
 .qa-chat-user b { font-weight: 500; }
 .qa-chat-user small { font-size: inherit; }
@@ -129,9 +127,7 @@
   .qa-chat-welcome { margin-top: clamp(30px, 10dvh, 80px); }
 }
 @media (max-width: 420px) {
-  .qa-chat-brand, .qa-chat-top-actions { gap: 4px; }
-  .qa-chat-brand h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-  .qa-chat-brand strong { white-space: normal; font-size: 13px; }
+  .qa-chat-top-actions { gap: 4px; }
   .qa-chat-user b { display: none; }
   .qa-chat-reply { gap: 8px; }
 }

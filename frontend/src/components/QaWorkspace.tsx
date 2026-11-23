@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
-import { ArrowLeft, ArrowUp, PanelLeft, Plus, Settings2 } from 'lucide-react'
+import { ArrowUp, PanelLeft, Plus, Settings2 } from 'lucide-react'
 import { Link } from 'react-router'
 import type { QaExample } from '@/lib/qa-examples'
 import './QaWorkspace.css'
@@ -122,14 +122,9 @@ export function QaWorkspace(props: WorkspaceProps) {
 
   return <div ref={workspace} className="qa-chat">
     <header className="qa-chat-header">
-      <div className="qa-chat-brand">
-        <button type="button" className="qa-chat-mobile qa-chat-icon" aria-expanded={showHistory}
-          aria-controls="qa-conversation-history" aria-label="会话列表" onClick={() => setShowHistory(open => !open)}><PanelLeft size={19}/></button>
-        {!props.guest&&<Link to="/workbench" className="qa-chat-back" title="返回工作台" aria-label="返回工作台"><ArrowLeft size={17}/></Link>}
-        <span className="qa-chat-mark" aria-hidden="true">启</span>
-        <strong>{library}</strong>
-        <h1>知识问答</h1>
-      </div>
+      <h1 className="sr-only">{library} · 知识问答</h1>
+      <button type="button" className="qa-chat-mobile qa-chat-icon" aria-expanded={showHistory}
+        aria-controls="qa-conversation-history" aria-label="会话列表" onClick={() => setShowHistory(open => !open)}><PanelLeft size={19}/></button>
       <div className="qa-chat-top-actions">
         {tools&&<nav className="flex items-center gap-4 text-xs text-muted-foreground" aria-label="问答快捷入口">{tools}</nav>}
         {settings&&<details className="qa-chat-settings">
