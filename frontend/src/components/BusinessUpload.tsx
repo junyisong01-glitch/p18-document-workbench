@@ -102,7 +102,7 @@ export function BusinessUpload({replacement,onClose,onUploaded,rows}:{replacemen
     {item.status==='failed'&&<div role="alert" className="text-xs text-red-700"><p className="flex gap-2"><AlertCircle size={14} className="shrink-0"/>{item.error}</p><button type="button" className="mt-2 underline" disabled={busy} onClick={()=>void send([item])}>重试这份上传</button></div>}
    </section>
   })}</div>
-  {!!items.length&&<p className="text-xs leading-relaxed text-muted-foreground">文件逐份处理，一份失败不影响其他文件。提交完成后可离开此页，在“我的提交”查看解析结果和发布。同名文件不会自动覆盖旧资料。</p>}
+  {!!items.length&&<p className="text-xs leading-relaxed text-muted-foreground">普通资料检查通过、检索准备完成后自动发布，无需再次确认；需要审核的资料会交给审核人。提交后可离开，在“我的提交”查看进度。一份失败不影响其他文件，同名文件不会自动覆盖旧资料。</p>}
   <div className="dm-modal-actions"><button type="button" className="rounded-md border px-4 py-2 text-sm" disabled={busy} onClick={onClose}>{items.some(i=>i.status==='accepted')?'完成，查看我的提交':'取消'}</button>{pending.length>0&&<button type="button" disabled={busy||!department||pending.some(i=>i.matchState!=='ready'||i.matchKey!==matchKey(i)||!i.choice)} className="dm-primary" onClick={()=>void send(pending)}>{busy?'正在上传…':`上传并检查 ${pending.length} 份`}</button>}</div>
  </div></DocumentModal>
 }

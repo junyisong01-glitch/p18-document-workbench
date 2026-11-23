@@ -33,18 +33,19 @@ def test_matched_version_change_is_rejected_before_upload(rig):
     assert r.q.business_read(old)['status']=='published' and not r.q.business_read(old)['archived']
     response=upload(r,'rd',old,replaces_expected=1)
     assert response.status_code==200,response.text
-    assert not r.q.business_read(old)['archived']
+    assert r.q.business_read(old)['archived']
+    assert response.json()['workflow']['status']=='published'
     assert upload(r,'rd',old,replaces_expected=1).status_code==409
 
 
-def test_failed_upload_can_be_replaced_without_publishing_or_destroying_old_file(rig):
+def test_failed_upload_is_preserved_when_checked_replacement_auto_publishes(rig):
     r=rig;old=r.create(status='submitted');d=r.q.get(old);d['state']='failed';r.q.save(d)
     assert upload(r,'qa',old,version='V1').status_code in {403,409}
     response=upload(r,'head',old,version='V1',replaces_expected=0)
     assert response.status_code==200,response.text
     new=response.json()['id'];previous=r.q.business_read(old);current=r.q.business_read(new)
     assert previous['status']=='withdrawn' and previous['archived']
-    assert current['status']=='submitted' and current['series']==previous['series']
+    assert current['status']=='published' and current['series']==previous['series']
     assert current['replaces'] is None and current['revises']==old
     assert r.q.get(old)['state']=='failed'
     assert r.c.get('/api/business/documents/'+old+'/audit',headers=r.h['head']).json()[-1]['action']=='replaced_submission'

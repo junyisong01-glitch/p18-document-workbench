@@ -2,7 +2,7 @@ import {Check, Circle, CircleAlert, CircleDot} from 'lucide-react'
 import {useId} from 'react'
 import type {LibraryRecord} from '@/lib/api'
 export const BUSINESS_DEPARTMENTS=['研发部','生产制造部','财务部','人力资源部','行政安全部']
-export type Workflow={version:number;owner:string;department:string;status:string;archived:boolean;deleted:boolean;company_public:boolean;company_internal?:boolean;restricted:boolean;legacy:boolean;series:string;read_jobs?:string[];correction?:boolean;correction_error?:string;published_by?:string}
+export type Workflow={version:number;owner:string;department:string;status:string;archived:boolean;deleted:boolean;company_public:boolean;company_internal?:boolean;restricted:boolean;legacy:boolean;series:string;read_jobs?:string[];correction?:boolean;correction_error?:string;auto_publish_error?:string;published_by?:string}
 export type BusinessRow=LibraryRecord&{workflow:Workflow;technical_state:string;technical_index_ready:boolean;technical_error?:string;publication_stage?:string;review_reasons?:string[];parse_reasons?:string[];index_error?:string}
 export const workflowControl='rounded-md border border-border bg-card px-3 py-2 text-[12px] transition-colors hover:border-[hsl(12_74%_42%/0.5)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(12_74%_42%)] disabled:cursor-not-allowed disabled:opacity-45'
 export function WorkflowButton({children,onClick,reason,busy=false,danger=false}:{children:string;onClick:()=>void;reason?:string;busy?:boolean;danger?:boolean}){
@@ -16,6 +16,7 @@ export function workflowState(row:BusinessRow){
  if(b.archived)return{label:'历史归档',tone:'muted'}
  if(b.status==='withdrawn')return{label:'已撤回',tone:'muted'}
  if(b.status==='returned')return{label:'已退回',tone:'error'}
+ if(b.auto_publish_error)return{label:'发布需要处理',tone:'error'}
  if(row.index_error)return{label:'索引失败',tone:'error'}
  if(row.publication_stage)return{label:row.publication_stage==='待发布'?(row.technical_index_ready?'可以发布':'处理中'):row.publication_stage,
    tone:row.publication_stage==='解析异常'?'error':row.publication_stage==='待发布'&&row.technical_index_ready?'ready':'pending'}

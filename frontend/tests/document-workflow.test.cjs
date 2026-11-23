@@ -41,3 +41,14 @@ test('three submission groups distinguish employee work from waiting for review'
  assert.equal(submissionLabel(row({status:'published'},{technical_index_ready:false}),false).label,'已发布 · 暂不可检索');
  assert.equal(submissionDate(''),'提交时间未记录');assert.match(submissionDate('2026-11-22T16:30:00Z'),/2026\/11\/23 00:30/);
 });
+
+
+test('automatic publication is waiting, not an employee confirmation task',()=>{
+ const {submissionGroup,submissionLabel}=m.exports;
+ const auto=row({}, {publication_stage:'自动发布中'});
+ assert.equal(submissionState(auto),'处理中');assert.equal(needsSubmissionAction(auto),false);
+ assert.equal(submissionGroup(auto,false),'处理中');assert.equal(submissionLabel(auto,false).label,'正在自动发布');
+ assert.equal(needsSubmissionAction({...auto,index_error:'索引失败'}),true);
+ const blocked={...auto,workflow:{...auto.workflow,auto_publish_error:'原资料已变化'}};
+ assert.equal(needsSubmissionAction(blocked),true);assert.equal(submissionLabel(blocked,false).label,'发布需要处理');
+});

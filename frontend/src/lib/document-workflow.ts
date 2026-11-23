@@ -15,7 +15,7 @@ export function submissionState(row:BusinessRow){
  return '处理中'
 }
 export function needsSubmissionAction(row:BusinessRow){
- return ['解析异常','已退回','待发布'].includes(submissionState(row))||(!row.workflow.deleted&&!row.workflow.archived&&!['published','withdrawn','taken_down'].includes(row.workflow.status)&&!!(row.index_error||row.workflow.correction_error))
+ return ['解析异常','已退回','待发布'].includes(submissionState(row))||(!row.workflow.deleted&&!row.workflow.archived&&!['published','withdrawn','taken_down'].includes(row.workflow.status)&&!!(row.index_error||row.workflow.correction_error||row.workflow.auto_publish_error))
 }
 export function matchesSubmission(row:BusinessRow,filter:string){
  return filter==='全部'||(filter==='待我处理'?needsSubmissionAction(row):submissionState(row)===filter)
@@ -40,10 +40,12 @@ export function submissionLabel(row:BusinessRow,manage:boolean){
  if(state==='已发布')return {label:row.technical_index_ready?'已发布':'已发布 · 暂不可检索',tone:row.technical_index_ready?'success':'pending'}
  if(['已撤回','已下架','历史归档','回收站'].includes(state))return {label:state,tone:'muted'}
  if(state==='已退回')return {label:'需要修改',tone:'attention'}
+ if(row.workflow.auto_publish_error)return {label:'发布需要处理',tone:'attention'}
  if(row.workflow.correction_error)return {label:'勘误需要处理',tone:'attention'}
  if(row.index_error)return {label:'需要重试处理',tone:'attention'}
  if(state==='解析异常')return {label:row.technical_state==='failed'?(canRetryParse(row)?'可重试处理':'需要更换文件'):manage?'需要核对解析':'等待解析核对',tone:submissionGroup(row,manage)==='需要处理'?'attention':'pending'}
  if(state==='待审核')return {label:'等待审核',tone:'pending'}
+ if(row.publication_stage==='自动发布中')return {label:row.technical_index_ready?'正在自动发布':'处理中',tone:'pending'}
  if(state==='待发布')return {label:'可以发布',tone:'attention'}
  return {label:row.workflow.correction?'勘误处理中':'处理中',tone:'pending'}
 }

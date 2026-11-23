@@ -13,7 +13,7 @@ export default function Management(){
   <PageHeader kicker="Management" title="人员职责" desc="管理人员的职责分工与所属部门。" extra={<Link to="/management?view=people&invite=1" className="dm-primary">邀请新人</Link>}/>
   <PersonnelRoles/>
  </div>
- return <div className="mx-auto max-w-6xl space-y-8"><PageHeader kicker="Management" title="权限与人员管理" desc="管理全公司授权、人员职责和资料处置。普通资料由上传者或部门主管发布。"/>
+ return <div className="mx-auto max-w-6xl space-y-8"><PageHeader kicker="Management" title="权限与人员管理" desc="管理全公司授权、人员职责和资料处置。普通资料检查通过后自动发布，风险资料由审核人处理。"/>
  <p className="border-l-2 border-primary/50 pl-3 text-sm leading-7 text-muted-foreground">部门主管可将本部门普通资料授权给指定内部人员；机密资料授权、全公司共享与对外公开由管理层处理。阅读授权不包含修改、发布或再次授权。</p>
  {sections.map(section=><section key={section.title} className="space-y-3"><h2 className="text-base font-semibold">{section.title}</h2><div className="divide-y rounded-xl border border-border bg-card">{section.items.map(([title,description,to])=><Link key={title} to={to} className="flex items-center justify-between gap-6 px-6 py-5 hover:bg-secondary/30"><div><h3 className="text-sm font-medium">{title}</h3><p className="mt-2 text-xs leading-6 text-muted-foreground">{description}</p></div><span aria-hidden="true">→</span></Link>)}</div></section>)}
  </div>}

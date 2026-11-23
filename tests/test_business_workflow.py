@@ -19,7 +19,8 @@ def rig(tmp_path,monkeypatch):
         for name,identity,role,dept,job in [('boss','总经理','boss','管理层',''),('rd','启辰研发岗位','employee','研发部','研发'),('qa','启辰测试岗位','employee','研发部','测试'),('ops','启辰运维岗位','employee','研发部','运维'),('head','研发部员工','supervisor','研发部',''),('prd','启辰生产岗位','employee','生产制造部','生产'),('otherhead','生产制造部员工','supervisor','生产制造部',''),('guest','行政安全部员工','guest','','')]:
             library_store.create_account(c,name,'synthetic-password-123',identity,manager=name=='boss');business_roles.assign(c,name,role,dept,job);c.execute('UPDATE business_profiles SET is_demo=1 WHERE username=?',(name,))
     monkeypatch.setenv('P18_SEMANTIC_ENABLED','0')
-    q.index_status=lambda identifier:{'status':'complete','searchable':True}
+    index_states={}
+    q.index_status=lambda identifier:dict(index_states.get(identifier,{'status':'complete','searchable':True}))
     q.public=lambda d,detailed=False:{'id':d['id'],'index':{},'build':{},'external_permission':{}}
     scheduled=[];q.schedule_chunks=lambda d,retry_failed=False:scheduled.append(d['id'])
     ids=[]
@@ -46,7 +47,7 @@ def rig(tmp_path,monkeypatch):
     def action(id,name,a,**kw):
         b=q.business_read(id)
         return c.post('/api/business/documents/'+id+'/action',headers=headers[name],json={'action':a,'expected':b['version'],**kw})
-    yield SimpleNamespace(q=q,c=c,h=headers,create=create,action=action,scheduled=scheduled)
+    yield SimpleNamespace(q=q,c=c,h=headers,create=create,action=action,scheduled=scheduled,index_states=index_states)
     c.close();q.POOL.shutdown(wait=True)
 
 def test_pending_scope_and_direct_routes(rig):
@@ -224,7 +225,7 @@ def test_upload_does_not_allow_forged_department_public_or_guest(rig):
     assert upload('rd',{**m,'classification':'公开'}).status_code==422
     assert upload('guest',m).status_code==403
     response=upload('rd',m);assert response.status_code==200
-    assert response.json()['workflow']['owner']=='rd' and response.json()['workflow']['status']=='submitted'
+    assert response.json()['workflow']['owner']=='rd' and response.json()['workflow']['status']=='published'
 
 def test_returned_submission_can_be_corrected_without_overwriting_original(rig):
     r=rig;old=r.create(status='submitted')
@@ -234,7 +235,7 @@ def test_returned_submission_can_be_corrected_without_overwriting_original(rig):
     assert response.status_code==200,response.text
     new=response.json()['id']
     assert r.q.business_read(old)['archived']and r.q.business_read(old)['status']=='withdrawn'
-    assert r.q.get(old)['state']=='ready' and r.q.business_read(new)['status']=='submitted'
+    assert r.q.get(old)['state']=='ready' and r.q.business_read(new)['status']=='published'
     assert r.q.business_read(new)['series']==r.q.business_read(old)['series']
 
 def test_new_version_switch_is_atomic_and_old_source_record_remains(rig):
@@ -242,10 +243,7 @@ def test_new_version_switch_is_atomic_and_old_source_record_remains(rig):
     body={'name':'虚构V2','code':'SAMPLE','version':'V2','department':'研发部','replaces':old}
     response=r.c.post('/api/business/upload',headers=r.h['rd'],files={'file':('same.docx',b'fictional-v2')},data={'metadata_json':json.dumps(body)})
     assert response.status_code==200,response.text
-    new=response.json()['id'];assert not r.q.business_read(old)['archived']
-    assert r.action(new,'head','approve').status_code==200
-    assert not r.q.business_read(old)['archived']
-    assert r.action(new,'head','publish').status_code==200
+    new=response.json()['id'];assert r.q.business_read(new)['status']=='published'
     assert r.q.business_read(old)['archived'] and not r.q.business_read(new)['archived']
     assert r.q.get(old)['state']=='ready'
 
@@ -313,8 +311,7 @@ def test_new_versions_keep_job_restrictions(rig):
     response=r.c.post('/api/business/upload',headers=r.h['rd'],files={'file':('same.docx',b'fictional-v2')},data={'metadata_json':json.dumps(body)})
     assert response.status_code==200,response.text
     new=response.json()['id'];assert r.q.business_read(new)['read_jobs']==['研发','测试']
-    assert r.action(new,'head','approve').status_code==200
-    assert r.action(new,'head','publish').status_code==200
+    assert r.q.business_read(new)['status']=='published'
     assert r.c.get('/api/documents/'+new,headers=r.h['qa']).status_code==200
     assert r.c.get('/api/documents/'+new,headers=r.h['ops']).status_code==404
     assert r.action(new,'head','share',username='ops').status_code==200
@@ -538,18 +535,16 @@ def test_uploaded_internal_document_uses_direct_department_release_and_takedown(
                           files={'file':('release.docx',b'test')},data={'metadata_json':json.dumps(metadata)})
         assert response.is_success, response.text
         row=response.json()
-        assert row['publication_stage']=='待发布'
-        assert row['review_reasons']==[]
+        assert row['workflow']['status']=='published'
+        assert not row.get('review_reasons')
         assert row['id'] in r.scheduled
         return row['id']
     old=upload('V1')
-    assert r.c.get('/api/documents/'+old,headers=r.h['qa']).status_code==404
-    assert r.action(old,'rd','publish').is_success
+    assert r.q.business_read(old)['status']=='published'
     assert r.c.get('/api/documents/'+old,headers=r.h['qa']).status_code==200
     assert r.c.get('/api/documents/'+old,headers=r.h['prd']).status_code==404
     new=upload('V2',old)
-    assert r.q.business_read(old)['archived'] is False
-    assert r.action(new,'rd','publish').is_success
+    assert r.q.business_read(new)['status']=='published'
     assert r.q.business_read(old)['archived'] is True
     query='/source?revision=1&index_token=old&chunk_id=old&current_only=true'
     assert r.c.get('/api/documents/'+old+query,headers=r.h['rd']).status_code==409
@@ -591,14 +586,14 @@ def test_optional_document_code_preserves_distinct_series_and_version_link(rig):
     assert first['code']==second['code']==''
     assert first['id']!=second['id']
     assert r.q.business_read(first['id'])['series']!=r.q.business_read(second['id'])['series']
-    assert r.action(first['id'],'rd','publish').is_success
+    assert r.q.business_read(first['id'])['status']=='published'
     newer=upload('测试报告','V2',replaces=first['id'])
     assert newer['code']==''
     assert r.q.business_read(newer['id'])['series']==r.q.business_read(first['id'])['series']
-    assert r.action(newer['id'],'rd','publish').is_success
+    assert r.q.business_read(newer['id'])['status']=='published'
     assert r.q.business_read(first['id'])['archived']
     numbered=upload('有编号报告',code='RD-123')
-    assert r.action(numbered['id'],'rd','publish').is_success
+    assert r.q.business_read(numbered['id'])['status']=='published'
     next_numbered=upload('有编号报告','V2',replaces=numbered['id'])
     assert next_numbered['code']=='RD-123'
 
@@ -656,3 +651,87 @@ def test_recent_operations_is_boss_only_bounded_and_keeps_removed_records(rig):
     assert 'private_extra' not in response.text
     with r.q.connect() as c:c.execute('DELETE FROM documents WHERE id=?',(id,))
     assert r.c.get('/api/business/recent-operations',headers=r.h['boss']).json()[0]['document_name']=='已移除的资料'
+
+
+def auto_submission(r, **kwargs):
+    identifier=r.create(status='submitted',**kwargs)
+    doc=r.q.get(identifier);doc['publication_rules']=1;r.q.save(doc)
+    return identifier
+
+
+def test_ordinary_auto_publication_runs_without_session_and_is_idempotent(rig):
+    r=rig;identifier=auto_submission(r)
+    assert r.c.get('/api/documents/'+identifier,headers=r.h['qa']).status_code==404
+    r.q.on_index_complete(identifier)
+    assert r.q.business_read(identifier)['status']=='published'
+    assert r.c.get('/api/documents/'+identifier,headers=r.h['qa']).status_code==200
+    for who in ['prd','guest']:
+        assert r.c.get('/api/documents/'+identifier,headers=r.h[who]).status_code==404
+    r.q.on_index_complete(identifier)
+    with r.q.connect()as c:
+        events=c.execute("SELECT actor,body FROM business_events WHERE document_id=? AND action='publish'",(identifier,)).fetchall()
+    assert len(events)==1 and events[0]['actor']=='rd'
+    assert json.loads(events[0]['body'])['automatic'] is True
+
+
+@pytest.mark.parametrize('reason',['restricted','sensitive','incomplete','parse_failed','parse_review','index_failed','index_waiting','withdrawn','returned','archived','deleted','legacy'])
+def test_auto_publication_keeps_ineligible_submissions_private(rig,reason):
+    r=rig;identifier=auto_submission(r)
+    doc=r.q.get(identifier);b=r.q.business_read(identifier)
+    if reason=='restricted':b['restricted']=True
+    if reason=='sensitive':doc['result']['blocks']=[{'type':'paragraph','text':'报价金额：人民币120万元。'}]
+    if reason=='incomplete':doc['result']['issues']=[{'kind':'image','message':'图片内容未提取'}]
+    if reason=='parse_failed':doc['state']='failed'
+    if reason=='parse_review':doc['state']='review'
+    if reason.startswith('index_'):r.index_states[identifier]={'status':reason[6:],'searchable':False}
+    if reason in {'withdrawn','returned'}:b['status']=reason
+    if reason in {'archived','deleted'}:b[reason]=True
+    if reason=='legacy':doc.pop('publication_rules')
+    r.q.save(doc)
+    with r.q.connect()as c:c.execute('UPDATE business_documents SET body=? WHERE document_id=?',(json.dumps(b),identifier))
+    r.q.on_index_complete(identifier)
+    assert r.q.business_read(identifier)['status']!='published'
+    if reason=='restricted':
+        assert r.action(identifier,'head','approve_publish').is_success
+        assert r.q.business_read(identifier)['status']=='published'
+
+
+def test_auto_publish_waits_for_usable_index_then_atomically_replaces_old(rig):
+    r=rig;old=r.create();new=auto_submission(r)
+    b=r.q.business_read(new);b['replaces']=old
+    with r.q.connect()as c:c.execute('UPDATE business_documents SET body=? WHERE document_id=?',(json.dumps(b),new))
+    r.index_states[new]={'status':'failed','searchable':False}
+    r.q.on_index_complete(new)
+    assert not r.q.business_read(old)['archived']
+    assert r.q.business_read(new)['status']=='submitted'
+    r.index_states.pop(new)
+    r.q.on_index_complete(new)
+    assert r.q.business_read(old)['archived']
+    assert r.q.business_read(new)['status']=='published'
+
+
+@pytest.mark.parametrize('change',['disabled','guest','department','old_archived','old_restricted'])
+def test_auto_publication_rechecks_account_and_previous_version(rig,change):
+    r=rig;old=r.create();new=auto_submission(r)
+    b=r.q.business_read(new);b['replaces']=old
+    with r.q.connect()as c:
+        c.execute('UPDATE business_documents SET body=? WHERE document_id=?',(json.dumps(b),new))
+        if change=='disabled':c.execute("UPDATE library_accounts SET active=0 WHERE username='rd'")
+        if change=='guest':c.execute("UPDATE business_profiles SET role='guest' WHERE username='rd'")
+        if change=='department':c.execute("UPDATE business_profiles SET department='财务部' WHERE username='rd'")
+        if change.startswith('old_'):
+            previous=r.q.business_read(old);previous[change[4:]]=True
+            c.execute('UPDATE business_documents SET body=? WHERE document_id=?',(json.dumps(previous),old))
+    r.q.on_index_complete(new);r.q.on_index_complete(new)
+    assert r.q.business_read(new)['status']=='submitted'
+    assert r.q.business_read(new)['auto_publish_error']
+    with r.q.connect()as c:
+        assert c.execute("SELECT count(*) FROM business_events WHERE document_id=? AND action='auto_publish_blocked'",(new,)).fetchone()[0]==1
+
+
+def test_resubmit_reuses_ready_index_and_auto_publishes(rig):
+    r=rig;identifier=auto_submission(r)
+    b=r.q.business_read(identifier);b['status']='returned'
+    with r.q.connect()as c:c.execute('UPDATE business_documents SET body=? WHERE document_id=?',(json.dumps(b),identifier))
+    assert r.action(identifier,'rd','resubmit').is_success
+    assert r.q.business_read(identifier)['status']=='published'

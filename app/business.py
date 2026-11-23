@@ -1,7 +1,7 @@
 """Business lifecycle over a separate writable copy; original E2 remains sealed.
 
 Visibility is always checked from SQLite, including every RRF/dedup member.
-Technical readiness never grants publication. No model or egress authorization.
+Ordinary checked submissions publish after indexing; risk still requires review.
 """
 from pathlib import Path
 import json,time,uuid,threading,importlib.util,sys,re,unicodedata
@@ -123,7 +123,11 @@ def install(store,central,legacy_acl):
     def schedule(doc,retry_failed=False):
         b=read(doc['id'])
         if b and (b['status'] in {'approved','published','legacy_archived','correction_pending'} or prepare_index(doc,b)):
-            return old_schedule(doc,retry_failed)
+            result=old_schedule(doc,retry_failed)
+            # A resubmission can reuse an already-complete index without a worker.
+            if prepare_index(doc,b) and original_index_status(doc['id']).get('searchable'):
+                store.on_index_complete(doc['id'])
+            return result
     store.schedule_chunks=schedule
     old_public=store.public
     def public(doc,detailed=False):
@@ -168,7 +172,7 @@ def install(store,central,legacy_acl):
             elif reasons or b['status']=='submitted' and doc.get('publication_rules')!=1:
                 result['publication_stage']='内容待审'
             elif b['status']=='submitted':
-                result['publication_stage']='待发布'
+                result['publication_stage']='自动发布中'
             else:
                 result['publication_stage']='勘误处理中'
             index=original_index_status(doc['id'])
@@ -276,7 +280,7 @@ def install(store,central,legacy_acl):
             store.schedule_chunks(doc)
         return summary(doc)
 
-    def publish(doc,b,u,*,reviewed=False):
+    def publish(doc,b,u,*,reviewed=False,automatic=False):
         identifier=doc['id']
         if not technical_ready(doc) or not original_index_status(identifier).get('searchable'):
             raise HTTPException(409,'解析或索引尚未就绪')
@@ -285,6 +289,8 @@ def install(store,central,legacy_acl):
                 old=read(b['replaces'],c)
                 if not old or old['status'] not in {'published','taken_down'} or old['archived'] or old.get('deleted'):
                     raise HTTPException(409,'上一版本已变化')
+                if old.get('restricted') and not b.get('restricted'):
+                    raise HTTPException(409,'原资料的查看限制已变化，请按最新限制重新上传')
                 if b.get('correction'):
                     edit=c.execute('SELECT previous_version FROM business_edits WHERE document_id=?',(identifier,)).fetchone()
                     if not edit or old['version']!=edit[0]:
@@ -299,15 +305,39 @@ def install(store,central,legacy_acl):
                 b.pop('read_jobs',None)
                 meta_row=library_store.read(c,identifier)
                 library_store.write(c,identifier,replace(meta_row[1],classification='机密'),meta_row[0])
+            b.pop('auto_publish_error',None)
             b.update(status='published',published_by=u['username'],version=b['version']+1)
             c.execute('UPDATE business_documents SET body=? WHERE document_id=?',
                       (json.dumps(b,ensure_ascii=False),identifier))
             event='publish_version' if b.get('replaces') else 'publish'
             c.execute('INSERT INTO business_events(document_id,at,actor,action,body)VALUES(?,?,?,?,?)',
                       (identifier,time.time(),u['username'],event,json.dumps({
-                          'previous':b.get('replaces'),'version':b['version'],'reviewed':reviewed,
+                          'previous':b.get('replaces'),'version':b['version'],'reviewed':reviewed,'automatic':automatic,
+                          'note':'检查通过，已自动发布' if automatic else '',
                           'approved_by':b.get('approved_by'),'review_reasons':reasons},ensure_ascii=False)))
-        return summary(doc)
+        return None if automatic else summary(doc)
+
+    old_complete=getattr(store,'on_index_complete',lambda identifier:True)
+    def auto_publish(identifier):
+        result=old_complete(identifier)
+        with store.LOCK:
+            doc=store.get(identifier);b=read(identifier)
+            if not b or not prepare_index(doc,b) or review_reasons(doc,b):return result
+            if not original_index_status(identifier).get('searchable'):return False
+            # Background publication uses current account authority, never a saved session.
+            with central.connect()as c:
+                row=c.execute('SELECT a.username,p.role,p.department FROM library_accounts a JOIN business_profiles p ON p.username=a.username WHERE a.username=? AND a.active=1',(b['owner'],)).fetchone()
+            u=dict(row) if row else None
+            try:
+                if not u or not owner(u,b):
+                    raise HTTPException(409,'上传者的账号或部门已变化，请联系本部门主管处理')
+                publish(doc,b,u,automatic=True)
+            except HTTPException as exc:
+                if b.get('auto_publish_error')!=exc.detail:
+                    b['auto_publish_error']=exc.detail
+                    write(identifier,b,{'username':b['owner']},'auto_publish_blocked',exc.detail)
+            return result
+    store.on_index_complete=auto_publish
 
     @store.app.post('/api/business/documents/{identifier}/action')
     def action(identifier:str,body:Action):

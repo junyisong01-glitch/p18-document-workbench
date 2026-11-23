@@ -32,6 +32,7 @@ export function DocumentRowActions({row,own,manage,boss,busy,review,start,act,au
   if(!compact)primary.push({label:row.review_reasons?.length?'审核并发布':'审核通过',reason:reviewReason||(row.review_reasons?.length?indexReason:undefined),run:()=>start(row.review_reasons?.length?'approve_publish':'approve')},{label:'退回修改',run:()=>start('return')})
  }
  if(pending&&(manage||own)&&row.index_error)primary.push({label:'重试索引',run:()=>act('retry_index')})
+ else if(pending&&row.publication_stage==='自动发布中'&&b.auto_publish_error&&(manage||own))primary.push({label:'重试发布',reason:indexReason,run:()=>act('publish')})
  else if(pending&&row.publication_stage==='待发布'&&(manage||own&&b.status==='submitted')&&(!compact||!indexReason&&!reviewReason))primary.push({label:'发布入库',reason:indexReason||reviewReason,run:()=>act('publish')})
  const visible=compact?primary.slice(0,1):primary
  if(compact)primary.slice(1).forEach(action=>more.push({label:action.label,run:action.run,disabled:busy||!!action.reason}))
