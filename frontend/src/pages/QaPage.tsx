@@ -1,11 +1,12 @@
 import {useSearchParams,Link} from 'react-router'
 import {RecordFeedback,type FeedbackTurn} from '@/components/QuestionFeedback'
 import {useCallback,useEffect,useRef,useState} from 'react'
-import {Cpu} from 'lucide-react'
+import {Cpu,Flag,Check} from 'lucide-react'
 import {ModelConfigDialog} from '@/components/ModelConfigDialog'
 import {loadModelConfig,type ModelConfigStatus} from '@/lib/modelConfig'
 import {QaWorkspace,QaChatTurn} from '@/components/QaWorkspace'
 import {DocPreviewDialog} from '@/components/DocView'
+import {QaAnswerActions} from '@/components/QaAnswerActions'
 import {AnswerPresentation} from '@/components/AnswerPresentation'
 import {QaAnswerFirst, QaAnswerLoading, QaNoEvidence, citationLocations, type QaCitation, type QaResult} from '@/components/QaAnswerFirst'
 import {answerRoute} from '@/lib/qa-answer-first'
@@ -202,7 +203,9 @@ export default function QaPage(){
       <QaAnswerFirst answer={turn.answer} notice={turn.notice} examples={suggestions} onAsk={runQuestion}
         onSource={openSource} documents={searchableDocs} guest={guest}/>}
    </div>}
-   {kbId==='business'&&!guest&&turn.feedbackContextId&&(turn.answer||noEvidence)&&<button type="button" disabled={reported.includes(turn.feedbackContextId)||!sourcesAvailable} className="mt-4 text-xs text-muted-foreground underline-offset-4 hover:text-primary hover:underline disabled:opacity-50" onClick={()=>{setFeedbackSaved(false);setFeedbackTurn({contextId:turn.feedbackContextId!,question:turn.question,answer:turn.answer?.answer||'没找到可靠依据',citations})}}>{reported.includes(turn.feedbackContextId)?'已反馈':'反馈问题'}</button>}
+   {(turn.answer||noEvidence)&&<QaAnswerActions provider={sourcesAvailable?turn.answer?.provider:undefined}>
+   {kbId==='business'&&!guest&&turn.feedbackContextId&&(turn.answer||noEvidence)&&<button type="button" disabled={reported.includes(turn.feedbackContextId)||!sourcesAvailable} className="qa-answer-action" onClick={()=>{setFeedbackSaved(false);setFeedbackTurn({contextId:turn.feedbackContextId!,question:turn.question,answer:turn.answer?.answer||'没找到可靠依据',citations})}}>{reported.includes(turn.feedbackContextId)?<Check size={14}/>:<Flag size={14}/>}<span>{reported.includes(turn.feedbackContextId)?'已反馈':'反馈'}</span></button>}
+   </QaAnswerActions>}
   </>
  }
 
