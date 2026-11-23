@@ -1,0 +1,12 @@
+.document-pagination{display:flex;align-items:center;gap:4px;width:fit-content;max-width:100%;padding:5px;border:1px solid hsl(var(--border));border-radius:12px;background:hsl(var(--secondary)/.48);font-size:13px;font-variant-numeric:tabular-nums}
+.document-pagination>button{display:grid;place-items:center;flex-shrink:0;width:34px;height:34px;border:0;border-radius:8px;background:transparent;color:hsl(var(--foreground));transition:background-color .16s,color .16s}
+.document-pagination>button:hover:not(:disabled){background:hsl(var(--card));color:hsl(var(--primary))}
+.document-pagination>button:active:not(:disabled){background:hsl(var(--primary)/.08)}
+.document-pagination>button:disabled{color:hsl(var(--muted-foreground)/.35);cursor:not-allowed}
+.document-pagination-position{display:flex;align-items:center;gap:12px;padding:0 8px}
+.document-pagination-select{position:relative;display:flex;align-items:center}
+.document-pagination-select select{appearance:none;height:34px;border:0;border-radius:7px;padding:0 26px 0 10px;background:hsl(var(--card));color:hsl(var(--foreground));font:inherit;font-weight:500;cursor:pointer}
+.document-pagination-select>svg{position:absolute;right:8px;pointer-events:none;color:hsl(var(--muted-foreground))}
+.document-pagination-total{padding-left:12px;border-left:1px solid hsl(var(--border));color:hsl(var(--muted-foreground));white-space:nowrap}
+.document-pagination button:focus-visible,.document-pagination select:focus-visible{outline:2px solid hsl(var(--primary));outline-offset:2px}
+@media(prefers-reduced-motion:reduce){.document-pagination>button{transition:none}}

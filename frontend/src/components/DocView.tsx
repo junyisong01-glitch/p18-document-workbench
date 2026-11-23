@@ -3,9 +3,10 @@
 // Excel 展示结构化内容（暂不支持跳转原始单元格）。
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import * as PreviewDialog from '@radix-ui/react-dialog'
-import { Download, X } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, Download, X } from 'lucide-react'
 import { FormatMark, StatusBadge } from './bits'
 import { DocumentFacts } from './DocumentFacts'
+import './DocumentPagination.css'
 import { downloadDemoFile, useSession } from '@/lib/session'
 import { api } from '@/lib/api'
 import { OriginalBlock, OriginalTable, type SourceBlock, type SourceTable } from './SourceContent'
@@ -242,11 +243,17 @@ export function DocPreviewDialog({
               {previewError&&<p role="alert" className="rounded-sm border border-border p-4 text-[13px]">{previewError}</p>}
               {!pages&&!previewError&&<p role="status">正在读取预览页数…</p>}
               {pages&&<>
-                <div className="flex flex-wrap items-center gap-3 text-[12px]">
-                  {!contextual&&<button disabled={page<=1} onClick={()=>{setPage(p=>p-1);setImageError(false)}} className="rounded-sm border border-border px-3 py-1.5 disabled:opacity-40">上一页</button>}
-                  <label>第 <select aria-label="原件预览页码" value={page} onChange={e=>{setPage(Number(e.target.value));setImageError(false)}} className="mx-1 border border-border bg-card px-2 py-1">{Array.from({length:pages},(_,i)=><option value={i+1} key={i}>{i+1}</option>)}</select> / {pages} 页</label>
-                  {!contextual&&<button disabled={page>=pages} onClick={()=>{setPage(p=>p+1);setImageError(false)}} className="rounded-sm border border-border px-3 py-1.5 disabled:opacity-40">下一页</button>}
-                </div>
+                <nav className="document-pagination" aria-label="原件预览分页">
+                  {!contextual&&<button type="button" aria-label="上一页" title="上一页" disabled={page<=1} onClick={()=>{setPage(p=>p-1);setImageError(false)}}><ChevronLeft size={17}/></button>}
+                  <div className="document-pagination-position">
+                    <span className="document-pagination-select">
+                      <select aria-label="原件预览页码" value={page} onChange={e=>{setPage(Number(e.target.value));setImageError(false)}}>{Array.from({length:pages},(_,i)=><option value={i+1} key={i}>第 {i+1} 页</option>)}</select>
+                      <ChevronDown size={13} aria-hidden="true"/>
+                    </span>
+                    <span className="document-pagination-total">共 {pages} 页</span>
+                  </div>
+                  {!contextual&&<button type="button" aria-label="下一页" title="下一页" disabled={page>=pages} onClick={()=>{setPage(p=>p+1);setImageError(false)}}><ChevronRight size={17}/></button>}
+                </nav>
                 {imageError?<p role="alert">原件预览加载失败，请重新打开预览或下载原件核对。</p>:<img key={page} onError={()=>setImageError(true)} className="w-full border border-border bg-white" alt={'服务端原文转换预览第'+page+'页'} src={'/api/documents/'+encodeURIComponent(doc.id)+'/preview/original/'+page+(sourceQuery||'?revision='+detail.revision)}/>}
               </>}
             </>}
