@@ -1,7 +1,7 @@
 // 应用外壳：左侧深色窄边栏（品牌、知识库切换、导航、用户）+ 右侧内容区。
 import {useEffect,useState} from 'react'
 import {InvitationOverlay} from './EnterpriseActions'
-import {Menu,X,PanelLeftClose,PanelLeftOpen} from 'lucide-react'
+import {Menu,X,PanelLeftClose,PanelLeftOpen,Search,ChevronRight} from 'lucide-react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router'
 import {
   Database,
@@ -13,7 +13,6 @@ import {
 } from 'lucide-react'
 import './AppShell.css'
 import { LogoLockup, LogoMark } from './Logo'
-import { DemoTag } from './bits'
 import { useKnowledgeBase, useSession } from '@/lib/session'
 import { demoIdentityName } from '@/lib/demo-identity-names'
 import { KNOWLEDGE_BASES } from '@/lib/types'
@@ -32,7 +31,7 @@ function KbSwitcher() {
   return (
     <div className="shell-kb px-4">
       <div className="shell-expanded font-mono2 text-[9px] font-medium uppercase tracking-[0.28em] text-[#6e6656]">
-        Knowledge Base
+        知识空间
       </div>
       <div className="shell-kb-options mt-2 space-y-1">
         {(Object.keys(KNOWLEDGE_BASES) as KbId[]).filter(id=>availableKbs.includes(id)).map((id) => {
@@ -78,11 +77,13 @@ function KbSwitcher() {
 }
 
 export default function AppShell() {
-  const { user, logout, searchableDocs, visibleDocs } = useSession()
+  const { user, logout } = useSession()
   const name = demoIdentityName(user?.username) ?? user?.role.name ?? '用户'
   const kb = useKnowledgeBase()
   const navigate = useNavigate()
-  const qaMode=useLocation().pathname==='/qa'
+  const pathname=useLocation().pathname
+  const qaMode=pathname==='/qa'
+  const [search,setSearch]=useState('')
   const [collapsed,setCollapsed]=useState(()=>{try{return localStorage.getItem('p18.navigation.collapsed')==='true'}catch{return false}})
   function toggleNavigation(){setCollapsed(value=>{const next=!value;try{localStorage.setItem('p18.navigation.collapsed',String(next))}catch{/* Keep working without storage. */}return next})}
   const business=kb.id==='business',guest=business&&user?.accessRole==='guest',boss=business&&user?.accessRole==='boss'
@@ -90,14 +91,15 @@ export default function AppShell() {
   const [menuOpen,setMenuOpen]=useState(false)
   useEffect(()=>setMenuOpen(false),[kb.id])
 
+  const pageName=navigation.find(item=>item.to===pathname)?.label||'知识工作台'
   return (
     <div className={`app-shell flex min-h-dvh ${collapsed?'shell-collapsed':''} ${qaMode?'shell-qa':''}`}>
       {/* 深色窄边栏 */}
       {menuOpen&&<button aria-label="关闭导航遮罩" className="fixed inset-0 z-20 bg-black/30 lg:hidden" onClick={()=>setMenuOpen(false)}/>}
       <aside id="app-navigation" aria-label="主导航栏" className={`shell-sidebar fixed inset-y-0 left-0 z-30 flex w-[236px] flex-col overflow-y-auto bg-[hsl(36_16%_9%)] text-[#a89f8c] transition-transform lg:translate-x-0 ${menuOpen?'translate-x-0':'-translate-x-full'}`}>
         <div className="shell-brand">
-          <div className="shell-expanded"><LogoLockup dark /></div>
-          <div className="shell-collapsed-only"><LogoMark size={30} ink="#EDE6D8"/></div>
+          <div className="shell-expanded"><LogoLockup /></div>
+          <div className="shell-collapsed-only"><LogoMark size={30} ink="#2468ec"/></div>
           <button type="button" className="shell-collapse hidden lg:grid" onClick={toggleNavigation} aria-expanded={!collapsed} aria-controls="app-navigation" aria-label={collapsed?'展开导航':'收起导航'} title={collapsed?'展开导航':'收起导航'}>{collapsed?<PanelLeftOpen size={18}/>:<PanelLeftClose size={18}/>}</button>
         </div>
 
@@ -105,7 +107,7 @@ export default function AppShell() {
 
         <nav aria-label="主导航" className="shell-nav mt-6 flex-1 space-y-0.5 px-3">
           <div className="shell-expanded px-2 pb-2 font-mono2 text-[9px] font-medium uppercase tracking-[0.28em] text-[#6e6656]">
-            Workspace
+            工作空间
           </div>
           {navigation.map((item) => (
             <NavLink
@@ -130,7 +132,7 @@ export default function AppShell() {
                     strokeWidth={1.8}
                   />
                   <span className="shell-expanded text-[13px] font-medium">{item.label}</span>
-                  <span className="shell-expanded ml-auto font-mono2 text-[9px] uppercase tracking-[0.14em] text-[#5d5647]">
+                  <span className="shell-nav-en shell-expanded ml-auto font-mono2 text-[9px] uppercase tracking-[0.14em] text-[#5d5647]">
                     {item.en}
                   </span>
                 </>
@@ -169,19 +171,9 @@ export default function AppShell() {
 
       {/* 内容区 */}
       <div className="shell-content flex min-h-dvh min-w-0 flex-1 flex-col lg:ml-[236px]">
-        {!qaMode&&<header className="sticky top-0 z-20 flex min-h-14 flex-wrap items-center justify-between gap-3 py-3 border-b border-border bg-[hsl(44_22%_94%/0.92)] px-4 sm:px-8 backdrop-blur-sm">
-          <div className="flex items-center gap-3 text-[12px] text-muted-foreground">
-            <button type="button" aria-label={menuOpen?"关闭导航":"打开导航"} onClick={()=>setMenuOpen(!menuOpen)} className="mr-1 rounded-md border border-border p-2 lg:hidden">{menuOpen?<X className="size-4"/>:<Menu className="size-4"/>}</button>
-            <Database className="size-3.5" strokeWidth={1.8} />
-            <span className="font-medium text-foreground">{kb.name}</span>
-            <span className="text-border">/</span>
-            <span className="font-mono2 text-[11px]">
-              可见 {visibleDocs.length} · 可检索 {searchableDocs.length}
-            </span>
-            <span className="text-border">/</span>
-            <span className="hidden xl:inline">{guest?'仅查阅获准对外公开的资料':kb.modeLabel}</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-3"><span className="text-[11px] text-muted-foreground">{user?.username} · {user?.role.name} · {user?.role.dept}</span><DemoTag /></div>
+        {!qaMode&&<header className="lx-topbar">
+          <div className="lx-breadcrumb"><button type="button" aria-label={menuOpen?'关闭导航':'打开导航'} onClick={()=>setMenuOpen(!menuOpen)} className="lg:hidden">{menuOpen?<X size={18}/>:<Menu size={18}/>}</button><span>{kb.name}</span><ChevronRight size={14}/><strong>{pageName}</strong></div>
+          <div className="lx-topbar-tools"><form role="search" aria-label="搜索资料" className="lx-global-search" onSubmit={event=>{event.preventDefault();if(search.trim())navigate('/documents?search='+encodeURIComponent(search.trim()))}}><Search size={16}/><input aria-label="搜索资料名称" value={search} onChange={event=>setSearch(event.target.value)} placeholder="搜索资料名称"/><button type="submit" aria-label="查找资料"><ChevronRight size={15}/></button></form><span className="lx-preview-label">隔离预览</span><div className="lx-topbar-user"><span>{Array.from(name)[0]}</span><div><b>{name}</b><small>{user?.role.name}</small></div></div></div>
         </header>}
         <main className={qaMode?"min-w-0 flex-1":"min-w-0 flex-1 px-4 py-6 sm:px-8 sm:py-8"}>
           <Outlet />

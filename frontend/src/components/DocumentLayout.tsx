@@ -6,7 +6,7 @@ import './DocumentLayout.css'
 import './DocumentInteractions.css'
 
 export function DocumentFormat({format,secret=false,legacy=false}:{format:string;secret?:boolean;legacy?:boolean}){
- return <span aria-label={'文件格式 '+format} className={'dm-format '+(secret?'dm-format-secret':legacy?'dm-format-legacy':'')}>{format||'文件'}</span>
+ return <span aria-label={'文件格式 '+format} data-format={format.toLowerCase()} className={'dm-format '+(secret?'dm-format-secret':legacy?'dm-format-legacy':'')}>{format||'文件'}</span>
 }
 export function DocumentViews({tabs,active,counts,loaded,onSelect}:{tabs:string[];active:string;counts:Record<string,number>;loaded:boolean;onSelect:(tab:string)=>void}){
  const labels:Record<string,string>={'待我审核':'内容待审','部门异常':'解析异常'}

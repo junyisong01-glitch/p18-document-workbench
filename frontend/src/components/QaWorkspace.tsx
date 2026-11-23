@@ -194,7 +194,7 @@ export function QaWorkspace(props: WorkspaceProps) {
           </div>
         </> : <div className="qa-chat-scroll">
           <section className="qa-chat-welcome" aria-label="开始提问">
-            <h2>你好，<em>{name}</em></h2>
+            <span className="lx-qa-emblem" aria-hidden="true">知</span><h2>你好，<em>{name}</em></h2>
             <p>{externalSelected ? '可以检索获准资料。使用外部模型时，需要确认本轮问题。' : '有什么想查的？回答只来自知识库内已发布、且你有权查看的资料。'}</p>
             {composer}
             {examples.length > 0 && <div className="qa-first-chips" aria-label="示例问题">
