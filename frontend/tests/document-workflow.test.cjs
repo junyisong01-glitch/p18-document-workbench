@@ -58,8 +58,10 @@ test('submission progress follows automatic publication without inventing conten
  const steps=submissionProgress(row({}, {publication_stage:'自动发布中',technical_index_ready:false}));
  assert.deepEqual(steps.map(s=>s.label),['已提交','解析检查','索引准备','自动发布']);
  assert.equal(steps[2].state,'current');assert.equal(steps[3].state,'waiting');
- const complete=submissionProgress(row({status:'published'}));assert.equal(complete.at(-1).label,'已发布');assert.equal(complete.at(-1).state,'current');
- const noIndex=submissionProgress(row({status:'published'},{technical_index_ready:false}));assert.equal(noIndex.at(-2).state,'error');
+ const publishing=submissionProgress(row({}, {publication_stage:'自动发布中',technical_index_ready:true}));assert.equal(publishing.at(-1).state,'current');
+ const corrected=submissionProgress(row({status:'published',correction:true}));assert.equal(corrected.at(-1).label,'已生效');assert.equal(corrected.at(-1).state,'done');
+ const complete=submissionProgress(row({status:'published'}));assert.equal(complete.at(-1).label,'已发布');assert.equal(complete.at(-1).state,'done');
+ const noIndex=submissionProgress(row({status:'published'},{technical_index_ready:false}));assert.equal(noIndex.at(-2).state,'error');assert.equal(noIndex.at(-1).state,'done');
 });
 test('submission progress distinguishes review, failures, stopped states and corrections',()=>{
  const review=submissionProgress(row({}, {publication_stage:'内容待审',review_reasons:['机密']}));assert.equal(review[2].label,'等待内容审核');assert.equal(review[2].state,'current');assert.equal(review[3].state,'waiting');

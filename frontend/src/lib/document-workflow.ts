@@ -79,6 +79,8 @@ export function submissionProgress(row:BusinessRow):SubmissionStep[]{
    else if(current===last)labels[last]=row.publication_stage==='待发布'?'可以发布':b.correction?'正在自动生效':'正在自动发布'
  }
  const steps:SubmissionStep[]=labels.map((label,i)=>({label,state:i<current?'done':i===current?(error?'error':'current'):'waiting'}))
+ // A published final step is completed, not still in progress.
+ if(published)steps[last].state='done'
  // Published is a lifecycle fact; lost/unavailable index must not appear completed.
  if(published&&!row.technical_index_ready)steps[index]={label:'索引未就绪',state:'error'}
  return steps
