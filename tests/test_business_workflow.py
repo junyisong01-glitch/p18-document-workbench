@@ -735,3 +735,18 @@ def test_resubmit_reuses_ready_index_and_auto_publishes(rig):
     with r.q.connect()as c:c.execute('UPDATE business_documents SET body=? WHERE document_id=?',(json.dumps(b),identifier))
     assert r.action(identifier,'rd','resubmit').is_success
     assert r.q.business_read(identifier)['status']=='published'
+
+
+def test_document_detail_exposes_lifecycle_summary_without_expanding_audit_access(rig):
+    r=rig;identifier=r.create(status='submitted')
+    assert r.action(identifier,'head','approve').status_code==200
+    assert r.action(identifier,'head','publish').status_code==200
+    response=r.c.get('/api/documents/'+identifier,headers=r.h['qa'])
+    assert response.status_code==200
+    facts=response.json()['lifecycle']
+    assert facts['submitted']['actor']=='rd'
+    assert facts['reviewed']['actor']=='head' and facts['published']['actor']=='head'
+    assert set(facts['reviewed'])=={'actor','at'}
+    assert r.c.get('/api/business/documents/'+identifier+'/audit',headers=r.h['qa']).status_code==404
+    for actor in ['prd','guest']:
+        assert r.c.get('/api/documents/'+identifier,headers=r.h[actor]).status_code==404

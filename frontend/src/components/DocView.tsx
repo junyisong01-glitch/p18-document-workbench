@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import * as PreviewDialog from '@radix-ui/react-dialog'
 import { Download, X } from 'lucide-react'
 import { FormatMark, StatusBadge } from './bits'
+import { DocumentFacts } from './DocumentFacts'
 import { downloadDemoFile, useSession } from '@/lib/session'
 import { api } from '@/lib/api'
 import { OriginalBlock, OriginalTable, type SourceBlock, type SourceTable } from './SourceContent'
@@ -91,7 +92,7 @@ export function DocPreviewDialog({
     if(previewBody.current)previewBody.current.scrollTop=0
     setLoaded({key:loadKey})
     setGrantChecks({})
-    setTab(sourceRef?'evidence':'original')
+    setTab(sourceRef?'evidence':'full')
     setPages(null)
     setPreviewError('')
     setImageError(false)
@@ -173,20 +174,18 @@ export function DocPreviewDialog({
   const content=<>
         {/* 头部 */}
         <div className="flex items-start gap-4 border-b border-border px-6 py-5">
-          <FormatMark format={doc.format} className="mt-0.5" />
+          {contextual&&<FormatMark format={doc.format} className="mt-0.5" />}
           <div className="min-w-0 flex-1">
-            <div className="font-mono2 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+            {contextual&&<div className="font-mono2 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
               {doc.code && <>文档编号 {doc.code} · </>}文档版本 {doc.version}
-            </div>
-            <h3 className="mt-1 break-all font-display text-[16px] font-semibold leading-snug">
-              {title}
+            </div>}
+            <h3 className={`break-words font-display font-semibold leading-snug ${contextual?'mt-1 text-[16px]':'py-1 text-[20px]'}`}>
+              {!contextual&&'原文 · '}{title}
             </h3>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+            {contextual&&<div className="mt-2 flex flex-wrap items-center gap-2">
               <StatusBadge doc={doc} />
-              <span className="text-[11px] text-muted-foreground">
-                {doc.dept} · {doc.category}
-              </span>
-            </div>
+              <span className="text-[11px] text-muted-foreground">{doc.dept} · {doc.category}</span>
+            </div>}
           </div>
           <button
             ref={closeButton}
@@ -201,6 +200,7 @@ export function DocPreviewDialog({
         {/* 内容 */}
         {navigation&&<div className="border-b border-border px-4 pt-3 sm:px-6">{navigation}</div>}
         <div ref={previewBody} className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+          {!contextual&&detail&&<DocumentFacts doc={doc} detail={detail}/> }
           {!contextual&&<div role="tablist" aria-label="来源查看方式" onKeyDown={e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const tabs=Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role=tab]'));const current=tabs.indexOf(document.activeElement as HTMLButtonElement);const next=e.key==='Home'?0:e.key==='End'?tabs.length-1:(current+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;tabs[next]?.focus();tabs[next]?.click()}} className="mb-5 flex flex-wrap gap-1 border-b border-border">
             {([['evidence','命中证据'],['original','原文件'],['full',excelSheets.length?'工作表预览':'全文解析']] as const)
               .filter(([key])=>(key!=='evidence'||!!sourceRef)&&(key!=='original'||(!excelSheets.length&&!['txt','md'].includes(doc.format))))
@@ -246,7 +246,7 @@ export function DocPreviewDialog({
               </>}
             </>}
             {tab==='full'&&(excelSheets.length ? <ExcelPreview key={loadKey} sheets={excelSheets} matches={excelMatches} contextual={contextual}/> : <>
-              <p className="border-b border-border pb-3 text-[12px] leading-relaxed text-muted-foreground">{contextual?'文档正文预览，已标出本次引用的内容。':'以下是整份文档的解析内容，包含未命中的其他段落；不能全部当作本题命中证据。表格按实际行列显示。'}</p>
+              <p className="border-b border-border pb-3 text-[12px] leading-relaxed text-muted-foreground">{contextual?'文档正文预览，已标出本次引用的内容。':sourceRef?'以下是整份文档的解析内容，包含未命中的其他段落。表格按实际行列显示。':'以下内容来自上传文件的实际解析，表格按原有行列展示。'}</p>
               {firstMatchedBlock&&<p className="text-xs text-[hsl(12_74%_38%)]">命中章节 · {matched?.section||'本次命中证据'}</p>}
               <div className="space-y-4">{blocks.map(block=>matchedBlocks.has(block.id)?
                 <div key={block.id} ref={block.id===firstMatchedBlock?firstMatch:undefined} data-matched-section
@@ -306,7 +306,7 @@ export function DocPreviewDialog({
   </PreviewDialog.Root>
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-[hsl(36_16%_9%/0.55)] p-6 backdrop-blur-[2px]"
     onClick={onClose} role="dialog" aria-modal="true" aria-label={label}>
-    <div className="flex max-h-[85vh] w-full max-w-4xl flex-col border border-border bg-card shadow-2xl"
+    <div className="document-card flex max-h-[88vh] w-full max-w-5xl flex-col border border-border bg-card shadow-2xl"
       onClick={event=>event.stopPropagation()}>{content}</div>
   </div>
 }

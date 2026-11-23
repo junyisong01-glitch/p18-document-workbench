@@ -133,6 +133,11 @@ def install(store,central,legacy_acl):
     def public(doc,detailed=False):
         result=old_public(doc,detailed);b=read(doc['id'])
         result['workflow']=b
+        if detailed and b:
+            from app.business_document_details import document_lifecycle
+            with store.connect() as c:
+                events=c.execute('SELECT at,actor,action,body FROM business_events WHERE document_id=? ORDER BY id',(doc['id'],)).fetchall()
+            result['lifecycle']=document_lifecycle(doc,b,events)
         result['technical_index_ready']=bool(original_index_status(doc['id']).get('searchable'))
         result['technical_state']=doc['state']
         result['technical_error']=doc.get('error')
