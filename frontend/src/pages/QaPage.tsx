@@ -193,6 +193,9 @@ export default function QaPage(){
   const citations=turn.answer?.citations||[]
   const sourcesAvailable=citations.every(source=>
    documentIds.has(source.document_id)&&(source.members||[]).every(member=>documentIds.has(member.document_id)))
+  const actions=(turn.answer||noEvidence)&&<QaAnswerActions provider={sourcesAvailable?turn.answer?.provider:undefined}>
+   {kbId==='business'&&!guest&&turn.feedbackContextId&&(turn.answer||noEvidence)&&<button type="button" disabled={reported.includes(turn.feedbackContextId)||!sourcesAvailable} className="qa-answer-action" onClick={()=>{setFeedbackSaved(false);setFeedbackTurn({contextId:turn.feedbackContextId!,question:turn.question,answer:turn.answer?.answer||'没找到可靠依据',citations})}}>{reported.includes(turn.feedbackContextId)?<Check size={14}/>:<Flag size={14}/>}<span>{reported.includes(turn.feedbackContextId)?'已反馈':'反馈'}</span></button>}
+   </QaAnswerActions>
   return <>
    {turn.error&&<p role="alert" className="qa-chat-error">{turn.error}{turn.error.includes('历史归档 → 查正文')&&
     <> <a className="underline" href={`/documents?view=${encodeURIComponent('历史归档')}`}>打开历史归档</a></>}</p>}
@@ -201,11 +204,9 @@ export default function QaPage(){
     {!sourcesAvailable?<p className="qa-chat-error">引用资料已变更或当前不可查看，请重新提问。</p>:
     noEvidence?<AnswerPresentation answer={turn.answer} onSource={openSource}/>:
       <QaAnswerFirst answer={turn.answer} notice={turn.notice} examples={suggestions} onAsk={runQuestion}
-        onSource={openSource} documents={searchableDocs} guest={guest}/>}
+        onSource={openSource} documents={searchableDocs} guest={guest} actions={actions}/>}
    </div>}
-   {(turn.answer||noEvidence)&&<QaAnswerActions provider={sourcesAvailable?turn.answer?.provider:undefined}>
-   {kbId==='business'&&!guest&&turn.feedbackContextId&&(turn.answer||noEvidence)&&<button type="button" disabled={reported.includes(turn.feedbackContextId)||!sourcesAvailable} className="qa-answer-action" onClick={()=>{setFeedbackSaved(false);setFeedbackTurn({contextId:turn.feedbackContextId!,question:turn.question,answer:turn.answer?.answer||'没找到可靠依据',citations})}}>{reported.includes(turn.feedbackContextId)?<Check size={14}/>:<Flag size={14}/>}<span>{reported.includes(turn.feedbackContextId)?'已反馈':'反馈'}</span></button>}
-   </QaAnswerActions>}
+   {(!turn.answer||noEvidence||!sourcesAvailable)&&actions}
   </>
  }
 

@@ -66,3 +66,9 @@
 .qa-first-bars i:nth-child(5) { width: 23%; height: 11px; margin-top: 5px; }
 @keyframes qa-chat-pulse { from { opacity: 1; } to { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .qa-chat-dots i, .qa-first-bars i { animation: none; } }
+
+.qa-first-followup{display:flex;align-items:center;gap:16px}
+.qa-first-followup>.qa-first-chips{flex:1;min-width:0;flex-wrap:nowrap}
+.qa-first-followup>.qa-first-chips button{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qa-first-followup>.qa-answer-actions{margin-top:0;flex:none;max-width:220px}
+.qa-first-followup .qa-answer-action{white-space:nowrap}

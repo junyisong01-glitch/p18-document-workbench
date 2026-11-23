@@ -84,12 +84,13 @@ function AnswerText({ text, cite }: { text: string; cite: (text: string) => Reac
   </>
 }
 
-export function QaAnswerFirst({ answer, examples, onAsk, onSource, notice, documents, guest }: SuggestionsProps & {
+export function QaAnswerFirst({ answer, examples, onAsk, onSource, notice, documents, guest, actions }: SuggestionsProps & {
   answer: QaResult
   onSource: OpenSource
   notice?: string
   documents: Doc[]
   guest?: boolean
+  actions?: ReactNode
 }) {
   const positions = new Map(Array.from(new Set(answer.answer.match(/\[S\d+\]/g) || []), (id, index) => [id, index]))
   const order = (citation: QaCitation) => positions.get('[' + citation.id + ']') ?? Number.MAX_SAFE_INTEGER
@@ -135,6 +136,6 @@ export function QaAnswerFirst({ answer, examples, onAsk, onSource, notice, docum
       </ul>
     </details>}
     {guest && !external && <p className="qa-chat-guest"><Lock size={13}/>内部资料需有权限的内部账号查看。</p>}
-    {!!examples.length && <div className="qa-first-followup"><Suggestions examples={examples} onAsk={onAsk}/></div>}
+    {(!!examples.length||actions)&&<div className="qa-first-followup">{!!examples.length&&<Suggestions examples={examples} onAsk={onAsk}/>} {actions}</div>}
   </article>
 }
