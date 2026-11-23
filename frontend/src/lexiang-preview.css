@@ -83,3 +83,15 @@
 .lexiang-preview .operation-calendar .rdp-root{--rdp-accent-color:#2468ec;--rdp-accent-background-color:#edf3ff;--rdp-selected-border:1px solid #2468ec}
 .lexiang-preview .operation-calendar .rdp-selected .rdp-day_button{background:#2468ec}.lexiang-preview .operation-calendar .rdp-day_button:hover:not(:disabled){background:#edf3ff;color:#2468ec}.lexiang-preview .operation-calendar-footer button:first-child{color:#2468ec}
 .lexiang-preview .lx-member-dashboard header{border:0;padding-bottom:0}.lexiang-preview .lx-member-dashboard h1{font-size:23px}.lexiang-preview .lx-member-dashboard header p{font-size:12px}
+
+/* Desktop conversation rail reaches the top; account bar stays over the answer area. */
+@media(min-width:761px){
+ .lexiang-preview .qa-chat{grid-template-rows:minmax(0,1fr)}
+ .lexiang-preview .qa-chat-header{grid-area:1/1;align-self:start;height:54px;min-height:54px;margin-left:var(--qa-history-width,236px);z-index:3}
+ .lexiang-preview .qa-chat-layout{grid-area:1/1;grid-template-rows:54px minmax(0,1fr)}
+ .lexiang-preview .qa-chat-side{grid-column:1;grid-row:1/3;padding-top:12px}
+ .lexiang-preview .qa-chat-main{grid-column:2;grid-row:2}
+ .lexiang-preview .qa-chat-preview{grid-column:3;grid-row:2}
+ .lexiang-preview .qa-preview-splitter{top:54px}
+ .lexiang-preview .qa-chat-new{min-height:42px}
+}

@@ -150,7 +150,7 @@ export function QaWorkspace(props: WorkspaceProps) {
     </button>
   </form>
 
-  return <div ref={workspace} className="qa-chat">
+  return <div ref={workspace} className="qa-chat" style={{ '--qa-history-width': `${historyWidth}px`, '--qa-preview-width': `${previewWidth}px` } as CSSProperties}>
     <header className="qa-chat-header">
       <h1 className="sr-only">{library} · 知识问答</h1>
       <button type="button" className="qa-chat-mobile qa-chat-icon" aria-expanded={showHistory}
@@ -165,8 +165,7 @@ export function QaWorkspace(props: WorkspaceProps) {
 
       </div>
     </header>
-    <div className={`qa-chat-layout ${resizing||previewResizing ? 'qa-chat-layout-resizing' : ''} ${previewDocked ? 'qa-chat-layout-with-preview' : ''}`}
-      style={{ '--qa-history-width': `${historyWidth}px`, '--qa-preview-width': `${previewWidth}px` } as CSSProperties}>
+    <div className={`qa-chat-layout ${resizing||previewResizing ? 'qa-chat-layout-resizing' : ''} ${previewDocked ? 'qa-chat-layout-with-preview' : ''}`}>
       <aside className={`qa-chat-side ${showHistory ? 'qa-chat-side-open' : ''}`} id="qa-conversation-history" aria-label={history.length ? '历史会话' : '会话'}>
         <button className="qa-chat-new" type="button" disabled={busy} onClick={() => { onNew(); setShowHistory(false) }}>
           <Plus size={16}/>新会话
