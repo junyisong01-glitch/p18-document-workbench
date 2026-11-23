@@ -177,7 +177,7 @@ def test_entry_assets_resolve_from_http_and_file_paths(client):
     scripts=re.findall(r'src="(/assets/[^"]+)"',html)
     styles=re.findall(r'href="(/assets/[^"]+)"',html)
     assert scripts and styles
-    for route in ['/login','/documents','/search','/qa','/identity','/library/']:
+    for route in ['/login','/documents','/search','/qa','/identity','/management','/library/']:
         assert client.get(route).text==html
     for asset in scripts+styles:
         assert client.get(asset).status_code==200

@@ -1,9 +1,12 @@
+import {useSearchParams,Link} from 'react-router'
+import {RecordFeedback,type FeedbackTurn} from '@/components/QuestionFeedback'
 import {useCallback,useEffect,useRef,useState} from 'react'
-import {Cpu} from 'lucide-react'
+import {Cpu,Flag,Check} from 'lucide-react'
 import {ModelConfigDialog} from '@/components/ModelConfigDialog'
 import {loadModelConfig,type ModelConfigStatus} from '@/lib/modelConfig'
 import {QaWorkspace,QaChatTurn} from '@/components/QaWorkspace'
 import {DocPreviewDialog} from '@/components/DocView'
+import {QaAnswerActions} from '@/components/QaAnswerActions'
 import {AnswerPresentation} from '@/components/AnswerPresentation'
 import {QaAnswerFirst, QaAnswerLoading, QaNoEvidence, citationLocations, type QaCitation, type QaResult} from '@/components/QaAnswerFirst'
 import {answerRoute} from '@/lib/qa-answer-first'
@@ -17,7 +20,6 @@ import {api, ApiError} from '@/lib/api'
 import {useKnowledgeBase,useSession} from '@/lib/session'
 import {demoIdentityName} from '@/lib/demo-identity-names'
 import {documentTitleParts} from '@/lib/document-title'
-const widePreviewQuery='(min-width: 1100px)'
 const button='inline-flex items-center justify-center gap-2 rounded-md border border-border bg-card px-4 py-2.5 text-xs font-medium transition-colors hover:border-[hsl(12_74%_42%/0.5)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(12_74%_42%)] disabled:cursor-not-allowed disabled:opacity-45'
 type Turn = {
  question:string
@@ -25,11 +27,16 @@ type Turn = {
  empty:boolean
  error:string
  notice:string
+ feedbackContextId?:string
 }
 type Conversation = { id:string; title:string; turns:Turn[] }
 
 export default function QaPage(){
  const {kbId,visibleDocs,searchableDocs,ready,user}=useSession()
+ const [params]=useSearchParams()
+ const [feedbackTurn,setFeedbackTurn]=useState<FeedbackTurn|null>(null),[feedbackSaved,setFeedbackSaved]=useState(false)
+ const [feedbackContextId,setFeedbackContextId]=useState<string|undefined>()
+ const [reported,setReported]=useState<string[]>([])
  const kb=useKnowledgeBase()
  const questionInput=useRef<HTMLTextAreaElement>(null)
  const turnAnchor=useRef<HTMLElement>(null)
@@ -53,17 +60,13 @@ export default function QaPage(){
  const [preview,setPreview]=useState<{locations:QaCitation[];index:number;visit:number}|null>(null)
  const activeSource=preview?.locations[preview.index]
  const previewDoc=activeSource&&visibleDocs.find(doc=>doc.id===activeSource.document_id)
- const [dockPreview,setDockPreview]=useState(()=>window.matchMedia(widePreviewQuery).matches)
+ const [dockPreview,setDockPreview]=useState(false)
+ const syncQaWidth=useCallback((width:number)=>setDockPreview(width>=1100),[])
  const previewTrigger=useRef<HTMLElement|null>(null)
- useEffect(()=>{
-  const media=window.matchMedia(widePreviewQuery)
-  const sync=()=>setDockPreview(media.matches)
-  sync()
-  media.addEventListener('change',sync)
-  return()=>media.removeEventListener('change',sync)
- },[])
- useEffect(()=>{backendSessions.current.clear();setConversations([]);setActive(null);setQuestion('');setAskedQuestion('');setEmpty(false);setAnswerNotice('');setDraft(null);setPending(null);setAnswer(null);setSelected([]);setConsent(false);setPreview(null);setError('')},[kbId,user?.username])
- const currentTurn:Turn={question:askedQuestion,answer,empty,error,notice:answerNotice}
+
+ useEffect(()=>{backendSessions.current.clear();setFeedbackTurn(null);setFeedbackSaved(false);setReported([]);setConversations([]);setActive(null);setQuestion('');setFeedbackContextId(undefined);setAskedQuestion('');setEmpty(false);setAnswerNotice('');setDraft(null);setPending(null);setAnswer(null);setSelected([]);setConsent(false);setPreview(null);setError('')},[kbId,user?.username])
+ useEffect(()=>{const preset=params.get('question');if(preset)setQuestion(preset.slice(0,2000))},[params])
+ const currentTurn:Turn={question:askedQuestion,answer,empty,error,notice:answerNotice,feedbackContextId}
  const previousTurns=conversations.find(conversation=>conversation.id===active)?.turns||[]
  const turnCount=previousTurns.length
  useEffect(()=>{turnAnchor.current?.scrollIntoView({block:'start'})},[active,askedQuestion,turnCount])
@@ -77,12 +80,13 @@ export default function QaPage(){
  function selectConversation(id:string|null){
   if(busy||id!==null&&id===active)return
   archiveTurn()
-  setActive(id);setAskedQuestion('');setQuestion('');setAnswer(null);setDraft(null);setPending(null);setConsent(false)
+  setActive(id);setFeedbackContextId(undefined);setAskedQuestion('');setQuestion('');setAnswer(null);setDraft(null);setPending(null);setConsent(false)
   setEmpty(false);setError('');setAnswerNotice('');setPreview(null)
   requestAnimationFrame(()=>questionInput.current?.focus())
  }
  function finishAnswer(result:QaResult){
   setAnswer(result)
+  setFeedbackContextId(result.feedback_context_id)
   setPending(null)
  }
 
@@ -95,7 +99,7 @@ export default function QaPage(){
    setConversations(items=>[{id,title:current,turns:[]},...items])
    setActive(id)
   }
-  setQuestion('');setAskedQuestion(current);setEmpty(false);setAnswerNotice('')
+  setFeedbackContextId(undefined);setQuestion('');setAskedQuestion(current);setEmpty(false);setAnswerNotice('')
   setBusy(true);setError('');setPending(null);setConsent(false);setAnswer(null);setDraft(null);setSelected([])
   if(questionOnly)setPhase('search')
   try{
@@ -106,6 +110,7 @@ export default function QaPage(){
     setError(next.message||'请补全问题。')
     return
    }
+   setFeedbackContextId(next.feedback_context_id)
    const ids=next.default_candidate_ids||[]
    if(!questionOnly){
     setDraft(next);setSelected(ids);setVersion(next.selection_version||0)
@@ -149,7 +154,7 @@ export default function QaPage(){
   if(busy||(!route?.question_only_external&&kbId!=='demo'))return
   archiveTurn()
   backendSessions.current.clear()
-  setAskedQuestion('')
+  setFeedbackContextId(undefined);setAskedQuestion('')
   setBusy(true);setError('');setDraft(null);setPending(null);setAnswer(null);setEmpty(false);setAnswerNotice('');setSelected([]);setConsent(false);setPreview(null)
   try{await api.post('/api/rag/provider',{provider,confirm_external:provider==='deepseek'});const next=await api.get<any>('/api/rag');setRoute(next);const credential=await loadModelConfig();setModelConfig(credential);if(provider==='deepseek'&&!credential.configured)setConfigOpen(true)}catch(e){void api.get('/api/rag').then(setRoute).catch(()=>{});throw e}finally{setBusy(false)}
  }
@@ -188,21 +193,25 @@ export default function QaPage(){
   const citations=turn.answer?.citations||[]
   const sourcesAvailable=citations.every(source=>
    documentIds.has(source.document_id)&&(source.members||[]).every(member=>documentIds.has(member.document_id)))
+  const actions=(turn.answer||noEvidence)&&<QaAnswerActions provider={sourcesAvailable?turn.answer?.provider:undefined}>
+   {kbId==='business'&&!guest&&turn.feedbackContextId&&(turn.answer||noEvidence)&&<button type="button" disabled={reported.includes(turn.feedbackContextId)||!sourcesAvailable} className="qa-answer-action" onClick={()=>{setFeedbackSaved(false);setFeedbackTurn({contextId:turn.feedbackContextId!,question:turn.question,answer:turn.answer?.answer||'没找到可靠依据',citations})}}>{reported.includes(turn.feedbackContextId)?<Check size={14}/>:<Flag size={14}/>}<span>{reported.includes(turn.feedbackContextId)?'已反馈':'反馈'}</span></button>}
+   </QaAnswerActions>
   return <>
    {turn.error&&<p role="alert" className="qa-chat-error">{turn.error}{turn.error.includes('历史归档 → 查正文')&&
     <> <a className="underline" href={`/documents?view=${encodeURIComponent('历史归档')}`}>打开历史归档</a></>}</p>}
-   {questionOnly&&noEvidence&&<QaNoEvidence question={turn.question} examples={suggestions} onAsk={runQuestion}/>}
+   {questionOnly&&noEvidence&&<QaNoEvidence question={turn.question} examples={suggestions} onAsk={runQuestion} />}
    {turn.answer&&(!questionOnly||!noEvidence)&&<div id={isCurrent?'qa-answer':undefined}>
     {!sourcesAvailable?<p className="qa-chat-error">引用资料已变更或当前不可查看，请重新提问。</p>:
     noEvidence?<AnswerPresentation answer={turn.answer} onSource={openSource}/>:
       <QaAnswerFirst answer={turn.answer} notice={turn.notice} examples={suggestions} onAsk={runQuestion}
-        onSource={openSource} documents={searchableDocs} guest={guest}/>}
+        onSource={openSource} documents={searchableDocs} guest={guest} actions={actions}/>}
    </div>}
+   {(!turn.answer||noEvidence||!sourcesAvailable)&&actions}
   </>
  }
 
  return <>
-  <QaWorkspace library={kb.name} name={name} role={guest?'外部参观':user?.role.name??''} settings={settings}
+  <QaWorkspace onWidthChange={syncQaWidth} guest={guest} library={kb.name} name={name} role={guest?'外部参观':user?.role.name??''} settings={kbId==='business'&&user?.accessRole!=='boss'?null:settings} tools={<><Link to="/documents">{guest?'公开资料':'我的资料'}</Link></>}
     previewDocked={dockPreview&&!!previewDoc} preview={preview&&activeSource&&previewDoc&&
       <DocPreviewDialog presentation={dockPreview?'panel':'drawer'} sourceRef={activeSource} sourceVisit={preview.visit}
         doc={previewDoc} open onClose={closePreview} navigation={preview.locations.length>1&&
@@ -236,6 +245,8 @@ export default function QaPage(){
     </QaChatTurn>}
     {routeError&&<p role="alert" className="qa-chat-error">问答服务暂不可用。 <button type="button" onClick={()=>setRouteAttempt(attempt=>attempt+1)}>重试</button></p>}
   </QaWorkspace>
+  {feedbackTurn&&<RecordFeedback turn={feedbackTurn} onClose={()=>setFeedbackTurn(null)} onSaved={()=>{setReported(ids=>[...ids,feedbackTurn.contextId]);setFeedbackTurn(null);setFeedbackSaved(true)}}/>}
+  {feedbackSaved&&<div role="status" className="dm-feedback"><span>反馈已记录。</span><Link to="/knowledge-gaps" className="underline">查看反馈记录</Link><button aria-label="关闭反馈提示" onClick={()=>setFeedbackSaved(false)}>×</button></div>}
   {(kbId==='demo'||questionOnly)&&<ModelConfigDialog open={configOpen} onClose={closeConfig} onStatus={setModelConfig}
     onChanged={()=>{setPending(null);setConsent(false);setConfigError('')}}/>}
  </>

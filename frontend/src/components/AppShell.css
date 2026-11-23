@@ -1,0 +1,25 @@
+.shell-brand { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 24px 16px 24px 20px; }
+.shell-collapse { flex: none; width: 32px; height: 32px; place-items: center; border-radius: 7px; color: #a89f8c; transition: color .18s, background-color .18s; }
+.shell-collapse:hover { background: hsl(36 12% 15%); color: #ede6d8; }
+.shell-collapse:focus-visible { outline: 2px solid hsl(12 74% 50%); outline-offset: 2px; }
+.shell-collapsed-only { display: none; }
+@media (min-width: 1024px) {
+  .shell-collapsed .shell-sidebar { width: 68px; }
+  .shell-collapsed .shell-content { margin-left: 68px; }
+  .shell-collapsed .shell-expanded { display: none; }
+  .shell-collapsed .shell-collapsed-only { display: block; }
+  .shell-collapsed .shell-brand { flex-direction: column; gap: 12px; padding: 20px 10px 18px; }
+  .shell-collapsed .shell-kb { padding-inline: 12px; }
+  .shell-collapsed .shell-kb-options { margin-top: 0; }
+  .shell-collapsed .shell-kb-option { display: grid; place-items: center; height: 44px; padding: 0; }
+  .shell-collapsed .shell-nav { padding-inline: 12px; }
+  .shell-collapsed .shell-nav-link { justify-content: center; height: 44px; padding: 0; }
+  .shell-collapsed .shell-nav-link > svg { width: 19px; height: 19px; }
+  .shell-collapsed .shell-user { padding: 16px 10px; }
+  .shell-collapsed .shell-user-inner { flex-direction: column; gap: 12px; }
+}
+
+/* QA owns its scroll containers; document pages keep normal page scrolling. */
+.app-shell.shell-qa{height:100dvh;min-height:0;overflow:clip}
+.shell-qa>.shell-content{height:100%;min-height:0}
+.shell-qa>.shell-content>main{min-height:0;overflow:clip}

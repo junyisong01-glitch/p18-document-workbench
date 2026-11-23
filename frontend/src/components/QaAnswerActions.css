@@ -1,0 +1,8 @@
+.qa-answer-actions{display:flex;align-items:center;flex-wrap:wrap;gap:4px 14px;margin-top:14px;color:var(--qa-muted);font-size:12px}
+.qa-answer-action{display:inline-flex;align-items:center;gap:6px;padding:6px 8px;border-radius:6px;line-height:1.5;transition:color .15s,background .15s}
+.qa-answer-action:first-child{margin-left:-8px}
+.qa-answer-action:hover:not(:disabled),.qa-answer-action[aria-expanded=true]{color:var(--qa-accent);background:var(--qa-tint)}
+.qa-answer-action:disabled{opacity:.55;cursor:default}
+.qa-answer-external{font-size:11px;color:#956324}
+.qa-answer-explanation{flex-basis:100%;margin:4px 0 0;padding:10px 14px;border-left:2px solid var(--qa-line);line-height:1.8;font-size:12px}
+.qa-answer-explanation p{margin:0}

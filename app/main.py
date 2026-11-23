@@ -623,7 +623,17 @@ def rag_call(method, *args):
     from app.embedding import EmbeddingError
     from app.semantic import SemanticError
     try:
-        return getattr(current_rag(), method)(*args)
+        service = current_rag()
+        capture = globals().get('capture_qa_feedback')
+        context = None
+        if capture and method == 'answer':
+            from copy import deepcopy
+            with service.lock:
+                context = deepcopy(service.tickets.get(args[0]))
+        result = getattr(service, method)(*args)
+        if capture:
+            capture(service, method, result, context)
+        return result
     except (RagError, EmbeddingError, SemanticError) as error:
         raise HTTPException(409, {'code':error.code,'message':str(error),**({'details':error.details} if getattr(error,'details',None) is not None else {})})
 
@@ -1098,6 +1108,9 @@ def demo_page():
 @app.get("/search")
 @app.get("/qa")
 @app.get("/identity")
+@app.get("/workbench")
+@app.get("/knowledge-gaps")
+@app.get("/management")
 @app.get("/")
 def index():
     return FileResponse(ROOT/'web/app/index.html')

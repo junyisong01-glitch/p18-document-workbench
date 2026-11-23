@@ -1,10 +1,10 @@
 .qa-chat {
-  --qa-bg: hsl(44 22% 94%);
-  --qa-card: hsl(48 24% 98%);
+  --qa-bg: #f4f2ec;
+  --qa-card: #fcfbf9;
   --qa-ink: hsl(30 14% 12%);
   --qa-muted: hsl(32 9% 42%);
-  --qa-line: hsl(40 13% 82%);
-  --qa-accent: hsl(12 74% 39%);
+  --qa-line: #ded9d0;
+  --qa-accent: #bc3d1d;
   --qa-tint: hsl(12 74% 39% / .08);
   height: 100dvh;
   display: grid;
@@ -22,17 +22,15 @@
   display: flex; justify-content: space-between; align-items: center; gap: 12px;
   background: var(--qa-card); border-bottom: 1px solid var(--qa-line);
 }
-.qa-chat-brand, .qa-chat-top-actions, .qa-chat-user { display: flex; align-items: center; gap: 9px; min-width: 0; }
-.qa-chat-brand strong { font-size: 15px; white-space: nowrap; }
-.qa-chat-brand h1 { color: var(--qa-muted); font-size: 12px; font-weight: 400; white-space: nowrap; }
-.qa-chat-back, .qa-chat-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; flex: none; color: var(--qa-muted); }
-.qa-chat-back:hover, .qa-chat-icon:hover, .qa-chat-settings summary:hover { background: var(--qa-tint); color: var(--qa-accent); }
+.qa-chat-top-actions, .qa-chat-user { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.qa-chat-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; flex: none; color: var(--qa-muted); }
+.qa-chat-icon:hover, .qa-chat-settings summary:hover { background: var(--qa-tint); color: var(--qa-accent); }
 .qa-chat-mark {
   background: var(--qa-accent); color: white;
   display: grid; place-items: center; width: 30px; height: 30px;
   border-radius: 9px; flex: none; font-size: 14px; font-weight: 700;
 }
-.qa-chat-header .qa-chat-mark { width: 24px; height: 24px; border-radius: 7px; font-size: 12px; }
+.qa-chat-top-actions { margin-left: auto; }
 .qa-chat-user { color: var(--qa-muted); font-size: 13px; white-space: nowrap; }
 .qa-chat-user b { font-weight: 500; }
 .qa-chat-user small { font-size: inherit; }
@@ -48,7 +46,7 @@
 }
 .qa-chat-settings-panel > * + * { margin-top: 12px; }
 .qa-chat-layout { display: grid; grid-template-columns: var(--qa-history-width, 236px) minmax(0, 1fr); min-height: 0; position: relative; }
-.qa-chat-layout-with-preview { grid-template-columns: var(--qa-history-width, 236px) minmax(0, 1fr) clamp(21rem, 34vw, 36rem); }
+.qa-chat-layout-with-preview { grid-template-columns: var(--qa-history-width, 236px) minmax(0, 1fr) var(--qa-preview-width, clamp(21rem, 34%, 36rem)); }
 .qa-chat-side { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: hsl(43 18% 91%); border-right: 1px solid var(--qa-line); padding: 14px 10px; }
 .qa-chat-splitter {
   position: absolute; z-index: 2; top: 0; bottom: 0; left: var(--qa-history-width, 236px);
@@ -61,10 +59,10 @@
 .qa-chat-layout-resizing, .qa-chat-layout-resizing * { cursor: col-resize; user-select: none; }
 .qa-chat-new {
   display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 37px;
-  border: 1px solid var(--qa-line); border-radius: 10px; background: var(--qa-card);
-  color: var(--qa-accent); font-size: 13px; font-weight: 650;
+  border: 1px solid var(--qa-accent); border-radius: 12px; background: var(--qa-accent);
+  color: #fff; font-size: 13px; font-weight: 650; min-height: 43px;
 }
-.qa-chat-new:hover:not(:disabled) { border-color: var(--qa-accent); background: var(--qa-tint); }
+.qa-chat-new:hover:not(:disabled) { background: #a93418; }
 .qa-chat-side h2 { padding: 16px 8px 6px; font-size: 11px; font-weight: 500; letter-spacing: .06em; color: var(--qa-muted); }
 .qa-chat-side ul { display: grid; gap: 2px; overflow: auto; }
 .qa-chat-side li { min-width: 0; }
@@ -80,10 +78,10 @@
 .qa-chat-welcome .qa-first-chips { justify-content: center; margin-top: 20px; }
 .qa-chat-thread, .qa-chat-dock { width: 100%; max-width: 800px; margin: 0 auto; }
 .qa-chat-thread { display: grid; gap: 24px; }
-.qa-chat-turn { display: grid; gap: 14px; }
+.qa-chat-turn { display: grid; gap: 24px; }
 .qa-chat-question {
-  justify-self: end; max-width: min(76%, 560px); margin: 0; padding: 11px 16px;
-  border-radius: 14px 14px 4px 14px; background: hsl(36 20% 16%); color: hsl(44 30% 94%);
+  justify-self: end; max-width: min(76%, 560px); margin: 0; padding: 14px 19px;
+  border-radius: 20px 20px 5px 20px; background: #302b21; color: hsl(44 30% 94%);
   font-size: 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .qa-chat-reply { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; }
@@ -109,8 +107,8 @@
 }
 .qa-chat-composer button:not(:disabled):hover { background: hsl(12 75% 33%); }
 .qa-chat-composer button:disabled { opacity: .68; }
-.qa-chat-composer-follow { min-height: 51px; padding: 8px 10px 8px 14px; align-items: center; }
-.qa-chat-composer-follow textarea { grid-column: 1; min-height: 1.7em; }
+.qa-chat-composer-follow { min-height: 100px; padding: 12px 14px; align-items: end; }
+.qa-chat-composer-follow textarea { grid-column: 1 / -1; min-height: 2.5em; }
 .qa-chat-mobile { display: none; }
 @media (max-width: 760px) {
   .qa-chat-header { padding-inline: 10px; }
@@ -129,9 +127,7 @@
   .qa-chat-welcome { margin-top: clamp(30px, 10dvh, 80px); }
 }
 @media (max-width: 420px) {
-  .qa-chat-brand, .qa-chat-top-actions { gap: 4px; }
-  .qa-chat-brand h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-  .qa-chat-brand strong { white-space: normal; font-size: 13px; }
+  .qa-chat-top-actions { gap: 4px; }
   .qa-chat-user b { display: none; }
   .qa-chat-reply { gap: 8px; }
 }
@@ -142,3 +138,12 @@
   border: 1px solid hsl(var(--border)); border-radius: 7px;
   background: hsl(var(--card)); color: hsl(var(--foreground));
 }
+
+/* Keep long answers and source previews inside the viewport. */
+.qa-chat{overflow:clip}
+.qa-chat-layout{grid-template-rows:minmax(0,1fr);overflow:clip}
+.qa-chat-scroll,.qa-chat-side ul,.qa-chat-preview .overflow-y-auto{overscroll-behavior-y:contain}
+.qa-chat-dock{flex-shrink:0}
+
+.qa-preview-splitter{left:auto;right:var(--qa-preview-width);transform:translateX(50%)}
+.qa-preview-splitter::after{height:36px;width:3px}

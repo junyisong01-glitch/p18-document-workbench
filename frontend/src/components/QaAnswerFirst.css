@@ -10,19 +10,28 @@
 }
 .qa-first-reference { display: inline; margin-left: 3px; vertical-align: super; color: var(--qa-accent); font: 650 .72em ui-monospace, monospace; }
 .qa-first-reference:hover { text-decoration: underline; text-underline-offset: 3px; }
-.qa-first-sources { margin-top: 14px; }
-.qa-first-sources > summary {
-  display: list-item; width: max-content; max-width: 100%; padding: 4px 0 9px;
-  color: var(--qa-muted); font-size: 13px; cursor: pointer;
-}
+.qa-first-sources { margin-top: 22px; }
+.qa-first-sources > summary { display: flex; align-items: center; gap: 7px; width: max-content; max-width: 100%; padding: 8px 13px; border: 1px solid var(--qa-line); border-radius: 999px; background: var(--qa-card); color: var(--qa-muted); font-size: 13px; cursor: pointer; list-style: none; }
+.qa-first-sources > summary::-webkit-details-marker { display: none; }
 .qa-first-sources > summary strong { color: var(--qa-accent); font-weight: 650; }
-.qa-first-document-list {
-  list-style: none; display: grid; gap: 0; margin: 0; padding: 0 12px;
-  border: 1px solid var(--qa-line); border-radius: 9px; background: var(--qa-card);
-}
-.qa-first-document-list li { padding: 8px 0; font-size: 13px; line-height: 1.55; }
-.qa-first-document-list li + li { border-top: 1px solid var(--qa-line); }
-.qa-first-document-list li > span { margin-inline-start: 9px; color: var(--qa-muted); font-size: 12px; }
+.qa-first-sources > summary > svg:last-child { transition: transform .15s; }
+.qa-first-sources:not([open]) > summary > svg:last-child { transform: rotate(-90deg); }
+.qa-first-document-list { list-style: none; display: grid; gap: 9px; margin: 12px 0 0; padding: 0; }
+.qa-first-document-list li { display: flex; gap: 12px; padding: 15px 17px; border: 1px solid var(--qa-line); border-radius: 14px; background: var(--qa-card); font-size: 13px; line-height: 1.65; }
+.qa-source-file { display: grid; place-items: center; flex: 0 0 32px; height: 36px; border-radius: 9px; color: var(--qa-accent); background: var(--qa-tint); }
+.qa-source-numbers { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; }
+.qa-source-numbers > span { margin-right: 3px; color: var(--qa-muted); font-size: 11px; }
+.qa-source-numbers button { display: grid; place-items: center; min-width: 28px; height: 28px; padding-inline: 5px; background: var(--qa-tint); color: var(--qa-accent); border-radius: 7px; font: 600 11px/1.5 ui-monospace, monospace; transition: background-color .15s; }
+.qa-source-numbers button:hover { background: hsl(12 74% 39% / .15); }
+.qa-source-numbers button:focus-visible { outline: 2px solid var(--qa-accent); outline-offset: 2px; }
+.qa-source-copy { min-width: 0; flex: 1; }
+.qa-source-title { display: block; text-align: left; font-size: 14px; line-height: 1.8; font-weight: 600; color: var(--qa-accent); overflow-wrap: anywhere; }
+.qa-source-title:hover { text-decoration: underline; text-underline-offset: 4px; }
+.qa-source-section { margin-top: 2px; color: var(--qa-muted); font-size: 12px; }
+.qa-source-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; color: var(--qa-muted); margin-top: 6px; font-size: 11px; }
+.qa-source-meta span { display: inline-flex; align-items: center; gap: 5px; }
+.qa-source-meta i { width: 6px; height: 6px; border-radius: 50%; background: #3a7155; }
+@media(max-width:420px) { .qa-first-document-list li { padding: 12px; gap: 9px; } }
 .qa-chat-guest, .qa-chat-error {
   padding: 8px 12px; border: 1px dashed var(--qa-line); border-radius: 9px; color: var(--qa-muted); background: var(--qa-card);
   font-size: 13px; line-height: 1.65;
@@ -57,3 +66,9 @@
 .qa-first-bars i:nth-child(5) { width: 23%; height: 11px; margin-top: 5px; }
 @keyframes qa-chat-pulse { from { opacity: 1; } to { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .qa-chat-dots i, .qa-first-bars i { animation: none; } }
+
+.qa-first-followup{display:flex;align-items:center;gap:16px}
+.qa-first-followup>.qa-first-chips{flex:1;min-width:0;flex-wrap:nowrap}
+.qa-first-followup>.qa-first-chips button{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qa-first-followup>.qa-answer-actions{margin-top:0;flex:none;max-width:220px}
+.qa-first-followup .qa-answer-action{white-space:nowrap}

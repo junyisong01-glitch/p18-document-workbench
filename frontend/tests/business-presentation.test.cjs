@@ -24,3 +24,8 @@ test('回答引用显示简洁标题和 EXT 编号，悬停保留原文件名',(
  assert.match(html,/title="EXT-14 V1\.3\.1版本发布说明（最终修正版）\.docx"/);
  assert.match(html,/\[S1\] V1\.3\.1 版本发布说明<span[^>]*>EXT-14<\/span>/);
 });
+
+test('published documents hide processing timeline; returned files show returned status over stale failure',()=>{
+ assert.equal(renderToStaticMarkup(React.createElement(WorkflowTimeline,{row:row()})),'');
+ const html=renderToStaticMarkup(React.createElement(WorkflowBadge,{row:row({status:'returned'},{technical_state:'failed'})}));assert.match(html,/已退回/);assert.ok(!html.includes('解析失败'));
+});

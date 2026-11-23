@@ -1,14 +1,21 @@
 import {useEffect,useRef,useState,type ReactNode} from 'react'
-import {CloudUpload,FileText,X} from 'lucide-react'
+import {CloudUpload,FileText,X,ChevronDown} from 'lucide-react'
+import * as Menu from '@radix-ui/react-dropdown-menu'
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from './ui/dialog'
 import './DocumentLayout.css'
+import './DocumentInteractions.css'
 
 export function DocumentFormat({format,secret=false,legacy=false}:{format:string;secret?:boolean;legacy?:boolean}){
  return <span aria-label={'文件格式 '+format} className={'dm-format '+(secret?'dm-format-secret':legacy?'dm-format-legacy':'')}>{format||'文件'}</span>
 }
 export function DocumentViews({tabs,active,counts,loaded,onSelect}:{tabs:string[];active:string;counts:Record<string,number>;loaded:boolean;onSelect:(tab:string)=>void}){
- const groups=[{name:'流转',items:['已发布','我的提交']},{name:'待办',items:['解析异常','内容待审','待发布']},{name:'库',items:['历史归档','已下架','回收站']},{name:'管理',items:['人员职责','邀请建号']}]
- return <nav aria-label="业务流程视图" className="dm-view-groups">{groups.map(group=>{const items=group.items.filter(item=>tabs.includes(item));return items.length?<fieldset key={group.name}><legend>{group.name}</legend>{items.map(item=><button type="button" aria-label={item} aria-pressed={active===item} className={active===item?'active':''} key={item} onClick={()=>onSelect(item)}>{item}{item in counts&&<span aria-hidden="true" className={group.name==='待办'?'dm-count-pending':''}>{loaded?counts[item]:'…'}</span>}</button>)}</fieldset>:null})}</nav>
+ const labels:Record<string,string>={'待我审核':'内容待审','部门异常':'解析异常'}
+ const hints:Record<string,string>={'待我审核':'判断资料能否发布：查看送审原因，批准或退回。','部门异常':'处理文件读取问题：更换文件、核对解析结果或重试。'}
+ const primary=tabs.filter(item=>!['历史归档','已下架','回收站'].includes(item))
+ const secondary=tabs.filter(item=>['历史归档','已下架','回收站'].includes(item))
+ const count=(item:string)=>item in counts?<span aria-hidden="true" className={['待我审核','部门异常','待发布'].includes(item)&&counts[item]>0?'dm-count-pending':''}>{loaded?counts[item]:'…'}</span>:null
+ return <nav aria-label="资料视图" className="dm-view-groups dm-view-tabs"><div className="dm-primary-views">{primary.map(item=><button type="button" aria-label={labels[item]||item} title={hints[item]} aria-pressed={active===item} className={active===item?'active':''} key={item} onClick={()=>onSelect(item)}>{labels[item]||item}{count(item)}</button>)}</div>{secondary.length>0&&<Menu.Root><Menu.Trigger asChild><button type="button" className={secondary.includes(active)?'active':''} aria-label="其他资料入口">{secondary.includes(active)?active:'其他'}<ChevronDown size={14}/></button></Menu.Trigger><Menu.Portal><Menu.Content align="end" sideOffset={6} className="dm-action-menu">{secondary.map(item=><Menu.Item key={item} className="dm-menu-item" onSelect={()=>onSelect(item)}>{item}{item in counts&&<span className="ml-auto text-xs text-muted-foreground">{loaded?counts[item]:'…'}</span>}</Menu.Item>)}</Menu.Content></Menu.Portal></Menu.Root>}</nav>
+
 }
 export function BusinessFilePicker({file,busy,onFile,onError}:{file:File|null;busy:boolean;onFile:(file:File|null)=>void;onError:(message:string)=>void}){
  const ref=useRef<HTMLInputElement>(null),[drag,setDrag]=useState(false)

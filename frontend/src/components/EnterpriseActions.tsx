@@ -1,26 +1,33 @@
-import {useEffect,useState} from 'react'
+import {useRef,useState,type FormEvent} from 'react'
+import {useSearchParams} from 'react-router'
 import {api} from '@/lib/api'
-import {DocumentModal} from './DocumentLayout'
-const input='rounded-md border border-border bg-card px-3 py-2 text-sm disabled:opacity-40'
+import {useSession} from '@/lib/session'
+import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from './ui/dialog'
+import './InviteAccount.css'
+export {MinorCorrection} from './MinorCorrection'
 const departments=['研发部','生产制造部','财务部','人力资源部','行政安全部']
-export function InviteAccount(){
- const [username,setUsername]=useState(''),[department,setDepartment]=useState('研发部'),[role,setRole]=useState('employee'),[job,setJob]=useState(''),[invitation,setInvitation]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false)
- return <form className="grid max-w-xl gap-4 border border-border bg-card p-5" onSubmit={async e=>{e.preventDefault();setBusy(true);setMessage('');setInvitation('');try{const r=await api.post<{invitation_code:string;notice:string}>('/api/business/accounts',{username,department,role,job});setInvitation(r.invitation_code);setMessage(r.notice)}catch(e){setMessage((e as Error).message)}finally{setBusy(false)}}}>
- <h2 className="font-semibold">邀请新人建号</h2><p className="text-sm text-muted-foreground">仅管理层负责人与指定人事主管。只能创建员工或访客；主管任命仍由管理层负责人办理。邀请有效24小时，仅显示一次，请通过可信渠道交给本人，不要公开截图。</p>
- <label className="grid gap-1">新人账号<input aria-label="新人账号" required minLength={3} maxLength={64} pattern="[A-Za-z][A-Za-z0-9_]{2,63}" autoComplete="off" className={input} value={username} onChange={e=>setUsername(e.target.value)}/></label>
- <label className="grid gap-1">初始部门<select aria-label="初始部门" className={input} value={department} onChange={e=>{setDepartment(e.target.value);setJob('')}}>{departments.map(d=><option key={d}>{d}</option>)}</select></label>
- <label className="grid gap-1">初始职责<select aria-label="初始职责" className={input} value={role} onChange={e=>setRole(e.target.value)}><option value="employee">普通员工</option><option value="guest">只读访客（无部门自动读权）</option></select></label>
- <label className="grid gap-1">专业岗位<select aria-label="专业岗位" className={input} value={job} onChange={e=>setJob(e.target.value)}><option value="">无旧岗位例外</option>{(department==='研发部'?['研发','测试','运维']:department==='生产制造部'?['生产']:[]).map(j=><option key={j}>{j}</option>)}</select></label>
- <button className={input} disabled={busy}>创建一次性邀请</button><button type="button" className={input} disabled={busy||!username} onClick={async()=>{setBusy(true);setInvitation('');setMessage('');try{const r=await api.post<{invitation_code:string;notice:string}>('/api/business/accounts/reinvite',{username});setInvitation(r.invitation_code);setMessage(r.notice)}catch(e){setMessage((e as Error).message)}finally{setBusy(false)}}}>重发未激活账号的邀请（不改部门职责）</button>{message&&<p role="status" className="text-sm">{message}</p>}{invitation&&<label className="grid gap-1 text-sm">一次性邀请（请妥善交接）<input readOnly type="password" autoComplete="off" aria-label="一次性邀请" className={input} value={invitation} onFocus={e=>e.target.select()}/><button type="button" className={input} onClick={async()=>{try{await navigator.clipboard.writeText(invitation);setMessage('邀请已复制，请通过可信方式交给本人。')}catch{setMessage('无法自动复制，请选中邀请后手动复制。')}}}>复制邀请</button></label>}
- </form>
+
+export function InvitationOverlay(){
+ const {user,kbId}=useSession(),[params,setParams]=useSearchParams()
+ if(kbId!=='business'||!user?.canCreateAccounts||params.get('invite')!=='1')return null
+ return <InviteAccountDialog onClose={()=>{const next=new URLSearchParams(params);next.delete('invite');setParams(next,{replace:true})}}/>
 }
-type Editing={expected:number;format:string;notice:string;paragraphs:Array<{ordinal:number;text:string;editable:boolean}>}
-export function MinorCorrection({id,onClose,onDone}:{id:string;onClose:()=>void;onDone:()=>void}){
- const [data,setData]=useState<Editing|null>(null),[texts,setTexts]=useState<Record<number,string>>({}),[file,setFile]=useState<File|null>(null),[reason,setReason]=useState(''),[declaration,setDeclaration]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false)
- useEffect(()=>{let active=true;api.get<Editing>('/api/business/documents/'+id+'/editable').then(d=>{if(active)setData(d)}).catch(e=>{if(active)setError(e.message)});return()=>{active=false}},[id])
- async function save(e:React.FormEvent){e.preventDefault();if(!data||busy)return;setBusy(true);setError('');try{
- if(file){const f=new FormData();f.append('file',file);f.append('expected',String(data.expected));f.append('reason',reason);f.append('declaration',String(declaration));const r=await fetch('/api/business/documents/'+id+'/correction-file',{method:'POST',credentials:'same-origin',headers:{'X-P18-Client':'workbench'},body:f});if(!r.ok){const b=await r.json();throw Error(typeof b.detail==='string'?b.detail:'提交失败')}}
- else await api.post('/api/business/documents/'+id+'/correction',{expected:data.expected,reason,declaration,paragraphs:data.paragraphs.filter(p=>p.ordinal in texts&&texts[p.ordinal]!==p.text).map(p=>({ordinal:p.ordinal,text:texts[p.ordinal]}))});onDone()
- }catch(e){setError((e as Error).message)}finally{setBusy(false)}}
- return <DocumentModal open title="轻量勘误 · 保留业务版本与旧内容" label="轻量勘误" busy={busy} onClose={onClose} description="修正排版或错别字，完整原稿与操作记录保留。"><form onSubmit={save} className="space-y-4"><p className="text-sm text-muted-foreground">仅用于本人声明的排版、错别字等修正。核心参数或业务事实变更请取消并上传新版本。系统不能自动判定修改性质，完整原稿、声明与操作人会留审计。新索引有效后自动生效，期间旧内容继续可用。</p>{data?<><p className="text-sm">{data.notice}</p>{!file&&data.paragraphs.map(p=><label className="grid gap-1 text-sm" key={p.ordinal}>段落 {p.ordinal+1}{!p.editable?'（复杂内容，请使用修正原稿）':''}<textarea aria-label={'段落 '+(p.ordinal+1)} disabled={!p.editable} className={input+' min-h-20'} value={texts[p.ordinal]??p.text} onChange={e=>setTexts({...texts,[p.ordinal]:e.target.value})}/></label>)}<label className="grid gap-1 text-sm">或上传同格式修正原稿（表格及其他格式）<input aria-label="勘误原稿" type="file" accept={data.format} onChange={e=>setFile(e.target.files?.[0]||null)}/></label><label className="grid gap-1 text-sm">勘误原因<textarea aria-label="勘误原因" required maxLength={2000} className={input} value={reason} onChange={e=>setReason(e.target.value)}/></label><label className="flex items-start gap-2 text-sm"><input type="checkbox" required checked={declaration} onChange={e=>setDeclaration(e.target.checked)}/>我确认这只是轻量勘误，未改变核心业务事实，愿意保留旧内容和完整审计</label><button className={input} disabled={busy||!declaration||!reason.trim()||(!file&&!Object.keys(texts).some(k=>data.paragraphs.some(p=>p.ordinal===Number(k)&&p.text!==texts[Number(k)])))}>提交勘误（免业务审批）</button></>:<p>正在读取可编辑正文…</p>}{error&&<p role="alert">{error}</p>}<button type="button" className={input+' ml-2'} disabled={busy} onClick={onClose}>取消</button></form></DocumentModal>
+function InviteAccountDialog({onClose}:{onClose:()=>void}){
+ const [username,setUsername]=useState(''),[department,setDepartment]=useState('研发部'),[role,setRole]=useState('employee'),[job,setJob]=useState('')
+ const [mode,setMode]=useState<'create'|'reinvite'>('create'),[invitation,setInvitation]=useState(''),[message,setMessage]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false)
+ const submitting=useRef(false)
+ const valid=/^[A-Za-z][A-Za-z0-9_]{2,63}$/.test(username)
+ async function submit(e:FormEvent){
+  e.preventDefault();if(!valid||submitting.current)return
+  submitting.current=true;setBusy(true);setError('');setMessage('');setInvitation('')
+  try{const r=await api.post<{invitation_code:string;notice:string}>(mode==='create'?'/api/business/accounts':'/api/business/accounts/reinvite',mode==='create'?{username,department,role,job:role==='guest'?'':job}:{username});setInvitation(r.invitation_code);setMessage(r.notice)}catch(e){setError((e as Error).message)}finally{submitting.current=false;setBusy(false)}
+ }
+ return <Dialog open onOpenChange={open=>{if(!open&&!busy)onClose()}}><DialogContent className="invite-dialog" showCloseButton={!busy} onEscapeKeyDown={e=>{if(busy)e.preventDefault()}} onPointerDownOutside={e=>{if(busy||invitation)e.preventDefault()}}><DialogHeader><DialogTitle>邀请新人建号</DialogTitle><DialogDescription>创建员工或访客账号，由本人通过邀请设置密码。</DialogDescription></DialogHeader>
+ {invitation?<div className="invite-result"><h3>邀请已生成</h3><p role="status">{message}</p><label>一次性邀请<input type="password" readOnly autoComplete="off" aria-label="一次性邀请" value={invitation} onFocus={e=>e.target.select()}/></label><p>有效期 24 小时。关闭后无法再次查看，请复制并通过可信渠道交给本人。</p><footer className="invite-actions"><button type="button" onClick={onClose}>完成</button><button type="button" className="dm-primary" onClick={async()=>{try{await navigator.clipboard.writeText(invitation);setMessage('邀请已复制，请交给本人。')}catch{setMessage('无法自动复制，请选中邀请后手动复制。')}}}>复制邀请</button></footer></div>:<form className="invite-form" onSubmit={submit}>
+ <div className="invite-modes" role="group" aria-label="邀请方式">{([['create','邀请新账号'],['reinvite','重发邀请']]as const).map(([value,label])=><button type="button" key={value} aria-pressed={mode===value} disabled={busy} onClick={()=>{setMode(value);setError('')}}>{label}</button>)}</div>
+ <fieldset disabled={busy}><label>账号<input aria-label="新人账号" required minLength={3} maxLength={64} pattern="[A-Za-z][A-Za-z0-9_]{2,63}" autoComplete="off" placeholder="例如：chen_xu" value={username} onChange={e=>setUsername(e.target.value)}/><span>字母开头，可使用字母、数字和下划线，3–64 位。</span></label>
+ {mode==='create'?<><div className="invite-fields"><label>初始职责<select aria-label="初始职责" value={role} onChange={e=>setRole(e.target.value)}><option value="employee">普通员工</option><option value="guest">只读访客</option></select></label><label>所属部门<select aria-label="初始部门" value={department} onChange={e=>{setDepartment(e.target.value);setJob('')}}>{departments.map(d=><option key={d}>{d}</option>)}</select></label></div><p className="invite-note">{role==='guest'?'访客仅查阅获准对外公开的资料，所属部门不授予内部阅读权限。':'普通员工可以上传资料；部门主管由管理层在“人员职责”中任命。'}</p>{role==='employee'&&<details className="invite-advanced"><summary>专业岗位（选填）</summary><label><span className="sr-only">专业岗位</span><select aria-label="专业岗位" value={job} onChange={e=>setJob(e.target.value)}><option value="">不设置岗位例外</option>{(department==='研发部'?['研发','测试','运维']:department==='生产制造部'?['生产']:[]).map(j=><option key={j}>{j}</option>)}</select></label><p>沿用现有岗位例外权限；不确定时保留默认设置。</p></details>}</>:<p className="invite-note">仅重发尚未激活账号的邀请。旧邀请会失效，账号的部门与职责保持不变。</p>}
+ </fieldset>{error&&<p role="alert" className="invite-error">{error}</p>}
+ <footer className="invite-actions"><button type="button" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="dm-primary" disabled={busy||!valid}>{busy?'正在生成…':mode==='create'?'生成邀请':'重新生成邀请'}</button></footer>
+ </form>}</DialogContent></Dialog>
 }
