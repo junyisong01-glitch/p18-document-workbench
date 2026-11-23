@@ -26,3 +26,10 @@
 .demo-identity-note{margin-top:14px}
 .demo-identities button:focus-visible{outline:2px solid var(--di-accent);outline-offset:3px}
 @media(max-width:540px){.demo-identity-grid{grid-template-columns:1fr}.demo-identity-filters{gap:3px}.demo-identity-filters button{padding:7px 8px}.demo-identity-card{padding:12px}.demo-identity-description{font-size:11px}}
+
+.demo-identity-departments{display:flex;flex-direction:column;gap:20px}
+.demo-identity-department>header{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.demo-identity-department h3{font-size:12px;font-weight:600;color:var(--di-ink)}
+.demo-identity-department>header>span{font-size:10px;color:var(--di-muted)}
+.demo-identity-department>header:after{content:'';height:1px;background:var(--di-line);flex:1;margin-left:4px}
+.demo-identity-grid-single{grid-template-columns:1fr}

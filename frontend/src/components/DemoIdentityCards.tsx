@@ -17,6 +17,10 @@ export function DemoIdentityCards({accounts,busy,onSelect,selectedUsername=''}:{
  const active=roles.some(r=>r.key===filter&&(r.key==='all'||accounts.some(a=>a.role===r.key)))?filter:'all'
  const rank=(u:string)=>displayOrder.includes(u)?displayOrder.indexOf(u):displayOrder.length
  const items=accounts.filter(a=>active==='all'||a.role===active).sort((a,b)=>rank(a.username)-rank(b.username))
+ const departmentOf=(a:DemoAccount)=>a.role==='boss'?'管理层':a.role==='guest'?'访客':a.department||'未分配部门'
+ const departments=Array.from(new Set(items.map(departmentOf)))
+ const order=['管理层',...Object.keys(departmentTitles),'未分配部门','访客']
+ departments.sort((a,b)=>(order.includes(a)?order.indexOf(a):order.length-1)-(order.includes(b)?order.indexOf(b):order.length-1))
  return <section aria-label="本机演示身份" className="demo-identities">
   <header className="demo-identities-heading"><h2>选择演示身份</h2><span>{accounts.length} 个身份</span></header>
   <p className="demo-identities-help">选择身份填入临时账号，再点击登录体验。</p>
@@ -25,13 +29,20 @@ export function DemoIdentityCards({accounts,busy,onSelect,selectedUsername=''}:{
     return count>0&&<button key={r.key} type="button" aria-pressed={active===r.key} onClick={()=>setFilter(r.key)}>{r.name}<span>{count}</span></button>
    })}
   </div>
-  <div className="demo-identity-grid">
-   {items.map(a=>{const selected=selectedUsername===a.username;const name=demoIdentityName(a.username)||a.username
+  <div className="demo-identity-departments">
+   {departments.map(department=>{const members=items.filter(a=>departmentOf(a)===department).sort((a,b)=>Number(b.role==='supervisor')-Number(a.role==='supervisor')||rank(a.username)-rank(b.username))
+    return <section className="demo-identity-department" key={department} aria-label={department+'演示身份'}>
+     <header><h3>{department}</h3><span>{members.length} 人</span></header>
+     <div className={'demo-identity-grid'+(members.length===1?' demo-identity-grid-single':'')}>
+   {members.map(a=>{const selected=selectedUsername===a.username;const name=demoIdentityName(a.username)||a.username
     return <button key={a.username} type="button" disabled={busy} aria-pressed={selected} onClick={()=>onSelect(a)} className="demo-identity-card">
      <span className="demo-identity-avatar" aria-hidden="true">{name.slice(0,1)}</span>
      <span className="demo-identity-copy"><span className="demo-identity-name">{name}<span className="demo-identity-role">{roles.find(r=>r.key===a.role)?.name||a.role}</span></span><span className="demo-identity-description">{description(a)}</span></span>
      <span className="demo-identity-indicator" aria-hidden="true">{selected?<Check size={15}/>:<ArrowUpRight size={15}/>}</span>
     </button>
+   })}
+     </div>
+    </section>
    })}
   </div>
   <p className="demo-identity-note">仅供本机演示 · 新员工请使用自己的账号密码</p>
