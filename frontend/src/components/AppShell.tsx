@@ -1,4 +1,4 @@
-// 应用外壳：左侧深色窄边栏（品牌、知识库切换、导航、用户）+ 右侧内容区。
+// 应用外壳：支持蓝白与深色暖灰的导航、知识库和工作区。
 import {useEffect,useState} from 'react'
 import {AppearanceToggle} from './AppearanceToggle'
 import {useAppearance} from '@/lib/appearance'
@@ -176,7 +176,7 @@ export default function AppShell() {
       <div className="shell-content flex min-h-dvh min-w-0 flex-1 flex-col lg:ml-[236px]">
         {!qaMode&&<header className="lx-topbar">
           <div className="lx-breadcrumb"><button type="button" aria-label={menuOpen?'关闭导航':'打开导航'} onClick={()=>setMenuOpen(!menuOpen)} className="lg:hidden">{menuOpen?<X size={18}/>:<Menu size={18}/>}</button><span>{kb.name}</span><ChevronRight size={14}/><strong>{pageName}</strong></div>
-          <div className="lx-topbar-tools"><form role="search" aria-label="搜索资料" className="lx-global-search" onSubmit={event=>{event.preventDefault();if(search.trim())navigate('/documents?search='+encodeURIComponent(search.trim()))}}><Search size={16}/><input aria-label="搜索资料名称" value={search} onChange={event=>setSearch(event.target.value)} placeholder="搜索资料名称"/><button type="submit" aria-label="查找资料"><ChevronRight size={15}/></button></form><AppearanceToggle/><span className="lx-preview-label">隔离预览</span><div className="lx-topbar-user"><span>{Array.from(name)[0]}</span><div><b>{name}</b><small>{user?.role.name}</small></div></div></div>
+          <div className="lx-topbar-tools"><form role="search" aria-label="搜索资料" className="lx-global-search" onSubmit={event=>{event.preventDefault();if(search.trim())navigate('/documents?search='+encodeURIComponent(search.trim()))}}><Search size={16}/><input aria-label="搜索资料名称" value={search} onChange={event=>setSearch(event.target.value)} placeholder="搜索资料名称"/><button type="submit" aria-label="查找资料"><ChevronRight size={15}/></button></form><AppearanceToggle/><div className="lx-topbar-user"><span>{Array.from(name)[0]}</span><div><b>{name}</b><small>{user?.role.name}</small></div></div></div>
         </header>}
         <main className={qaMode?"min-w-0 flex-1":"min-w-0 flex-1 px-4 py-6 sm:px-8 sm:py-8"}>
           <Outlet />
