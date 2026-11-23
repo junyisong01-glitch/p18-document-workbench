@@ -19,7 +19,7 @@ export function FormatMark({ format, className = '' }: { format: DocFormat; clas
   const Icon = ['xlsx','xls','csv'].includes(format) ? FileSpreadsheet : FileText
   return (
     <span
-      className={`inline-flex size-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground ${className}`}
+      data-format={format} className={`inline-flex size-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground ${className}`}
     >
       <Icon className="size-4" strokeWidth={1.8} />
     </span>

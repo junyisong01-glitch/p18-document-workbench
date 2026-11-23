@@ -6,7 +6,7 @@ export function LogoMark({
   size = 32,
   className = '',
   ink = 'currentColor',
-  trace = 'hsl(12 74% 46%)',
+  trace = 'var(--brand-trace, #2468ec)',
 }: {
   size?: number
   className?: string
@@ -61,7 +61,7 @@ export function LogoLockup({
 }) {
   return (
     <div className="flex items-center gap-2.5">
-      <LogoMark size={compact ? 26 : 32} ink={dark ? '#EDE6D8' : '#221D15'} />
+      <LogoMark size={compact ? 26 : 32} ink={dark ? '#EDE6D8' : 'var(--brand-trace, #2468ec)'} />
       <div className="leading-none">
         <div
           className={`font-display text-[17px] font-semibold tracking-wide ${

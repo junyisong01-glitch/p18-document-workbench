@@ -3,6 +3,7 @@ import { ArrowUp, PanelLeft, Plus, Settings2 } from 'lucide-react'
 import { Link } from 'react-router'
 import type { QaExample } from '@/lib/qa-examples'
 import './QaWorkspace.css'
+import {AppearanceToggle} from './AppearanceToggle'
 
 type WorkspaceProps = {
   onWidthChange?: (width: number) => void
@@ -150,12 +151,13 @@ export function QaWorkspace(props: WorkspaceProps) {
     </button>
   </form>
 
-  return <div ref={workspace} className="qa-chat">
+  return <div ref={workspace} className="qa-chat" style={{ '--qa-history-width': `${historyWidth}px`, '--qa-preview-width': `${previewWidth}px` } as CSSProperties}>
     <header className="qa-chat-header">
       <h1 className="sr-only">{library} · 知识问答</h1>
       <button type="button" className="qa-chat-mobile qa-chat-icon" aria-expanded={showHistory}
         aria-controls="qa-conversation-history" aria-label="会话列表" onClick={() => setShowHistory(open => !open)}><PanelLeft size={19}/></button>
       <div className="qa-chat-top-actions">
+        <AppearanceToggle/>
         {tools&&<nav className="flex items-center gap-4 text-xs text-muted-foreground" aria-label="问答快捷入口">{tools}</nav>}
         {settings&&<details className="qa-chat-settings">
           <summary title="模型设置"><Settings2 size={16}/><span>模型设置</span></summary>
@@ -165,8 +167,7 @@ export function QaWorkspace(props: WorkspaceProps) {
 
       </div>
     </header>
-    <div className={`qa-chat-layout ${resizing||previewResizing ? 'qa-chat-layout-resizing' : ''} ${previewDocked ? 'qa-chat-layout-with-preview' : ''}`}
-      style={{ '--qa-history-width': `${historyWidth}px`, '--qa-preview-width': `${previewWidth}px` } as CSSProperties}>
+    <div className={`qa-chat-layout ${resizing||previewResizing ? 'qa-chat-layout-resizing' : ''} ${previewDocked ? 'qa-chat-layout-with-preview' : ''}`}>
       <aside className={`qa-chat-side ${showHistory ? 'qa-chat-side-open' : ''}`} id="qa-conversation-history" aria-label={history.length ? '历史会话' : '会话'}>
         <button className="qa-chat-new" type="button" disabled={busy} onClick={() => { onNew(); setShowHistory(false) }}>
           <Plus size={16}/>新会话
@@ -194,7 +195,7 @@ export function QaWorkspace(props: WorkspaceProps) {
           </div>
         </> : <div className="qa-chat-scroll">
           <section className="qa-chat-welcome" aria-label="开始提问">
-            <h2>你好，<em>{name}</em></h2>
+            <span className="lx-qa-emblem" aria-hidden="true">知</span><h2>你好，<em>{name}</em></h2>
             <p>{externalSelected ? '可以检索获准资料。使用外部模型时，需要确认本轮问题。' : '有什么想查的？回答只来自知识库内已发布、且你有权查看的资料。'}</p>
             {composer}
             {examples.length > 0 && <div className="qa-first-chips" aria-label="示例问题">
