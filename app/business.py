@@ -496,11 +496,16 @@ def install(store,central,legacy_acl):
         with store.connect() as c:
             total=c.execute('SELECT COUNT(*)'+source+where,values).fetchone()[0]
             rows=c.execute('SELECT e.id,e.document_id,e.at,e.actor,e.action,e.body,d.body AS document_body'+source+where+' ORDER BY e.at DESC,e.id DESC LIMIT ? OFFSET ?',values+[page_size,(page-1)*page_size]).fetchall()
+        actors=list({row['actor'] for row in rows})
+        departments={}
+        if actors:
+            with central.connect() as c:
+                departments=dict(c.execute('SELECT username,department FROM business_profiles WHERE username IN ('+','.join('?' for _ in actors)+')',actors).fetchall())
         result=[]
         for row in rows:
             details=json.loads(row['body'])
             document_body=json.loads(row['document_body']) if row['document_body'] else {}
-            result.append(dict(id=row['id'],at=row['at'],actor=row['actor'],action=row['action'],
+            result.append(dict(id=row['id'],at=row['at'],actor=row['actor'],actor_department=departments.get(row['actor'],'') or '',action=row['action'],
                                document_name=document_body.get('name') or '已移除的资料',
                                note=str(details.get('note') or details.get('reason') or '')[:500],
                                recipient=str(details.get('username') or '')))

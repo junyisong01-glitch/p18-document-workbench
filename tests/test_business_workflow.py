@@ -648,6 +648,7 @@ def test_recent_operations_is_boss_only_bounded_and_keeps_removed_records(rig):
     rows=response.json()
     assert len(rows)==8 and [x['note'] for x in rows]==[str(i) for i in range(9,1,-1)]
     assert rows[0]['document_name']=='虚构样例.docx'
+    assert rows[0]['actor_department']=='研发部'
     assert 'private_extra' not in response.text
     with r.q.connect() as c:c.execute('DELETE FROM documents WHERE id=?',(id,))
     assert r.c.get('/api/business/recent-operations',headers=r.h['boss']).json()[0]['document_name']=='已移除的资料'
@@ -766,6 +767,9 @@ def test_operation_search_filters_before_pagination_and_preserves_permission(rig
     params={'actor':'陈叙','actor_accounts':'qichen_rd','document':'alpha'}
     page1=r.c.get(url,params=params,headers=r.h['boss']).json()
     assert page1['total']==12 and len(page1['items'])==8
+    assert all(item['actor_department']=='' for item in page1['items'])  # Unknown historical actors stay visible without invented departments.
+    boss_rows=r.c.get(url,params={'actor':'boss'},headers=r.h['boss']).json()['items']
+    assert all(item['actor_department']=='管理层' for item in boss_rows)
     assert [x['note'] for x in page1['items']]==[str(i)for i in range(11,3,-1)]
     page2=r.c.get(url,params={**params,'page':2},headers=r.h['boss']).json()
     assert [x['note'] for x in page2['items']]==['3','2','1','0']
