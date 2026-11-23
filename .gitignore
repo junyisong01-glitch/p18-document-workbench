@@ -58,3 +58,9 @@ config/business.json
 
 # Share only the blank provider template, never local credentials
 !.env.example
+
+# Deployment handoff artifacts are transferred separately, never in Git.
+*.tar.gz
+*.tar.gz.sha256
+CLOUD-DEMO.json
+BUNDLE-SHA256.json

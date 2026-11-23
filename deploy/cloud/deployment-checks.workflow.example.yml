@@ -1,0 +1,33 @@
+name: Deployment handoff checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-and-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python deploy/cloud/preflight.py --source-only
+      - run: python -m unittest discover -s tests/cloud -v
+      - run: docker compose --env-file deploy/cloud/.env.example -f deploy/cloud/compose.yaml config --quiet
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefix frontend
+      - run: npm run build --prefix frontend
+      - run: node --test frontend/tests/*.test.cjs
+  image-build:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f deploy/cloud/Dockerfile -t p18-handoff-check .
