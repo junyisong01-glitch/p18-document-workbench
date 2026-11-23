@@ -3,6 +3,7 @@ import { ArrowUp, PanelLeft, Plus, Settings2 } from 'lucide-react'
 import { Link } from 'react-router'
 import type { QaExample } from '@/lib/qa-examples'
 import './QaWorkspace.css'
+import {AppearanceToggle} from './AppearanceToggle'
 
 type WorkspaceProps = {
   onWidthChange?: (width: number) => void
@@ -156,6 +157,7 @@ export function QaWorkspace(props: WorkspaceProps) {
       <button type="button" className="qa-chat-mobile qa-chat-icon" aria-expanded={showHistory}
         aria-controls="qa-conversation-history" aria-label="会话列表" onClick={() => setShowHistory(open => !open)}><PanelLeft size={19}/></button>
       <div className="qa-chat-top-actions">
+        <AppearanceToggle/>
         {tools&&<nav className="flex items-center gap-4 text-xs text-muted-foreground" aria-label="问答快捷入口">{tools}</nav>}
         {settings&&<details className="qa-chat-settings">
           <summary title="模型设置"><Settings2 size={16}/><span>模型设置</span></summary>

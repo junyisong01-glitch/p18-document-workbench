@@ -8,8 +8,11 @@ import {api} from '@/lib/api'
 import { useSession } from '@/lib/session'
 import './LoginFlow.css'
 import './LoginPreview.css'
+import {AppearanceToggle} from '@/components/AppearanceToggle'
+import {useAppearance} from '@/lib/appearance'
 
 export default function LoginPage() {
+  const appearance=useAppearance()
   const { login } = useSession()
   const [activate,setActivate]=useState(false),[invite,setInvite]=useState(''),[newPassword,setNewPassword]=useState('')
   const [activationError,setActivationError]=useState('')
@@ -68,7 +71,7 @@ export default function LoginPage() {
   return (
     <div className="lx-login flex min-h-dvh lg:h-dvh lg:overflow-hidden">
       <aside className="lx-login-brand" aria-label="均易知识工作台介绍">
-        <LogoLockup />
+        <LogoLockup dark={appearance==='charcoal'} />
         <div className="lx-login-story">
           <span className="lx-login-eyebrow">均易 · 企业知识工作台</span>
           <h1>让知识连接团队，<br/>让经验随时可用。</h1>
@@ -86,6 +89,7 @@ export default function LoginPage() {
       {/* 激活与登录互斥展示；验证与会话仍由原生后端处理。 */}
       <main data-login-scroll="true" className={'login-flow-scroll min-w-0 flex-1'+(!activate&&!activationSuccess?' login-flow-normal':'')} aria-label="账号登录与激活">
         <div className="login-flow-body">
+          <div className="login-appearance"><AppearanceToggle/></div>
           <div className="lg:hidden"><LogoLockup /></div>
           {(activate||activationSuccess)&&<nav className="login-flow-steps" aria-label="激活与登录步骤">
             <span className={activate?'login-flow-step current':'login-flow-step complete'} aria-current={activate?'step':undefined}><i>{activationSuccess?<Check size={13}/>: '01'}</i>激活账号</span>
