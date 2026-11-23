@@ -43,7 +43,6 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={user ? <Navigate to={afterLogin} replace /> : <LoginPage />} />
-      <Route path="/qa" element={<RequireAuth><QaPage key={user?.username} /></RequireAuth>} />
       <Route
         element={
           <RequireAuth>
@@ -52,6 +51,7 @@ function AppRoutes() {
         }
       >
         <Route path="/" element={<RoleHome />} />
+        <Route path="/qa" element={<QaPage key={user?.username} />} />
         <Route path="/workbench" element={<InternalPage><DashboardPage /></InternalPage>} />
         <Route path="/knowledge-gaps" element={<InternalPage><KnowledgeGapsPage /></InternalPage>} />
         <Route path="/documents" element={<DocumentsPage />} />

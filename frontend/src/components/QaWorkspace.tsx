@@ -1,10 +1,11 @@
-import { useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 import { ArrowLeft, ArrowUp, PanelLeft, Plus, Settings2 } from 'lucide-react'
 import { Link } from 'react-router'
 import type { QaExample } from '@/lib/qa-examples'
 import './QaWorkspace.css'
 
 type WorkspaceProps = {
+  onWidthChange?: (width: number) => void
   guest?: boolean
   library: string
   name: string
@@ -50,6 +51,15 @@ function saveHistoryWidth(width: number) {
 }
 
 export function QaWorkspace(props: WorkspaceProps) {
+  const workspace = useRef<HTMLDivElement>(null)
+  const onWidthChange = props.onWidthChange
+  useEffect(() => {
+    const element = workspace.current
+    if (!element || !onWidthChange) return
+    const observer = new ResizeObserver(entries => onWidthChange(entries[0].contentRect.width))
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [onWidthChange])
   const [showHistory, setShowHistory] = useState(false)
   const [historyWidth, setHistoryWidth] = useState(initialHistoryWidth)
   const [resizing, setResizing] = useState(false)
@@ -110,7 +120,7 @@ export function QaWorkspace(props: WorkspaceProps) {
     </button>
   </form>
 
-  return <div className="qa-chat">
+  return <div ref={workspace} className="qa-chat">
     <header className="qa-chat-header">
       <div className="qa-chat-brand">
         <button type="button" className="qa-chat-mobile qa-chat-icon" aria-expanded={showHistory}
