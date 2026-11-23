@@ -52,3 +52,19 @@ test('automatic publication is waiting, not an employee confirmation task',()=>{
  const blocked={...auto,workflow:{...auto.workflow,auto_publish_error:'原资料已变化'}};
  assert.equal(needsSubmissionAction(blocked),true);assert.equal(submissionLabel(blocked,false).label,'发布需要处理');
 });
+
+const {submissionProgress}=m.exports;
+test('submission progress follows automatic publication without inventing content approval',()=>{
+ const steps=submissionProgress(row({}, {publication_stage:'自动发布中',technical_index_ready:false}));
+ assert.deepEqual(steps.map(s=>s.label),['已提交','解析检查','索引准备','自动发布']);
+ assert.equal(steps[2].state,'current');assert.equal(steps[3].state,'waiting');
+ const complete=submissionProgress(row({status:'published'}));assert.equal(complete.at(-1).label,'已发布');assert.equal(complete.at(-1).state,'current');
+ const noIndex=submissionProgress(row({status:'published'},{technical_index_ready:false}));assert.equal(noIndex.at(-2).state,'error');
+});
+test('submission progress distinguishes review, failures, stopped states and corrections',()=>{
+ const review=submissionProgress(row({}, {publication_stage:'内容待审',review_reasons:['机密']}));assert.equal(review[2].label,'等待内容审核');assert.equal(review[2].state,'current');assert.equal(review[3].state,'waiting');
+ const failed=submissionProgress(row({}, {technical_state:'failed'}));assert.equal(failed[1].label,'解析失败');assert.equal(failed[1].state,'error');
+ for(const status of ['withdrawn','returned','taken_down']){const steps=submissionProgress(row({status},{technical_state:'failed'}));assert.equal(steps.length,2);assert.notEqual(steps[1].state,'done')}
+ const correction=submissionProgress(row({correction:true,approved_by:'declarant'}, {publication_stage:'勘误处理中'}));assert(!correction.some(s=>s.label.includes('审核')));assert.equal(correction.at(-1).label,'正在自动生效');
+ const approved=submissionProgress(row({status:'approved'},{publication_stage:'待发布',technical_index_ready:false}));assert.equal(approved[2].state,'done');assert.equal(approved[3].state,'current');
+});
