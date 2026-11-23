@@ -28,21 +28,7 @@
 .lexiang-preview .lx-login .login-flow-footer,.lexiang-preview .lx-login .login-flow-note{font-size:10px;color:#929eb0}
 .lexiang-preview .lx-login button:focus-visible{outline:2px solid #4d88ea;outline-offset:3px}
 .lexiang-preview .lx-login .login-flow-step.current{color:#316fe5}.lexiang-preview .lx-login .login-flow-step.current i{background:#316fe5;border-color:#316fe5;color:white}
-.lexiang-preview .lx-login section[aria-label="本机演示身份"]{display:grid;grid-template-columns:1fr 1fr;gap:17px 14px;border-top:1px solid #edf0f5;padding-top:21px;margin-top:24px}
-.lexiang-preview .lx-login section[aria-label="本机演示身份"]>div{grid-column:1/-1}
-.lexiang-preview .lx-login section[aria-label="本机演示身份"]>div h2{font-size:13px;color:#45536b}.lexiang-preview .lx-login section[aria-label="本机演示身份"]>div p{font-size:10px;color:#929eb0;line-height:1.8}
-.lexiang-preview .lx-login section[aria-label="本机演示身份"]>section{margin:0!important;min-width:0}
-.lexiang-preview .lx-login section[aria-label="本机演示身份"]>section>div:first-child{margin-bottom:7px;gap:4px}.lexiang-preview .lx-login section[aria-label="本机演示身份"] h3{font-size:11px;color:#77859b;letter-spacing:0}
-.lexiang-preview .lx-login section[aria-label="本机演示身份"]>section>div:first-child p{font-size:10px;line-height:1.6;color:#8f9bad;display:none}
-.lexiang-preview .lx-login section[aria-label="本机演示身份"]>section>div:last-child{grid-template-columns:1fr;gap:8px}
-.lexiang-preview .lx-login section[aria-label="本机演示身份"] button{background:#f6f8fc;color:#344561;border:1px solid #e9edf5!important;box-shadow:none;border-radius:9px;padding:12px 15px;transition:background .15s,border-color .15s}
-.lexiang-preview .lx-login section[aria-label="本机演示身份"] button>span:first-child{font-size:12px;font-weight:600}
-.lexiang-preview .lx-login section[aria-label="本机演示身份"] button>span:nth-child(2){font-size:10px;line-height:1.7;color:#7f8ca1;margin-top:4px}
-.lexiang-preview .lx-login section[aria-label="本机演示身份"] button:hover{background:#edf3ff;border-color:#bed2f5!important}
-.lexiang-preview .lx-login section[aria-label="本机演示身份"] button[aria-pressed=true]{background:#edf4ff;border-color:#82a9ec!important;color:#2c61b8}
-.lexiang-preview .lx-login section[aria-label="本机演示身份"] button[aria-pressed=true]>span:nth-child(2){color:#647fa7}
-.lexiang-preview .lx-login section[aria-label="本机演示身份"] button[aria-pressed=true]>span:last-child{background:#3978e8}
 @media(min-width:1600px){.lx-login-brand{padding:48px 64px}.lx-login-story{margin:auto}.lexiang-preview .lx-login .login-flow-scroll{padding-top:55px}}
 @media(max-width:1100px){.lx-login-brand{width:40%;padding:30px}.lx-login-story h1{font-size:29px}.lx-login-illustration{transform:scale(.85);transform-origin:left center}.lexiang-preview .lx-login .login-flow-scroll{padding:34px}}
 @media(max-width:1023px){.lx-login-brand{display:none}.lexiang-preview .lx-login .login-flow-scroll{padding:28px 24px}.lexiang-preview .lx-login .login-flow-heading{margin-top:32px}.lexiang-preview .lx-login .login-flow-body{max-width:560px}}
-@media(max-width:480px){.lexiang-preview .lx-login section[aria-label="本机演示身份"]{grid-template-columns:1fr}.lexiang-preview .lx-login .login-flow-heading h2{font-size:25px}}
+@media(max-width:480px){.lexiang-preview .lx-login .login-flow-heading h2{font-size:25px}}
