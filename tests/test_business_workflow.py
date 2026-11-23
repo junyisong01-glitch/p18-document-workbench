@@ -750,3 +750,32 @@ def test_document_detail_exposes_lifecycle_summary_without_expanding_audit_acces
     assert r.c.get('/api/business/documents/'+identifier+'/audit',headers=r.h['qa']).status_code==404
     for actor in ['prd','guest']:
         assert r.c.get('/api/documents/'+identifier,headers=r.h[actor]).status_code==404
+
+
+def test_operation_search_filters_before_pagination_and_preserves_permission(rig):
+    r=rig;first=r.create();second=r.create()
+    doc=r.q.get(first);doc['name']='技术方案_ALPHA.docx';r.q.save(doc)
+    doc=r.q.get(second);doc['name']='其他记录.docx';r.q.save(doc)
+    with r.q.connect()as c:
+        for i in range(22):
+            c.execute('INSERT INTO business_events(document_id,at,actor,action,body)VALUES(?,?,?,?,?)',
+                      (first if i<12 else second,1000+i,'qichen_rd' if i<12 else 'boss','submitted',json.dumps({'note':str(i),'private_extra':'hidden'})))
+    url='/api/business/operations'
+    for actor in ['rd','head','guest']:
+        assert r.c.get(url,params={'actor':'boss'},headers=r.h[actor]).status_code==403
+    params={'actor':'陈叙','actor_accounts':'qichen_rd','document':'alpha'}
+    page1=r.c.get(url,params=params,headers=r.h['boss']).json()
+    assert page1['total']==12 and len(page1['items'])==8
+    assert [x['note'] for x in page1['items']]==[str(i)for i in range(11,3,-1)]
+    page2=r.c.get(url,params={**params,'page':2},headers=r.h['boss']).json()
+    assert [x['note'] for x in page2['items']]==['3','2','1','0']
+    assert not(set(x['id']for x in page1['items'])&set(x['id']for x in page2['items']))
+    bounded=r.c.get(url,params={**params,'start_at':1001,'end_at':1003},headers=r.h['boss'])
+    assert [x['at'] for x in bounded.json()['items']]==[1002,1001]
+    assert 'private_extra' not in bounded.text and 'hidden' not in bounded.text
+    assert r.c.get(url,params={'document':first},headers=r.h['boss']).json()['total']==12
+    assert r.c.get(url,params={'actor':'QICHEN_RD'},headers=r.h['boss']).json()['total']==12
+    assert r.c.get(url,params={'document':"%' OR 1=1 --"},headers=r.h['boss']).json()['total']==0
+    assert r.c.get(url,params={'start_at':1003,'end_at':1003},headers=r.h['boss']).status_code==422
+    for params in [{'page':0},{'page_size':1000},{'start_at':'nan'},{'end_at':'inf'}]:
+        assert r.c.get(url,params=params,headers=r.h['boss']).status_code==422

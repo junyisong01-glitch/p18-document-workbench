@@ -6,7 +6,7 @@ Ordinary checked submissions publish after indexing; risk still requires review.
 from pathlib import Path
 import json,time,uuid,threading,importlib.util,sys,re,unicodedata
 from dataclasses import asdict, replace
-from fastapi import HTTPException,UploadFile,File,Form,Request
+from fastapi import HTTPException,UploadFile,File,Form,Request,Query
 from pydantic import BaseModel,ConfigDict,Field
 from app import library_api,library_store
 from app.library_policy import LibraryMetadata,can_view
@@ -474,21 +474,49 @@ def install(store,central,legacy_acl):
             if a in {'approve','resubmit'}:store.schedule_chunks(doc)
             return summary(doc)
 
-    @store.app.get('/api/business/recent-operations')
-    def recent_operations():
+    def operation_records(actor='',actor_accounts='',document='',start_at=None,end_at=None,page=1,page_size=8):
         u=user()
         if u['role']!='boss':raise HTTPException(403,'仅管理层负责人可查看全公司操作记录')
+        if start_at is not None and end_at is not None and start_at>=end_at:
+            raise HTTPException(422,'结束时间须晚于开始时间')
+        conditions=[];values=[]
+        if actor.strip():
+            accounts=[account for account in actor_accounts.split(',') if account][:50]
+            clause='instr(lower(e.actor),lower(?))>0';values.append(actor.strip())
+            if accounts:
+                clause+=' OR e.actor IN ('+','.join('?' for _ in accounts)+')';values.extend(accounts)
+            conditions.append('('+clause+')')
+        if document.strip():
+            conditions.append("(instr(lower(COALESCE(json_extract(d.body,'$.name'),'已移除的资料')),lower(?))>0 OR instr(lower(e.document_id),lower(?))>0)")
+            values.extend([document.strip(),document.strip()])
+        if start_at is not None:conditions.append('e.at>=?');values.append(start_at)
+        if end_at is not None:conditions.append('e.at<?');values.append(end_at)
+        source=' FROM business_events e LEFT JOIN documents d ON d.id=e.document_id'
+        where=(' WHERE '+' AND '.join(conditions)) if conditions else ''
         with store.connect() as c:
-            rows=c.execute('SELECT e.id,e.document_id,e.at,e.actor,e.action,e.body,d.body AS document_body FROM business_events e LEFT JOIN documents d ON d.id=e.document_id ORDER BY e.at DESC,e.id DESC LIMIT 8').fetchall()
+            total=c.execute('SELECT COUNT(*)'+source+where,values).fetchone()[0]
+            rows=c.execute('SELECT e.id,e.document_id,e.at,e.actor,e.action,e.body,d.body AS document_body'+source+where+' ORDER BY e.at DESC,e.id DESC LIMIT ? OFFSET ?',values+[page_size,(page-1)*page_size]).fetchall()
         result=[]
         for row in rows:
             details=json.loads(row['body'])
-            document=json.loads(row['document_body']) if row['document_body'] else {}
+            document_body=json.loads(row['document_body']) if row['document_body'] else {}
             result.append(dict(id=row['id'],at=row['at'],actor=row['actor'],action=row['action'],
-                               document_name=document.get('name') or '已移除的资料',
+                               document_name=document_body.get('name') or '已移除的资料',
                                note=str(details.get('note') or details.get('reason') or '')[:500],
                                recipient=str(details.get('username') or '')))
-        return result
+        return dict(items=result,total=total,page=page,page_size=page_size)
+
+    @store.app.get('/api/business/recent-operations')
+    def recent_operations():
+        return operation_records()['items']
+
+    @store.app.get('/api/business/operations')
+    def search_operations(actor:str=Query('',max_length=100),actor_accounts:str=Query('',max_length=3000),
+                          document:str=Query('',max_length=200),
+                          start_at:float|None=Query(None,ge=0,le=253402214400,allow_inf_nan=False),
+                          end_at:float|None=Query(None,ge=0,le=253402300799,allow_inf_nan=False),
+                          page:int=Query(1,ge=1,le=1000000),page_size:int=Query(8,ge=1,le=50)):
+        return operation_records(actor,actor_accounts,document,start_at,end_at,page,page_size)
 
     @store.app.get('/api/business/documents/{identifier}/audit')
     def audit(identifier:str):
