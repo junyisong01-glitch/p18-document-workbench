@@ -158,24 +158,10 @@
 .lexiang-preview.charcoal-theme .lx-login .login-flow-footer,.lexiang-preview.charcoal-theme .lx-login .login-flow-note{font-size:10px;color:#a5a19c}
 .lexiang-preview.charcoal-theme .lx-login button:focus-visible{outline:2px solid #d68261;outline-offset:3px}
 .lexiang-preview.charcoal-theme .lx-login .login-flow-step.current{color:#cf6d47}.lexiang-preview.charcoal-theme .lx-login .login-flow-step.current i{background:#cf6d47;border-color:#cf6d47;color:white}
-.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"]{display:grid;grid-template-columns:1fr 1fr;gap:17px 14px;border-top:1px solid #f2f1f0;padding-top:21px;margin-top:24px}
-.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"]>div{grid-column:1/-1}
-.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"]>div h2{font-size:13px;color:#5e5852}.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"]>div p{font-size:10px;color:#a5a19c;line-height:1.8}
-.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"]>section{margin:0!important;min-width:0}
-.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"]>section>div:first-child{margin-bottom:7px;gap:4px}.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"] h3{font-size:11px;color:#8e8984;letter-spacing:0}
-.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"]>section>div:first-child p{font-size:10px;line-height:1.6;color:#a39e9a;display:none}
-.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"]>section>div:last-child{grid-template-columns:1fr;gap:8px}
-.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"] button{background:#faf9f8;color:#514a44;border:1px solid #f0efee!important;box-shadow:none;border-radius:9px;padding:12px 15px;transition:background .15s,border-color .15s}
-.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"] button>span:first-child{font-size:12px;font-weight:600}
-.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"] button>span:nth-child(2){font-size:10px;line-height:1.7;color:#95908b;margin-top:4px}
-.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"] button:hover{background:#f8f6f4;border-color:#e0dad3!important}
-.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"] button[aria-pressed=true]{background:#f8f6f4;border-color:#e1a58d!important;color:#aa5a3a}
-.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"] button[aria-pressed=true]>span:nth-child(2){color:#90867b}
-.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"] button[aria-pressed=true]>span:last-child{background:#d2744f}
 @media(min-width:1600px){.charcoal-theme .lx-login-brand{padding:48px 64px}.charcoal-theme .lx-login-story{margin:auto}.lexiang-preview.charcoal-theme .lx-login .login-flow-scroll{padding-top:55px}}
 @media(max-width:1100px){.charcoal-theme .lx-login-brand{width:40%;padding:30px}.charcoal-theme .lx-login-story h1{font-size:29px}.charcoal-theme .lx-login-illustration{transform:scale(.85);transform-origin:left center}.lexiang-preview.charcoal-theme .lx-login .login-flow-scroll{padding:34px}}
 @media(max-width:1023px){.charcoal-theme .lx-login-brand{display:none}.lexiang-preview.charcoal-theme .lx-login .login-flow-scroll{padding:28px 24px}.lexiang-preview.charcoal-theme .lx-login .login-flow-heading{margin-top:32px}.lexiang-preview.charcoal-theme .lx-login .login-flow-body{max-width:560px}}
-@media(max-width:480px){.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"]{grid-template-columns:1fr}.lexiang-preview.charcoal-theme .lx-login .login-flow-heading h2{font-size:25px}}
+@media(max-width:480px){.lexiang-preview.charcoal-theme .lx-login .login-flow-heading h2{font-size:25px}}
 /* Charcoal edition login; same form, activation flow and identity selection. */
 .lexiang-preview.charcoal-theme .lx-login{background:#faf8f4;color:#393329}.charcoal-theme .lx-login-brand{background:#28241f}
 .charcoal-theme .lx-login-brand:before{border-color:#3b332b}.charcoal-theme .lx-login-eyebrow{color:#d39b79}.charcoal-theme .lx-login-story h1{color:#f3e9da}.charcoal-theme .lx-login-story>p{color:#b5a895}
@@ -185,8 +171,4 @@
 .charcoal-theme .lx-login-art-search{background:#e8d9c4;color:#735439;border-color:#d0bda2;box-shadow:0 10px 28px #00000010}.charcoal-theme .lx-login-art-search svg{color:#aa653e}
 .lexiang-preview.charcoal-theme .lx-login .login-flow-scroll{background:#faf8f4}.lexiang-preview.charcoal-theme .lx-login .login-flow-heading h2{color:#383127}
 .lexiang-preview.charcoal-theme .lx-login .login-flow-primary{background:#ae5437}.lexiang-preview.charcoal-theme .lx-login .login-flow-primary:hover{background:#95462e}
-.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"] button{background:#f0ece5;border-color:#e7dfd3!important;color:#514335}
-.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"] button:hover{background:#eae1d5;border-color:#ccb69c!important}
-.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"] button[aria-pressed=true]{background:#f0e3d5;border-color:#be9675!important;color:#8c4e31}
-.lexiang-preview.charcoal-theme .lx-login section[aria-label="本机演示身份"] button[aria-pressed=true]>span:last-child{background:#ae6841}
 
