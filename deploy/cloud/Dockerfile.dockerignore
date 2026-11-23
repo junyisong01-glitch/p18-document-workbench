@@ -12,3 +12,15 @@ models
 **/*.pem
 **/*.key
 *.tar.gz
+
+**/.env.*
+!**/.env.example
+config/business.json
+config/*.local.json
+CLOUD-DEMO.json
+BUNDLE-SHA256.json
+**/*.sqlite*
+**/*.db
+**/*.log
+**/*credentials*
+**/*登录信息*

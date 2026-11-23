@@ -1,11 +1,16 @@
 name: p18-enterprise-demo
 x-runtime: &runtime
+  image: p18-workbench:${P18_IMAGE_TAG:-local}
   build:
     context: ../..
     dockerfile: deploy/cloud/Dockerfile
   network_mode: host
   volumes:
-    - ../../runtime:/app/runtime
+    - type: bind
+      source: ../../runtime
+      target: /app/runtime
+      bind:
+        create_host_path: false
     - models:/app/.cache/huggingface
   environment: &env
     P18_DATA_DIR: /app/runtime/demo-v1-experience
@@ -69,6 +74,7 @@ services:
     volumes: ["ollama:/root/.ollama"]
   app:
     <<: *runtime
+    stop_grace_period: 120s
     restart: unless-stopped
     depends_on:
       prepare-model:

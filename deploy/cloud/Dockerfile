@@ -1,3 +1,10 @@
+FROM node:24-bookworm-slim AS frontend
+WORKDIR /build/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
 FROM python:3.12-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
@@ -8,9 +15,11 @@ RUN python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
 COPY app ./app
 COPY scripts ./scripts
 COPY config ./config
-COPY web ./web
+COPY --from=frontend /build/web/app ./web/app
 COPY deploy ./deploy
-COPY CLOUD-DEMO.json ./CLOUD-DEMO.json
+# Deployment uses portable templates, never a developer's local config.
+COPY config/business.example.json ./config/business.json
+RUN printf '%s' '{"enabled":false,"data_dir":"runtime/business-workflow","acl":{}}' > config/qichen-libraries.json
 RUN mkdir -p /app/runtime/tmp /app/.local-home /app/.cache/huggingface/hub /app/.local-config /app/.local-share && useradd --uid 10001 --home-dir /app/.local-home --no-create-home p18 && chown -R p18:p18 /app
 USER 10001:10001
 CMD ["python", "-B", "deploy/cloud/server.py"]
