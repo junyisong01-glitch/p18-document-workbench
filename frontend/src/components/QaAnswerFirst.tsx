@@ -114,7 +114,7 @@ export function QaAnswerFirst({ answer, examples, onAsk, onSource, notice, docum
   return <article className="qa-first-card" aria-label="本轮回答">
     {notice && <p className="qa-first-notice" role="status">{notice}</p>}
     <AnswerText text={answer.answer} cite={cite}/>
-    {references.size > 0 && <details className="qa-first-sources" open>
+    {references.size > 0 && <details className="qa-first-sources">
       <summary><Files size={15} aria-hidden="true"/>参考了 <strong>{references.size} 份</strong> 资料<ChevronDown size={14}/></summary>
       <ul className="qa-first-document-list">
         {Array.from(references, ([key, source]) => {
