@@ -1,6 +1,6 @@
 import type {BusinessRow} from '../components/BusinessPresentation'
 
-export const submissionFilters=['全部','待我处理','处理中','解析异常','待审核','待发布','已退回','已撤回','已发布','已下架']
+export const submissionFilters=['全部','待我处理','处理中','解析异常','待审核','待发布','已退回','已撤回','已发布','已下架','历史归档']
 export function submissionState(row:BusinessRow){
  const b=row.workflow
  if(b.deleted)return '回收站'
