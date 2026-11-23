@@ -46,7 +46,7 @@
 }
 .qa-chat-settings-panel > * + * { margin-top: 12px; }
 .qa-chat-layout { display: grid; grid-template-columns: var(--qa-history-width, 236px) minmax(0, 1fr); min-height: 0; position: relative; }
-.qa-chat-layout-with-preview { grid-template-columns: var(--qa-history-width, 236px) minmax(0, 1fr) clamp(21rem, 34%, 36rem); }
+.qa-chat-layout-with-preview { grid-template-columns: var(--qa-history-width, 236px) minmax(0, 1fr) var(--qa-preview-width, clamp(21rem, 34%, 36rem)); }
 .qa-chat-side { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: hsl(43 18% 91%); border-right: 1px solid var(--qa-line); padding: 14px 10px; }
 .qa-chat-splitter {
   position: absolute; z-index: 2; top: 0; bottom: 0; left: var(--qa-history-width, 236px);
@@ -144,3 +144,6 @@
 .qa-chat-layout{grid-template-rows:minmax(0,1fr);overflow:clip}
 .qa-chat-scroll,.qa-chat-side ul,.qa-chat-preview .overflow-y-auto{overscroll-behavior-y:contain}
 .qa-chat-dock{flex-shrink:0}
+
+.qa-preview-splitter{left:auto;right:var(--qa-preview-width);transform:translateX(50%)}
+.qa-preview-splitter::after{height:36px;width:3px}

@@ -52,11 +52,18 @@ function saveHistoryWidth(width: number) {
 
 export function QaWorkspace(props: WorkspaceProps) {
   const workspace = useRef<HTMLDivElement>(null)
+  const [workspaceWidth,setWorkspaceWidth]=useState(0)
+  const [preferredPreviewWidth,setPreferredPreviewWidth]=useState<number|null>(()=>{
+    try{const value=localStorage.getItem('p18.qa.previewWidth');if(value&&Number.isFinite(Number(value))&&Number(value)>0)return Number(value)}catch{/* Use automatic width. */}
+    return null
+  })
+  const [previewResizing,setPreviewResizing]=useState(false)
+  const previewDrag=useRef<{id:number;x:number;width:number;next:number}|null>(null)
   const onWidthChange = props.onWidthChange
   useEffect(() => {
     const element = workspace.current
-    if (!element || !onWidthChange) return
-    const observer = new ResizeObserver(entries => onWidthChange(entries[0].contentRect.width))
+    if (!element) return
+    const observer = new ResizeObserver(entries => {const width=entries[0].contentRect.width;setWorkspaceWidth(width);onWidthChange?.(width)})
     observer.observe(element)
     return () => observer.disconnect()
   }, [onWidthChange])
@@ -107,6 +114,29 @@ export function QaWorkspace(props: WorkspaceProps) {
     saveHistoryWidth(width)
   }
 
+  const previewMin=300,previewMax=Math.max(previewMin,Math.min(900,workspaceWidth-historyWidth-360))
+  const clampPreview=(width:number)=>Math.round(Math.max(previewMin,Math.min(previewMax,width)))
+  const previewWidth=clampPreview(preferredPreviewWidth??Math.min(576,Math.max(336,workspaceWidth*.34)))
+  function storePreview(width:number){setPreferredPreviewWidth(width);try{localStorage.setItem('p18.qa.previewWidth',String(width))}catch{/* Keep the width for this session. */}}
+  function startPreviewResize(event:PointerEvent<HTMLDivElement>){
+    if(!event.isPrimary||event.button!==0||previewDrag.current)return
+    event.preventDefault();event.currentTarget.focus({preventScroll:true});event.currentTarget.setPointerCapture(event.pointerId)
+    previewDrag.current={id:event.pointerId,x:event.clientX,width:previewWidth,next:previewWidth};setPreviewResizing(true)
+  }
+  function movePreviewResize(event:PointerEvent<HTMLDivElement>){
+    const drag=previewDrag.current;if(!drag||drag.id!==event.pointerId)return
+    drag.next=clampPreview(drag.width+drag.x-event.clientX);setPreferredPreviewWidth(drag.next)
+  }
+  function finishPreviewResize(event:PointerEvent<HTMLDivElement>){
+    const drag=previewDrag.current;if(!drag||drag.id!==event.pointerId)return
+    storePreview(clampPreview(drag.next));previewDrag.current=null;setPreviewResizing(false)
+  }
+  function previewKeyboard(event:KeyboardEvent<HTMLDivElement>){
+    const step=event.shiftKey?40:16
+    const next:Record<string,number>={ArrowLeft:previewWidth+step,ArrowRight:previewWidth-step,Home:previewMin,End:previewMax}
+    if(event.key in next){event.preventDefault();storePreview(clampPreview(next[event.key]))}
+  }
+
   const composer = <form className={`qa-chat-composer ${hasTurns ? 'qa-chat-composer-follow' : ''}`} onSubmit={onAsk}>
     <textarea ref={inputRef} aria-label="问答问题" value={question} maxLength={2000} rows={hasTurns ? 1 : 2}
       placeholder={hasTurns ? '继续提问，回车发送…' : '输入你的问题…'} onChange={event => onChange(event.target.value)}
@@ -135,8 +165,8 @@ export function QaWorkspace(props: WorkspaceProps) {
 
       </div>
     </header>
-    <div className={`qa-chat-layout ${resizing ? 'qa-chat-layout-resizing' : ''} ${previewDocked ? 'qa-chat-layout-with-preview' : ''}`}
-      style={{ '--qa-history-width': `${historyWidth}px` } as CSSProperties}>
+    <div className={`qa-chat-layout ${resizing||previewResizing ? 'qa-chat-layout-resizing' : ''} ${previewDocked ? 'qa-chat-layout-with-preview' : ''}`}
+      style={{ '--qa-history-width': `${historyWidth}px`, '--qa-preview-width': `${previewWidth}px` } as CSSProperties}>
       <aside className={`qa-chat-side ${showHistory ? 'qa-chat-side-open' : ''}`} id="qa-conversation-history" aria-label={history.length ? '历史会话' : '会话'}>
         <button className="qa-chat-new" type="button" disabled={busy} onClick={() => { onNew(); setShowHistory(false) }}>
           <Plus size={16}/>新会话
@@ -177,6 +207,12 @@ export function QaWorkspace(props: WorkspaceProps) {
           </section>
         </div>}
       </main>
+      {previewDocked&&preview&&<div className="qa-chat-splitter qa-preview-splitter" role="separator" tabIndex={0}
+        aria-label="调整原文预览宽度" title="左右拖动调整原文宽度；双击恢复默认" aria-controls="qa-source-preview" aria-orientation="vertical"
+        aria-valuemin={previewMin} aria-valuemax={previewMax} aria-valuenow={previewWidth} aria-valuetext={`${previewWidth} 像素`}
+        onPointerDown={startPreviewResize} onPointerMove={movePreviewResize} onPointerUp={finishPreviewResize}
+        onPointerCancel={finishPreviewResize} onLostPointerCapture={finishPreviewResize} onKeyDown={previewKeyboard}
+        onDoubleClick={()=>{setPreferredPreviewWidth(null);try{localStorage.removeItem('p18.qa.previewWidth')}catch{/* Default still applies. */}}}/>}
       {preview}
     </div>
   </div>

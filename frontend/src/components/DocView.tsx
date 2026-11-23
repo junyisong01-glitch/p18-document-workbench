@@ -293,7 +293,7 @@ export function DocPreviewDialog({
           </button>
         </div>
   </>
-  if(presentation==='panel')return <section aria-label={label} className="qa-chat-preview flex min-h-0 min-w-0 flex-col border-l border-border bg-card"
+  if(presentation==='panel')return <section id="qa-source-preview" aria-label={label} className="qa-chat-preview flex min-h-0 min-w-0 flex-col border-l border-border bg-card"
     onKeyDown={event=>{if(event.key==='Escape'){event.stopPropagation();onClose()}}}>
     {content}
   </section>
