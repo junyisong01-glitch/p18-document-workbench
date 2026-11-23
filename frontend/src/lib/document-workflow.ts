@@ -45,7 +45,7 @@ export function submissionLabel(row:BusinessRow,manage:boolean){
  if(state==='解析异常')return {label:row.technical_state==='failed'?(canRetryParse(row)?'可重试处理':'需要更换文件'):manage?'需要核对解析':'等待解析核对',tone:submissionGroup(row,manage)==='需要处理'?'attention':'pending'}
  if(state==='待审核')return {label:'等待审核',tone:'pending'}
  if(state==='待发布')return {label:'可以发布',tone:'attention'}
- return {label:row.workflow.correction?'勘误处理中':'正在处理',tone:'pending'}
+ return {label:row.workflow.correction?'勘误处理中':'处理中',tone:'pending'}
 }
 export function submissionDate(value:string){
  const date=new Date(value)

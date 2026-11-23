@@ -18,7 +18,7 @@ export function BusinessDashboard(){
  const cards=head?[
   {label:'内容待审',value:pending.length,hint:'判断能否发布：查看送审原因，批准或退回',to:'/documents?view=待我审核'},
   {label:'解析异常',value:parseIssues.length,hint:'处理文件读取问题：更换文件、核对或重试',to:'/documents?view=部门异常'},
- ]:[{label:'可查阅资料',value:current.length,hint:guest?'当前对外公开资料':'当前账号获准的已发布资料',to:'/documents'},...(!guest?[{label:'我的在途提交',value:rows.filter(r=>r.workflow.owner===user?.username&&!r.workflow.deleted&&!r.workflow.archived&&!['published','withdrawn','taken_down'].includes(r.workflow.status)).length,hint:'查看进度、退回原因和待发布资料',to:'/documents?view=我的提交'}]:[])]
+ ]:[{label:'可查阅资料',value:current.length,hint:guest?'当前对外公开资料':'当前账号获准的已发布资料',to:'/documents'},...(!guest?[{label:'我的在途提交',value:rows.filter(r=>r.workflow.owner===user?.username&&!r.workflow.deleted&&!r.workflow.archived&&!['published','withdrawn','taken_down'].includes(r.workflow.status)).length,hint:'查看进度、修改退回资料或发布自己的资料',to:'/documents?view=我的提交'}]:[])]
  const queue=boss||head?[...pending,...parseIssues].slice(0,5):rows.filter(r=>r.workflow.owner===user?.username&&!r.workflow.deleted&&!r.workflow.archived&&!['published','withdrawn','taken_down'].includes(r.workflow.status)).slice(0,5)
  if(boss)return <ManagerDashboard rows={rows} loaded={loaded} error={error}/>
  return <div className="mx-auto max-w-6xl space-y-8">

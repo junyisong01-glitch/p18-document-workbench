@@ -17,7 +17,7 @@ export function workflowState(row:BusinessRow){
  if(b.status==='withdrawn')return{label:'已撤回',tone:'muted'}
  if(b.status==='returned')return{label:'已退回',tone:'error'}
  if(row.index_error)return{label:'索引失败',tone:'error'}
- if(row.publication_stage)return{label:row.publication_stage==='待发布'&&!row.technical_index_ready?'索引准备中':row.publication_stage,
+ if(row.publication_stage)return{label:row.publication_stage==='待发布'?(row.technical_index_ready?'可以发布':'处理中'):row.publication_stage,
    tone:row.publication_stage==='解析异常'?'error':row.publication_stage==='待发布'&&row.technical_index_ready?'ready':'pending'}
  if(row.technical_state==='failed')return{label:'解析失败',tone:'error'}
  if(b.status==='correction_pending')return{label:b.correction_error?'勘误冲突':'勘误处理中',tone:b.correction_error?'error':'pending'}
