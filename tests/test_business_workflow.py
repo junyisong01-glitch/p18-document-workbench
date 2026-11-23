@@ -783,3 +783,45 @@ def test_operation_search_filters_before_pagination_and_preserves_permission(rig
     assert r.c.get(url,params={'start_at':1003,'end_at':1003},headers=r.h['boss']).status_code==422
     for params in [{'page':0},{'page_size':1000},{'start_at':'nan'},{'end_at':'inf'}]:
         assert r.c.get(url,params=params,headers=r.h['boss']).status_code==422
+
+
+def test_current_borrowings_only_exposed_to_authorized_managers(rig):
+    r=rig; document=r.create(); secret=r.create(restricted=True)
+    assert r.action(document,'head','share',username='prd').status_code==200
+    assert r.action(secret,'boss','share',username='head').status_code==200
+    def rows(who):
+        response=r.c.get('/api/business/documents',headers=r.h[who])
+        assert response.status_code==200
+        return {row['id']:row for row in response.json()}
+    expected=[{'username':'prd','department':'生产制造部','expires_at':None}]
+    assert rows('boss')[document]['active_borrowings']==expected
+    assert rows('head')[document]['active_borrowings']==expected
+    assert 'active_borrowings' not in rows('rd')[document]
+    assert 'active_borrowings' not in rows('prd')[document]
+    # Even an explicitly authorized supervisor cannot manage secret grants.
+    assert 'active_borrowings' not in rows('head')[secret]
+    assert rows('boss')[secret]['active_borrowings'][0]['username']=='head'
+    assert r.action(document,'head','share',username='otherhead').status_code==200
+    assert 'active_borrowings' not in rows('otherhead')[document]
+    assert r.action(document,'head','revoke_share',username='prd').status_code==200
+    assert [p['username'] for p in rows('head')[document]['active_borrowings']]==['otherhead']
+    assert r.action(document,'head','revoke_share',username='otherhead').status_code==200
+    assert rows('head')[document]['active_borrowings']==[]
+    with r.q.connect() as c:
+        assert c.execute("SELECT COUNT(*) FROM business_events WHERE document_id=? AND action='revoke_share'",(document,)).fetchone()[0]==2
+
+
+def test_current_borrowings_exclude_expired_disabled_and_inactive_documents(rig):
+    r=rig; document=r.create(); archived=r.create(); deleted=r.create(); down=r.create(status='taken_down')
+    with r.q.connect() as c:
+        for identifier,username,expiry in [(document,'prd',1),(document,'qa',None),(document,'guest',None),(document,'ops',None),(archived,'prd',None),(deleted,'prd',None),(down,'prd',None)]:
+            c.execute('INSERT INTO business_grants VALUES (?,?,?)',(identifier,username,expiry))
+        c.execute("UPDATE library_accounts SET active=0 WHERE username='qa'")
+        for identifier,key in [(archived,'archived'),(deleted,'deleted')]:
+            body=r.q.business_read(identifier);body[key]=True
+            c.execute('UPDATE business_documents SET body=? WHERE document_id=?',(json.dumps(body),identifier))
+    response=r.c.get('/api/business/documents',headers=r.h['boss'])
+    assert response.status_code==200
+    rows={row['id']:row for row in response.json()}
+    assert rows[document]['active_borrowings']==[{'username':'ops','department':'研发部','expires_at':None}]
+    for identifier in [archived,deleted,down]:assert rows[identifier]['active_borrowings']==[]

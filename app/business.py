@@ -201,9 +201,25 @@ def install(store,central,legacy_acl):
     @store.app.get('/api/business/documents')
     def listing():
         u=user();out=[]
+        # Borrower identities are management-only and come from current grants,
+        # never from old audit events (which may have been revoked or expired).
+        borrowings={}
+        if u['role'] in {'boss','supervisor'}:
+            with central.connect() as c:
+                people={r['username']:dict(r) for r in c.execute(
+                    "SELECT p.username,p.department FROM business_profiles p JOIN library_accounts a ON a.username=p.username WHERE a.active=1 AND p.role IN ('employee','supervisor','boss')")}
+            with store.connect() as c:
+                for grant in c.execute('SELECT document_id,username,expires FROM business_grants WHERE expires IS NULL OR expires>? ORDER BY username',(time.time(),)):
+                    person=people.get(grant['username'])
+                    if person:
+                        borrowings.setdefault(grant['document_id'],[]).append({**person,'expires_at':grant['expires']})
         for doc in store.all_docs():
             if doc['state'] in {'deleted','deleting','delete_failed'}:continue
-            if visible(doc,u):out.append(summary(doc))
+            if visible(doc,u):
+                row=summary(doc);b=row['workflow']
+                if manager(u,b) and (not b.get('restricted') or u['role']=='boss'):
+                    row['active_borrowings']=borrowings.get(doc['id'],[]) if b['status']=='published' and not b['archived'] and not b.get('deleted') else []
+                out.append(row)
         return out
 
     @store.app.post('/api/business/upload')
