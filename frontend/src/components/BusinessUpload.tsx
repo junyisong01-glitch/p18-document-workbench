@@ -92,7 +92,10 @@ export function BusinessUpload({replacement,onClose,onUploaded,rows}:{replacemen
       {match&&<><label className="mt-2 grid gap-1">本次版本<input aria-label={'本次版本 '+(index+1)} className={input} value={item.version} disabled={locked} onChange={e=>change(item.key,{version:e.target.value})}/></label><p>检查与发布完成后才替换现行版，原文件保留在历史记录中。新版的共享范围需按权限确认。</p></>}
      </>:<p>{replacement?'原提交状态或权限已变化，请关闭后刷新列表重新操作。':'未发现你有权更新的同名或同编号资料，将作为新资料上传。'}</p>}
     </div>}
-    <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={item.secret} disabled={locked||match?.classification==='机密'} onChange={e=>change(item.key,{secret:e.target.checked})}/>包含机密信息，交主管审核</label>
+    <div className="space-y-1.5 text-xs">
+     <label className="flex items-center gap-2"><input type="checkbox" aria-describedby={'restriction-hint-'+item.key} checked={item.secret} disabled={locked||match?.classification==='机密'} onChange={e=>change(item.key,{secret:e.target.checked})}/>这份资料可能需要限制查看</label>
+     <p id={'restriction-hint-'+item.key} className="pl-6 text-[11px] leading-6 text-muted-foreground">{match?.classification==='机密'?'原资料已标为机密，新版本保留限制并送审。':'例如未公开方案、客户资料、实验数据；不确定时也可选择，按受限资料交审核人确认。'}未勾选的资料仍会自动检查敏感信息。</p>
+    </div>
     <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">更多选项 · 编号与版本</summary><div className="mt-3 grid grid-cols-2 gap-3"><label>文档编号（选填）<input className={input+' mt-1'} value={match?.code||item.code} disabled={locked||!!match||!!replacement} maxLength={200} onChange={e=>change(item.key,{code:e.target.value})}/></label><label>版本<input className={input+' mt-1'} value={item.version} disabled={locked} maxLength={200} onChange={e=>change(item.key,{version:e.target.value})}/></label></div></details>
     {item.status==='uploading'&&<p role="status" className="text-xs text-muted-foreground">正在上传…</p>}
     {item.status==='accepted'&&<p role="status" className={'flex items-center gap-2 text-xs '+(attention?'text-amber-800':'text-emerald-800')}>{attention?<AlertCircle size={14}/>:<CheckCircle2 size={14}/>}已上传 · {stage}</p>}
