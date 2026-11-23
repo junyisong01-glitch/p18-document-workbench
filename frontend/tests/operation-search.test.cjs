@@ -14,5 +14,6 @@ test('custom time ranges include final minute and reject missing or reversed dat
  assert.equal(Number(p.get('end_at'))-Number(p.get('start_at')),106*60);
  assert.throws(()=>query({...empty,mode:'date'}),/查询日期/);
  assert.throws(()=>query({...empty,mode:'range'}),/开始和结束/);
+ assert.throws(()=>query({...empty,mode:'range',start:'T10:00',end:'2026-11-23T11:00'}),/开始和结束/);
  assert.throws(()=>query({...empty,mode:'range',start:'2026-11-23T02:00',end:'2026-11-23T01:00'}),/不能早于/);
 });

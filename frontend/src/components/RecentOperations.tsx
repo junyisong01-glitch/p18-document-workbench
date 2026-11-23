@@ -1,11 +1,12 @@
 import {useEffect,useState} from 'react'
-import {Search,ChevronLeft,ChevronRight} from 'lucide-react'
+import {Search,ChevronLeft,ChevronRight,ArrowRight} from 'lucide-react'
 import {api} from '@/lib/api'
 import {demoIdentityName} from '@/lib/demo-identity-names'
 import {documentTitleParts} from '@/lib/document-title'
 import {operationSearchParams,emptyOperationFilters,type OperationFilters} from '../lib/operation-search'
 import {eventNames} from './BusinessDocumentTools'
 import './RecentOperations.css'
+import {OperationTimePicker} from './OperationTimePicker'
 type Operation={id:number;at:number;actor:string;action:string;document_name:string;note:string;recipient:string}
 type Results={items:Operation[];total:number;page:number;page_size:number}
 export function RecentOperations(){
@@ -24,8 +25,8 @@ export function RecentOperations(){
      <label className="operation-time-mode">时间（北京时间）<select aria-label="时间（北京时间）" value={filters.mode} onChange={e=>update('mode',e.target.value as OperationFilters['mode'])}><option value="all">全部时间</option><option value="date">指定日期</option><option value="range">自选时间段</option></select></label>
      <div className="operation-search-actions"><button type="submit" className="dm-primary"><Search size={14}/>查询</button><button type="button" onClick={()=>{setFilters(emptyOperationFilters);setQuery('');setPage(1);setValidation('')}}>重置</button></div>
    </div>
-   {filters.mode==='date'&&<div className="operation-date-fields"><label>查询日期<input type="date" value={filters.date} onChange={e=>update('date',e.target.value)}/></label></div>}
-   {filters.mode==='range'&&<div className="operation-date-fields"><label>开始时间<input type="datetime-local" value={filters.start} onChange={e=>update('start',e.target.value)}/></label><span>至</span><label>结束时间<input type="datetime-local" value={filters.end} onChange={e=>update('end',e.target.value)}/></label></div>}
+   {filters.mode==='date'&&<div className="operation-date-fields"><OperationTimePicker label="查询日期" value={filters.date} onChange={value=>update('date',value)}/></div>}
+   {filters.mode==='range'&&<div className="operation-date-fields"><OperationTimePicker label="开始时间" value={filters.start} onChange={value=>update('start',value)} withTime/><ArrowRight className="operation-range-arrow" size={16} aria-hidden="true"/><OperationTimePicker label="结束时间" value={filters.end} onChange={value=>update('end',value)} withTime end/></div>}
    {validation&&<p role="alert" className="operation-filter-error">{validation}</p>}
  </form>
  <div className="recent-operations-list" aria-busy={!loaded}>{error?<p role="alert" className="recent-operations-empty">暂时无法读取记录：{error}</p>:!loaded?<p role="status" className="recent-operations-empty">正在读取操作记录…</p>:!events.length?<p className="recent-operations-empty">{query?'没有符合条件的操作记录，可调整筛选条件。':'暂无文档操作记录。'}</p>:<ol>{events.map(event=><li key={event.id}><time dateTime={new Date(event.at*1000).toISOString()}>{new Date(event.at*1000).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})}</time><strong title={event.actor}>{demoIdentityName(event.actor)||event.actor}</strong><span className="recent-operation-action">{eventNames[event.action]||'资料处理'}</span><p><span>《{documentTitleParts(event.document_name).title}》</span>{event.recipient&&<span> · {event.action==='revoke_share'?'撤销':'授权给'}{demoIdentityName(event.recipient)||event.recipient}</span>}{event.note&&<span className="recent-operation-note"> · {event.note}</span>}</p></li>)}</ol>}</div>

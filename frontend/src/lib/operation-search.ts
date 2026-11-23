@@ -11,7 +11,7 @@ export function operationSearchParams(filters:OperationFilters){
    if(!filters.date)throw new Error('请选择查询日期。')
    start=Date.parse(filters.date+'T00:00:00+08:00')/1000;end=start+86400
  }else if(filters.mode==='range'){
-   if(!filters.start||!filters.end)throw new Error('请选择开始和结束时间。')
+   if(!filters.start.split('T')[0]||!filters.end.split('T')[0])throw new Error('请选择开始和结束时间。')
    start=Date.parse(filters.start+':00+08:00')/1000;end=Date.parse(filters.end+':00+08:00')/1000
    if(start>end)throw new Error('结束时间不能早于开始时间。')
    end+=60 // Include the whole final minute selected by the user.

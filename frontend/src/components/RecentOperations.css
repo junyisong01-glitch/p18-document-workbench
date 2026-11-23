@@ -7,9 +7,32 @@
 .operation-search-actions{display:flex;align-items:center;gap:12px}
 .operation-search-actions button{height:38px;font-size:12px}
 .operation-search-actions button:last-child{padding:0 8px;color:hsl(var(--muted-foreground))}
-.operation-date-fields{display:flex;align-items:flex-end;gap:12px;margin-top:16px;max-width:560px}
-.operation-date-fields>span{padding-bottom:10px;color:hsl(var(--muted-foreground));font-size:12px}
-.operation-date-fields label{flex:0 1 245px}
+/* One compact range with separate calendar and 24-hour clock controls. */
+.operation-date-fields{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-top:18px;padding-top:16px;border-top:1px solid hsl(var(--border)/.65)}
+.operation-time-picker{padding:0;margin:0;min-width:0;border:0}
+.operation-time-picker legend{padding:0;margin-bottom:8px;font-size:11px;color:hsl(var(--muted-foreground))}
+.operation-time-control{display:flex;align-items:center;height:42px;border:1px solid hsl(var(--border));border-radius:8px;background:hsl(var(--card));transition:border-color .15s,box-shadow .15s}
+.operation-time-control:focus-within{border-color:hsl(var(--primary)/.55);box-shadow:0 0 0 3px hsl(var(--primary)/.07)}
+.operation-date-trigger{display:inline-flex;align-items:center;gap:9px;height:100%;min-width:167px;padding:0 12px;border-radius:7px;text-align:left;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.operation-date-trigger>svg,.operation-clock>svg{color:#928576;flex-shrink:0}
+.operation-date-trigger.is-empty{color:hsl(var(--muted-foreground))}
+.operation-date-trigger:hover{background:hsl(var(--secondary)/.5)}
+.operation-clock{display:flex;align-items:center;gap:3px;padding:0 10px;border-left:1px solid hsl(var(--border));font-size:12px}
+.operation-clock>svg{margin-right:5px}
+.operation-search .operation-clock select{appearance:none;background:transparent;border:0;border-radius:4px;width:28px;height:28px;padding:0;text-align:center;font-variant-numeric:tabular-nums;cursor:pointer}
+.operation-clock select:hover{background:hsl(var(--secondary))}
+.operation-range-arrow{color:#a29687;flex-shrink:0;margin-bottom:13px}
+.operation-calendar{z-index:60;padding:14px;border:1px solid hsl(var(--border));border-radius:12px;background:hsl(var(--card));color:hsl(var(--foreground));box-shadow:0 12px 32px #33291b1a;outline:none}
+.operation-calendar .rdp-root{--rdp-accent-color:#bb3b1a;--rdp-accent-background-color:#f8ede7;--rdp-day-height:34px;--rdp-day-width:34px;--rdp-day_button-height:32px;--rdp-day_button-width:32px;--rdp-day_button-border-radius:6px;--rdp-selected-border:1px solid #bb3b1a;font-size:12px}
+.operation-calendar .rdp-selected .rdp-day_button{background:#bb3b1a;color:white;font-weight:500}
+.operation-calendar .rdp-month_caption{font-size:13px}
+.operation-calendar .rdp-day_button:hover:not(:disabled){background:#f8ede7;color:#bb3b1a}
+.operation-calendar .rdp-weekday{font-weight:400;color:hsl(var(--muted-foreground))}
+.operation-calendar .rdp-dropdowns{gap:3px}
+.operation-calendar button:focus-visible{outline:2px solid #bb3b1a;outline-offset:2px}
+.operation-calendar-footer{display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid hsl(var(--border));font-size:12px}
+.operation-calendar-footer button{padding:3px 5px;color:hsl(var(--muted-foreground))}
+.operation-calendar-footer button:first-child{color:#bb3b1a}
 .operation-filter-error{margin-top:12px;font-size:12px;color:#aa4030}
 .operation-pagination{display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-top:12px;font-size:11px;color:hsl(var(--muted-foreground))}
 .operation-pagination>span{margin-right:auto}
