@@ -150,7 +150,12 @@ export function DocPreviewDialog({
 
   useEffect(()=>{
     if (!open || !contextual || tab!=='full' || !sourceQuery || !detail) return
-    firstMatch.current?.scrollIntoView({block:'center'})
+    const container=previewBody.current,target=firstMatch.current
+    if(container&&target){
+      const top=target.getBoundingClientRect().top-container.getBoundingClientRect().top+container.scrollTop
+      // Scroll only the preview, never its ancestors. Tall matches start at the top.
+      container.scrollTo({top:Math.max(0,top-Math.max(16,(container.clientHeight-target.clientHeight)/2))})
+    }
   },[open,contextual,tab,sourceQuery,detail])
 
   if (!open || !doc) return null
