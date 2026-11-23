@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
-import { ArrowUp, ArrowUpRight, MessageSquare, PanelLeft, Plus, Settings2 } from 'lucide-react'
+import { ArrowUp, PanelLeft, Plus, Settings2 } from 'lucide-react'
 import { Link } from 'react-router'
 import type { QaExample } from '@/lib/qa-examples'
 import './QaWorkspace.css'
@@ -115,7 +115,6 @@ export function QaWorkspace(props: WorkspaceProps) {
         event.preventDefault()
         if (ready && !busy && question.trim()) event.currentTarget.form?.requestSubmit()
       }}/>
-    <span className="qa-composer-hint">Enter 发送<span> · Shift + Enter 换行</span></span>
     <button type="submit" aria-label="检索证据" title="发送问题" disabled={!ready || busy || !question.trim()}>
       <ArrowUp size={20} strokeWidth={1.8}/>
     </button>
@@ -124,8 +123,8 @@ export function QaWorkspace(props: WorkspaceProps) {
   return <div ref={workspace} className="qa-chat">
     <header className="qa-chat-header">
       <h1 className="sr-only">{library} · 知识问答</h1>
-      <div className="qa-header-conversation"><button type="button" className="qa-chat-icon" aria-expanded={showHistory}
-        aria-controls="qa-conversation-history" aria-label="会话列表" onClick={() => setShowHistory(open => !open)}><PanelLeft size={19}/></button><button type="button" className="qa-header-new" disabled={busy} onClick={onNew}><Plus size={15}/>新会话</button></div>
+      <button type="button" className="qa-chat-mobile qa-chat-icon" aria-expanded={showHistory}
+        aria-controls="qa-conversation-history" aria-label="会话列表" onClick={() => setShowHistory(open => !open)}><PanelLeft size={19}/></button>
       <div className="qa-chat-top-actions">
         {tools&&<nav className="flex items-center gap-4 text-xs text-muted-foreground" aria-label="问答快捷入口">{tools}</nav>}
         {settings&&<details className="qa-chat-settings">
@@ -136,13 +135,12 @@ export function QaWorkspace(props: WorkspaceProps) {
 
       </div>
     </header>
-    <div className={`qa-chat-layout ${!showHistory ? 'qa-history-collapsed' : ''} ${resizing ? 'qa-chat-layout-resizing' : ''} ${previewDocked ? 'qa-chat-layout-with-preview' : ''}`}
+    <div className={`qa-chat-layout ${resizing ? 'qa-chat-layout-resizing' : ''} ${previewDocked ? 'qa-chat-layout-with-preview' : ''}`}
       style={{ '--qa-history-width': `${historyWidth}px` } as CSSProperties}>
       <aside className={`qa-chat-side ${showHistory ? 'qa-chat-side-open' : ''}`} id="qa-conversation-history" aria-label={history.length ? '历史会话' : '会话'}>
         <button className="qa-chat-new" type="button" disabled={busy} onClick={() => { onNew(); setShowHistory(false) }}>
           <Plus size={16}/>新会话
         </button>
-        {!history.length&&<div className="qa-history-empty"><MessageSquare size={22}/><strong>还没有会话</strong><p>提出第一个问题，之后可以在这里继续查阅。</p></div>}
         {history.length > 0 && <>
           <h2>历史会话</h2>
           <ul>{history.map(item => <li key={item.id}>
@@ -166,14 +164,13 @@ export function QaWorkspace(props: WorkspaceProps) {
           </div>
         </> : <div className="qa-chat-scroll">
           <section className="qa-chat-welcome" aria-label="开始提问">
-            <div className="qa-welcome-label"><span/>知识问答</div><p className="qa-welcome-greeting">你好，{name}</p><h2>今天想查些什么？</h2>
-            <p>{externalSelected ? '可以检索获准资料。使用外部模型时，需要确认本轮问题。' : '查找资料、核对细节，让每个答案都有出处。'}</p>
+            <h2>你好，<em>{name}</em></h2>
+            <p>{externalSelected ? '可以检索获准资料。使用外部模型时，需要确认本轮问题。' : '有什么想查的？回答只来自知识库内已发布、且你有权查看的资料。'}</p>
             {composer}
-            <p className="qa-welcome-scope">仅使用你有权查看的已发布资料 · 回答附带来源，方便核对原文</p>
-            {examples.length > 0 && <div className="qa-welcome-examples" aria-label="示例问题"><h3>试着问一问</h3>
+            {examples.length > 0 && <div className="qa-first-chips" aria-label="示例问题">
               {examples.map(example => <button key={example.question} type="button" title={example.question}
                 aria-label={`${example.label}：${example.question}`} onClick={() => { onChange(example.question); inputRef.current?.focus() }}>
-                <MessageSquare size={16} aria-hidden="true"/><span>{example.label}</span><ArrowUpRight size={16} aria-hidden="true"/>
+                {example.label}
               </button>)}
             </div>}
             {!ready && children}
