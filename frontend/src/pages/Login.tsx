@@ -1,12 +1,13 @@
 // 页面一：登录（已有登录功能的视觉升级）
 // 演示账号由数据层提供；登录成功进入工作台，退出后回到本页。
 import { useEffect, useState } from 'react'
-import { ArrowRight, Check, Eye, EyeOff, KeyRound, Loader2, LockKeyhole, UserRound } from 'lucide-react'
+import { ArrowRight, BookOpen, Check, Eye, EyeOff, FileText, KeyRound, Loader2, LockKeyhole, Search, UserRound } from 'lucide-react'
 import { LogoLockup, LogoMark } from '@/components/Logo'
 import {DemoIdentityCards} from '@/components/DemoIdentityCards'
 import {api} from '@/lib/api'
 import { useSession } from '@/lib/session'
 import './LoginFlow.css'
+import './LoginPreview.css'
 
 export default function LoginPage() {
   const { login } = useSession()
@@ -65,62 +66,22 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-dvh lg:h-dvh lg:overflow-hidden">
-      {/* 品牌区 */}
-      <div className="relative hidden h-dvh w-[46%] shrink-0 flex-col justify-between overflow-hidden bg-[hsl(36_16%_9%)] p-12 lg:flex">
-        {/* 背景迹线装饰 */}
-        <svg
-          className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.10]"
-          aria-hidden="true"
-        >
-          <defs>
-            <pattern id="trace" width="56" height="56" patternUnits="userSpaceOnUse">
-              <path d="M0 28 H56 M28 0 V56" stroke="#EDE6D8" strokeWidth="0.5" />
-              <circle cx="28" cy="28" r="1.5" fill="#EDE6D8" />
-            </pattern>
-          </defs>
-          <rect width="100%" height="100%" fill="url(#trace)" />
-        </svg>
-
-        <LogoLockup dark />
-
-        <div className="relative">
-          <div className="font-mono2 text-[10px] font-medium uppercase tracking-[0.32em] text-[hsl(12_74%_58%)]">
-            Enterprise R&D Intelligence
+    <div className="lx-login flex min-h-dvh lg:h-dvh lg:overflow-hidden">
+      <aside className="lx-login-brand" aria-label="均易知识工作台介绍">
+        <LogoLockup />
+        <div className="lx-login-story">
+          <span className="lx-login-eyebrow">均易 · 企业知识工作台</span>
+          <h1>让知识连接团队，<br/>让经验随时可用。</h1>
+          <p>汇集工作资料，查找有依据的答案。<br/>在清晰的权限范围内，让协作更简单。</p>
+          <div className="lx-login-illustration" aria-hidden="true">
+            <div className="lx-login-art-back"><FileText size={26}/><i/><i/><i/></div>
+            <div className="lx-login-art-main"><span><BookOpen size={22}/>团队知识库</span><div><FileText size={18}/><i/></div><div><FileText size={18}/><i/></div><div><FileText size={18}/><i/></div></div>
+            <span className="lx-login-art-search"><Search size={23}/>找到工作所需的知识</span>
           </div>
-          <h1 className="mt-5 font-display text-[44px] font-semibold leading-[1.15] tracking-tight text-[#EDE6D8]">
-            企业研发
-            <br />
-            智能工作台
-          </h1>
-          <p className="mt-5 max-w-sm text-[14px] leading-relaxed text-[#a89f8c]">
-            让每一份信息，都有迹可循。
-          </p>
-
-          <div className="mt-10 space-y-4 border-t border-[hsl(36_10%_20%)] pt-8">
-            {[
-              ['找得到', '混合检索定位技术资料，Top-5 结果直达来源'],
-              ['查得清', '每条结论都有证据片段，可人工核对原文'],
-              ['管得住', '岗位权限约束访问范围，外发授权严格受控'],
-            ].map(([t, d], i) => (
-              <div key={t} className="flex items-baseline gap-4">
-                <span className="font-mono2 text-[11px] font-medium text-[hsl(12_74%_58%)]">
-                  0{i + 1}
-                </span>
-                <div>
-                  <span className="text-[14px] font-semibold text-[#EDE6D8]">{t}</span>
-                  <span className="ml-3 text-[12px] text-[#8f8674]">{d}</span>
-                </div>
-              </div>
-            ))}
-          </div>
+          <div className="lx-login-benefits"><span><Check size={15}/>资料集中管理</span><span><Check size={15}/>答案可查来源</span><span><Check size={15}/>按权限协作</span></div>
         </div>
-
-        <div className="relative flex items-center gap-2 font-mono2 text-[10px] uppercase tracking-[0.2em] text-[#6e6656]">
-          <LogoMark size={14} ink="#6e6656" trace="hsl(12 74% 58%)" />
-          P18 · JUNYI WORKBENCH
-        </div>
-      </div>
+        <div className="lx-login-brand-footer"><LogoMark size={16} ink="#6387bf" trace="#3978e8"/>让每一份信息，都有迹可循。</div>
+      </aside>
 
       {/* 激活与登录互斥展示；验证与会话仍由原生后端处理。 */}
       <main data-login-scroll="true" className={'login-flow-scroll min-w-0 flex-1'+(!activate&&!activationSuccess?' login-flow-normal':'')} aria-label="账号登录与激活">
