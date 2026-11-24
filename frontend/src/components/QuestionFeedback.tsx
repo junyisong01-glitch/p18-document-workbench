@@ -1,5 +1,8 @@
 import {useEffect,useState} from 'react'
 import {Link} from 'react-router'
+import {ChevronDown,FileText,Paperclip,History,Info} from 'lucide-react'
+import {documentTitleParts} from '@/lib/document-title'
+import './QuestionFeedback.css'
 import {api} from '@/lib/api'
 import {useSession} from '@/lib/session'
 import {demoIdentityName} from '@/lib/demo-identity-names'
@@ -16,14 +19,16 @@ type Feedback={id:string;owner?:string;department?:string;category:keyof typeof 
 export function RecordFeedback({turn,onClose,onSaved}:{turn:FeedbackTurn;onClose:()=>void;onSaved:()=>void}){
  const [category,setCategory]=useState<keyof typeof categories|null>(null),[note,setNote]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('')
  return <DocumentModal open title="反馈问题" description="帮助维护人员排查原因，不会自动派给部门主管。" busy={busy} onClose={onClose}>
- <form className="space-y-5" onSubmit={async e=>{e.preventDefault();if(!category||busy)return;setBusy(true);setError('');try{await api.post('/api/business/feedback',{context_id:turn.contextId,category,note});onSaved()}catch(e){setError((e as Error).message)}finally{setBusy(false)}}}>
+ <form className="feedback-form space-y-5" onSubmit={async e=>{e.preventDefault();if(!category||busy)return;setBusy(true);setError('');try{await api.post('/api/business/feedback',{context_id:turn.contextId,category,note});onSaved()}catch(e){setError((e as Error).message)}finally{setBusy(false)}}}>
   <p className="rounded-lg bg-secondary/50 p-4 text-sm leading-7 break-words">{turn.question}</p>
   <fieldset className="grid gap-2"><legend className="mb-2 text-sm font-medium">遇到了什么问题？</legend>{Object.entries(categories).map(([key,label])=><label key={key} className="flex cursor-pointer items-center gap-3 rounded-lg border border-border px-4 py-3 text-sm"><input type="radio" name="feedback-category" value={key} disabled={busy} checked={category===key} onChange={()=>setCategory(key as keyof typeof categories)}/>{label}</label>)}</fieldset>
-  <label className="grid gap-2 text-sm">补充说明（选填）<textarea className={input+' min-h-24'} disabled={busy} maxLength={1000} value={note} placeholder="例如：回答中的时间与引用原文不一致。" onChange={e=>setNote(e.target.value)}/></label>
-  <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">将附上本轮问题、回答与引用</summary><div className="mt-3 max-h-48 space-y-3 overflow-auto rounded-lg bg-secondary/40 p-3"><p className="whitespace-pre-wrap break-words">{turn.answer}</p>{turn.citations.length?<ul>{turn.citations.map((c,i)=><li key={i}>{c.document_name}{c.section?' · '+c.section:''}</li>)}</ul>:<p>本轮没有引用资料。</p>}</div></details>
-  <p className="text-xs leading-6 text-muted-foreground">提交后由维护管理账号按权限查看，仅保存本轮内容，不附上整段聊天。请勿在补充说明中填写无关敏感信息。</p>
+  <label className="feedback-note"><span><strong>补充说明<small>选填</small></strong><small className="feedback-note-count">{note.length} / 1000</small></span><textarea disabled={busy} maxLength={1000} value={note} placeholder="例如：回答中的时间与引用原文不一致。" onChange={e=>setNote(e.target.value)}/></label>
+  <details className="feedback-context"><summary><Paperclip size={17} aria-hidden="true"/><span><strong>随反馈附带的内容</strong><small>本轮问题、回答{turn.citations.length?`及 ${turn.citations.length} 条引用`:''}</small></span><span className="feedback-context-toggle"><span className="feedback-context-show">查看</span><span className="feedback-context-hide">收起</span><ChevronDown size={15} aria-hidden="true"/></span></summary>
+   <div className="feedback-context-body"><section aria-label="本轮回答"><h3>本轮回答</h3><p className="feedback-context-answer">{turn.answer||'本轮暂无回答。'}</p></section><section aria-label="引用资料"><h3>引用资料<span>{turn.citations.length} 条</span></h3>{turn.citations.length?<ul className="feedback-citations">{turn.citations.map((c,i)=>{const {title}=documentTitleParts(c.document_name);return <li key={i}><FileText size={17} aria-hidden="true"/><div><strong title={c.document_name}>{title}</strong>{c.section&&<small>{c.section}</small>}</div>{c.id&&<span className="feedback-citation-id">{c.id}</span>}</li>})}</ul>:<p className="feedback-context-empty">本轮没有引用资料。</p>}</section></div>
+  </details>
+  <div className="feedback-privacy"><Info size={15} aria-hidden="true"/><p>仅附带本轮内容，由维护管理账号按权限查看，不包含整段聊天。<span>补充说明中请勿填写无关敏感信息。</span></p></div>
   {error&&<p role="alert" className="text-sm text-red-700">{error}</p>}
-  <div className="dm-modal-actions"><Link className="mr-auto text-xs text-muted-foreground underline" to="/knowledge-gaps" onClick={onClose}>查看反馈记录</Link><button type="button" disabled={busy} onClick={onClose}>取消</button><button className="dm-primary" disabled={!category||busy}>{busy?'正在提交…':'提交反馈'}</button></div>
+  <div className="dm-modal-actions feedback-footer"><Link className="feedback-history" to="/knowledge-gaps" onClick={onClose}><History size={15} aria-hidden="true"/>反馈记录</Link><div className="feedback-footer-buttons"><button type="button" className="feedback-cancel" disabled={busy} onClick={onClose}>取消</button><button className="dm-primary" disabled={!category||busy}>{busy?'正在提交…':'提交反馈'}</button></div></div>
  </form></DocumentModal>
 }
 
