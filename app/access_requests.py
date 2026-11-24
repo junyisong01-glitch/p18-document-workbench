@@ -22,10 +22,11 @@ class CreateRequest(BaseModel):
 class Decision(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     expected: int = Field(ge=0)
-    action: Literal['approve', 'reject', 'cancel']
+    action: Literal['approve', 'reject', 'cancel', 'needs_content', 'resolve']
     document_id: str | None = None
     document_version: int | None = Field(default=None, ge=0)
     days: int = Field(default=7, ge=1, le=30)
+    note: str = Field(default='', max_length=1000)
 
 
 def install(store, central, user, read, visible, manager):
@@ -40,6 +41,17 @@ def install(store, central, user, read, visible, manager):
           id INTEGER PRIMARY KEY, request_id TEXT NOT NULL, actor TEXT NOT NULL,
           action TEXT NOT NULL, at REAL NOT NULL, version INTEGER NOT NULL)''')
 
+    # Additive, repeatable migration preserves existing requests and audit entries.
+    with store.connect() as c:
+        columns = {r[1] for r in c.execute('PRAGMA table_info(access_requests)')}
+        for name in ('review_note', 'gap_note', 'gap_actor'):
+            if name not in columns:
+                c.execute(f'ALTER TABLE access_requests ADD COLUMN {name} TEXT')
+        event_columns = {r[1] for r in c.execute('PRAGMA table_info(access_request_events)')}
+        if 'note' not in event_columns:
+            c.execute('ALTER TABLE access_request_events ADD COLUMN note TEXT')
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS access_request_open ON access_requests(owner,department,question) WHERE status IN ('pending','needs_content')")
+
     def internal():
         u = user()
         if u['role'] not in {'employee', 'supervisor', 'boss'}:
@@ -51,14 +63,14 @@ def install(store, central, user, read, visible, manager):
             u['role'] == 'supervisor' and u['department'] == row['department'])
 
     def output(row, u):
-        result = {k:row[k] for k in ('id','owner','owner_department','department','question','purpose','status','version','created','updated')}
+        result = {k:row[k] for k in ('id','owner','owner_department','department','question','purpose','status','version','created','updated','review_note','gap_note','gap_actor')}
         result.update(can_review=reviewer(u,row), document=None, access_available=False, expires_at=row['expires'])
         # Requests route to a role, not to an assigned individual. The stored
         # actor is the historical decision maker, even after later role changes.
-        result['reviewer_scope'] = f"{row['department']}主管或管理层" if row['status'] == 'pending' else None
-        result['handled_by'] = row['actor'] if row['status'] != 'pending' else None
+        result['reviewer_scope'] = f"{row['department']}主管或管理层" if row['status'] in {'pending','needs_content'} else None
+        result['handled_by'] = row['actor'] if row['status'] not in {'pending','needs_content'} else None
         # Do not retain a revoked file's title/identifier in applicant notifications.
-        if row['status'] == 'approved' and row['document_id']:
+        if row['status'] in {'approved','resolved'} and row['document_id']:
             try:
                 doc = store.get(row['document_id'])
                 if visible(doc, u, evidence=True):
@@ -86,7 +98,7 @@ def install(store, central, user, read, visible, manager):
             raise HTTPException(422, '请填写问题、用途并选择相关部门')
         now = time.time()
         with store.LOCK, store.connect() as c:
-            existing = c.execute("SELECT * FROM access_requests WHERE owner=? AND department=? AND question=? AND status='pending'",
+            existing = c.execute("SELECT * FROM access_requests WHERE owner=? AND department=? AND question=? AND status IN ('pending','needs_content')",
                                  (u['username'],body.department,question)).fetchone()
             if existing:
                 return output(existing,u)
@@ -107,7 +119,7 @@ def install(store, central, user, read, visible, manager):
             row = c.execute('SELECT * FROM access_requests WHERE id=?',(identifier,)).fetchone()
             if not row or not reviewer(u,row):
                 raise HTTPException(404,'申请不存在或不可处理')
-            if row['status'] != 'pending':
+            if row['status'] not in {'pending','needs_content'}:
                 raise HTTPException(409,'申请已处理，请刷新')
             question, purpose, department = row['question'], row['purpose'], row['department']
 
@@ -129,7 +141,7 @@ def install(store, central, user, read, visible, manager):
             current = c.execute('SELECT * FROM access_requests WHERE id=?',(identifier,)).fetchone()
             if not current or not reviewer(u,current):
                 raise HTTPException(404,'申请不存在或不可处理')
-            if current['status'] != 'pending':
+            if current['status'] not in {'pending','needs_content'}:
                 raise HTTPException(409,'申请已处理，请刷新')
             found = []
             seen = set()
@@ -158,7 +170,7 @@ def install(store, central, user, read, visible, manager):
             current = c.execute('SELECT * FROM access_requests WHERE id=?',(identifier,)).fetchone()
             if not current or not reviewer(u,current):
                 raise HTTPException(404,'申请不存在或不可处理')
-            if current['status'] != 'pending':
+            if current['status'] not in {'pending','needs_content'}:
                 raise HTTPException(409,'申请已处理，请刷新')
             fresh = []
             for item in found:
@@ -186,13 +198,22 @@ def install(store, central, user, read, visible, manager):
                     raise HTTPException(403,'仅申请人可撤回申请')
             elif not reviewer(u,row):
                 raise HTTPException(403,'请由资料所属部门的其他主管或管理层处理')
-            if row['status']!='pending' or row['version']!=body.expected:
+            if row['status'] not in {'pending','needs_content'} or row['version']!=body.expected:
                 raise HTTPException(409,'申请已处理或发生变化，请刷新')
-            if body.action!='approve' and (body.document_id is not None or body.document_version is not None):
+            if body.action == 'resolve' and row['status'] != 'needs_content':
+                raise HTTPException(409, '仅待补充申请可完成补充')
+            if body.action == 'approve' and row['status'] == 'needs_content':
+                raise HTTPException(409, '请使用完成补充操作并说明补充结果')
+            note = body.note.strip()
+            if body.action in {'needs_content','resolve','reject'} and not note:
+                raise HTTPException(422, '请填写供申请人查看的处理说明')
+            if body.action=='cancel' and note:
+                raise HTTPException(422, '撤回操作不接受处理说明')
+            if body.action not in {'approve','resolve'} and (body.document_id is not None or body.document_version is not None):
                 raise HTTPException(422,'此操作不接受文件参数')
             document_id = None
             expires = None
-            if body.action=='approve':
+            if body.action in {'approve','resolve'}:
                 with central.connect() as accounts:
                     person = accounts.execute('''SELECT a.active,p.role,p.department FROM library_accounts a
                       JOIN business_profiles p ON p.username=a.username WHERE a.username=?''',(row['owner'],)).fetchone()
@@ -221,12 +242,15 @@ def install(store, central, user, read, visible, manager):
                 c.execute('UPDATE business_documents SET body=? WHERE document_id=?',(json.dumps(b,ensure_ascii=False),document_id))
                 c.execute('INSERT INTO business_events(document_id,at,actor,action,body) VALUES (?,?,?,?,?)',
                           (document_id,now,u['username'],'share',json.dumps({'username':row['owner'],'expires_at':expires,'version':b['version'],'request_id':identifier},ensure_ascii=False)))
-            status = {'approve':'approved','reject':'rejected','cancel':'cancelled'}[body.action]
+            status = {'approve':'approved','reject':'rejected','cancel':'cancelled','needs_content':'needs_content','resolve':'resolved'}[body.action]
             now = time.time()
             c.execute('''UPDATE access_requests SET status=?,version=version+1,document_id=?,expires=?,actor=?,updated=? WHERE id=?''',
                       (status,document_id,expires,u['username'],now,identifier))
-            c.execute('INSERT INTO access_request_events(request_id,actor,action,at,version) VALUES (?,?,?,?,?)',
-                      (identifier,u['username'],body.action,now,row['version']+1))
+            c.execute('UPDATE access_requests SET review_note=? WHERE id=?', (note or None,identifier))
+            if body.action == 'needs_content':
+                c.execute('UPDATE access_requests SET gap_note=?,gap_actor=? WHERE id=?', (note,u['username'],identifier))
+            c.execute('INSERT INTO access_request_events(request_id,actor,action,at,version,note) VALUES (?,?,?,?,?,?)',
+                      (identifier,u['username'],body.action,now,row['version']+1,note or None))
             # Finish the transaction before projecting access (visible reads a new connection).
         with store.connect() as c:
             return output(c.execute('SELECT * FROM access_requests WHERE id=?',(identifier,)).fetchone(),u)

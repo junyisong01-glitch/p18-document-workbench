@@ -14,7 +14,7 @@ def create(r,who='prd',department='研发部',question='错误码如何处理？
     return r.c.post(PATH,headers=r.h[who],json={'question':question,'purpose':'现场排障','department':department})
 
 def decide(r,req,who='head',action='approve',doc=None,**kw):
-    body={'expected':req['version'],'action':action,**kw}
+    body={'expected':req['version'],'action':action,**({'note':'用途不符合本次授权条件'} if action=='reject' else {}),**kw}
     if doc:body.update(document_id=doc,document_version=r.q.business_read(doc)['version'])
     return r.c.post(PATH+'/'+req['id']+'/decision',headers=r.h[who],json=body)
 
@@ -184,3 +184,74 @@ def test_request_handler_projection_tracks_routing_and_actual_actor(rig):
         c.execute('UPDATE access_requests SET actor=NULL WHERE id=?', (cancelled['id'],))
     assert next(x for x in listing(r, 'prd') if x['id'] == cancelled['id'])['handled_by'] is None
     assert listing(r, 'otherhead') == [] and listing(r, 'rd') == []
+
+
+def test_gap_followup_completion_and_revocation(rig):
+    r=rig; req=create(r).json()
+    gap=decide(r,req,action='needs_content',note='缺少设备报障时限，研发部补充操作说明。').json()
+    assert gap['status']=='needs_content' and gap['gap_actor']=='head'
+    assert gap['document'] is None and not gap['access_available']
+    assert create(r).json()['id']==req['id']
+    assert listing(r,'otherhead')==[] and listing(r,'rd')==[]
+    assert decide(r,gap,who='prd',action='resolve',note='越权').status_code==403
+    assert decide(r,req,action='needs_content',note='过时更新').status_code==409
+    updated=decide(r,gap,action='needs_content',note='操作说明已整理，等待发布。').json()
+    doc=r.create(status='submitted')
+    assert decide(r,updated,action='resolve',doc=doc,note='已补充').status_code==409
+    with r.q.connect() as c:
+        assert c.execute('SELECT COUNT(*) FROM business_grants').fetchone()[0]==0
+        b=r.q.business_read(doc);b['status']='published'
+        c.execute('UPDATE business_documents SET body=? WHERE document_id=?',(json.dumps(b),doc))
+    assert decide(r,updated,doc=doc).status_code==409
+    resolved=decide(r,updated,action='resolve',doc=doc,note='已发布报障说明，请重新提问。').json()
+    assert resolved['status']=='resolved' and resolved['access_available']
+    mine=listing(r,'prd')[0]
+    assert mine['review_note']=='已发布报障说明，请重新提问。' and mine['gap_note']=='操作说明已整理，等待发布。'
+    assert mine['handled_by']=='head' and mine['document']['id']==doc
+    assert decide(r,resolved,action='resolve',doc=doc,note='重复').status_code==409
+    assert r.action(doc,'head','revoke_share',username='prd').status_code==200
+    assert listing(r,'prd')[0]['document'] is None and not listing(r,'prd')[0]['access_available']
+    with r.q.connect() as c:
+        events=c.execute('SELECT action,note FROM access_request_events WHERE request_id=? ORDER BY version',(req['id'],)).fetchall()
+        assert [x[0] for x in events]==['create','needs_content','needs_content','resolve']
+        assert events[1][1]=='缺少设备报障时限，研发部补充操作说明。'
+
+
+@pytest.mark.parametrize('action',['needs_content','reject','resolve'])
+def test_gap_requires_reason_and_authorized_state(rig,action):
+    r=rig;req=create(r).json()
+    if action=='resolve':req=decide(r,req,action='needs_content',note='待补充').json()
+    for note in ['', '   ']:
+        assert decide(r,req,action=action,note=note).status_code==422
+    assert decide(r,req,who='otherhead',action=action,note='说明').status_code==404
+    assert decide(r,req,who='prd',action=action,note='说明').status_code==403
+    assert decide(r,req,action='needs_content',note='说明',doc=r.create()).status_code==422
+    assert listing(r,'prd')[0]['version']==req['version']
+
+
+def test_gap_cancel_reject_and_resolve_guards(rig):
+    r=rig;req=create(r).json();doc=r.create()
+    assert decide(r,req,action='resolve',doc=doc,note='未核查').status_code==409
+    gap=decide(r,req,action='needs_content',note='待补充').json()
+    assert decide(r,gap,who='prd',action='cancel').json()['status']=='cancelled'
+    req=create(r).json();assert req['id']!=gap['id']
+    gap=decide(r,req,action='needs_content',note='待补充').json()
+    rejected=decide(r,gap,action='reject',note='用途需要重新确认').json()
+    assert rejected['status']=='rejected' and rejected['review_note']=='用途需要重新确认'
+    assert rejected['gap_note']=='待补充'
+
+
+def test_gap_migration_preserves_legacy_records_and_is_repeatable(rig):
+    from app.access_requests import install
+    r=rig;req=create(r).json()
+    with r.q.connect() as c:
+        for name in ('review_note','gap_note','gap_actor'):
+            c.execute('ALTER TABLE access_requests DROP COLUMN '+name)
+        c.execute('ALTER TABLE access_request_events DROP COLUMN note')
+        c.execute('DROP INDEX access_request_open')
+        before=tuple(c.execute('SELECT * FROM access_requests').fetchone())
+        event=tuple(c.execute('SELECT * FROM access_request_events').fetchone())
+    for _ in range(2):install(r.q,r.q,lambda:None,None,None,None)
+    with r.q.connect() as c:
+        assert tuple(c.execute('SELECT * FROM access_requests').fetchone())==before+(None,None,None)
+        assert tuple(c.execute('SELECT * FROM access_request_events').fetchone())==event+(None,)

@@ -41,10 +41,10 @@ export function QaAnswerLoading({ phase }: { phase: 'search' | 'answer' }) {
   </section>
 }
 
-export function QaNoEvidence({ question, examples, onAsk }: SuggestionsProps & { question: string }) {
+export function QaNoEvidence({ question, examples, onAsk, supportAvailable }: SuggestionsProps & { question: string; supportAvailable?:boolean }) {
   return <section className="qa-first-card qa-first-empty" aria-label="没找到可靠依据" role="status">
     <h2>没找到可靠依据</h2>
-    <p>当前可查阅的已发布资料中，暂未找到能回答「{question}」的依据。</p>
+    <p>当前可查阅的已发布资料不足以回答「{question}」。</p>{supportAvailable&&<p className="qa-first-support-hint">可申请相关部门核查，确认是否有适合借阅的资料，或需要补充内容。这不代表整个知识库没有答案。</p>}
     <Suggestions examples={examples} onAsk={onAsk}/>
   </section>
 }
