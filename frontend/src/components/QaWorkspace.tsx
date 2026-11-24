@@ -77,6 +77,8 @@ export function QaWorkspace(props: WorkspaceProps) {
     settings, tools, preview, previewDocked, onChange, onAsk, onNew, onSelect, children,
   } = props
 
+  const hasHistory = history.length > 0 || hasTurns
+
   function startResize(event: PointerEvent<HTMLDivElement>) {
     if (!event.isPrimary || event.button !== 0 || drag.current) return
     const handle = event.currentTarget
@@ -151,11 +153,11 @@ export function QaWorkspace(props: WorkspaceProps) {
     </button>
   </form>
 
-  return <div ref={workspace} className="qa-chat" style={{ '--qa-history-width': `${historyWidth}px`, '--qa-preview-width': `${previewWidth}px` } as CSSProperties}>
+  return <div ref={workspace} className={`qa-chat${hasHistory ? '' : ' qa-chat-without-history'}`} style={{ '--qa-history-width': `${historyWidth}px`, '--qa-preview-width': `${previewWidth}px` } as CSSProperties}>
     <header className="qa-chat-header">
       <h1 className="sr-only">{library} · 知识问答</h1>
-      <button type="button" className="qa-chat-mobile qa-chat-icon" aria-expanded={showHistory}
-        aria-controls="qa-conversation-history" aria-label="会话列表" onClick={() => setShowHistory(open => !open)}><PanelLeft size={19}/></button>
+      {hasHistory&&<button type="button" className="qa-chat-mobile qa-chat-icon" aria-expanded={showHistory}
+        aria-controls="qa-conversation-history" aria-label="会话列表" onClick={() => setShowHistory(open => !open)}><PanelLeft size={19}/></button>}
       <div className="qa-chat-top-actions">
         <AppearanceToggle/>
         {tools&&<nav className="flex items-center gap-4 text-xs text-muted-foreground" aria-label="问答快捷入口">{tools}</nav>}
@@ -168,7 +170,7 @@ export function QaWorkspace(props: WorkspaceProps) {
       </div>
     </header>
     <div className={`qa-chat-layout ${resizing||previewResizing ? 'qa-chat-layout-resizing' : ''} ${previewDocked ? 'qa-chat-layout-with-preview' : ''}`}>
-      <aside className={`qa-chat-side ${showHistory ? 'qa-chat-side-open' : ''}`} id="qa-conversation-history" aria-label={history.length ? '历史会话' : '会话'}>
+      {hasHistory&&<><aside className={`qa-chat-side ${showHistory ? 'qa-chat-side-open' : ''}`} id="qa-conversation-history" aria-label={history.length ? '历史会话' : '会话'}>
         <button className="qa-chat-new" type="button" disabled={busy} onClick={() => { onNew(); setShowHistory(false) }}>
           <Plus size={16}/>新会话
         </button>
@@ -185,7 +187,7 @@ export function QaWorkspace(props: WorkspaceProps) {
         aria-valuemax={historyMaxWidth} aria-valuenow={historyWidth} aria-valuetext={`${historyWidth} 像素`}
         onPointerDown={startResize} onPointerMove={moveResize} onPointerUp={finishResize}
         onPointerCancel={finishResize} onLostPointerCapture={finishResize}
-        onKeyDown={resizeWithKeyboard} />
+        onKeyDown={resizeWithKeyboard} /></>}
       <main className="qa-chat-main">
         {hasTurns ? <>
           <div className="qa-chat-scroll"><div className="qa-chat-thread">{children}</div></div>

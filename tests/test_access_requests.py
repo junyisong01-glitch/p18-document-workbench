@@ -255,3 +255,66 @@ def test_gap_migration_preserves_legacy_records_and_is_repeatable(rig):
     with r.q.connect() as c:
         assert tuple(c.execute('SELECT * FROM access_requests').fetchone())==before+(None,None,None)
         assert tuple(c.execute('SELECT * FROM access_request_events').fetchone())==event+(None,)
+
+
+def multi_decide(r,req,docs,action='approve',**extra):
+    return r.c.post(PATH+'/'+req['id']+'/decision',headers=r.h['head'],json={
+        'expected':req['version'],'action':action,'documents':[{'id':doc,'version':r.q.business_read(doc)['version']} for doc in docs],**extra})
+
+
+def test_multi_grants_partial_revocation_and_per_file_expiry(rig):
+    r=rig;a=r.create();b=r.create();req=create(r).json()
+    assert r.action(a,'head','share',username='prd').status_code==200
+    response=multi_decide(r,req,[a,b],days=1);assert response.status_code==200,response.text
+    out=response.json();assert {d['id'] for d in out['documents']}=={a,b}
+    assert out['documents'][0]['expires_at'] is None
+    assert out['documents'][1]['expires_at']>time.time()
+    assert r.action(a,'head','revoke_share',username='prd').status_code==200
+    remaining=listing(r,'prd')[0];assert remaining['access_available']
+    assert [d['id'] for d in remaining['documents']]==[b] and a not in json.dumps(remaining)
+    assert r.action(b,'head','revoke_share',username='prd').status_code==200
+    out=listing(r,'prd')[0];assert out['documents']==[] and out['document'] is None and not out['access_available']
+
+
+@pytest.mark.parametrize('invalid',['stale','department','draft','restricted','index'])
+def test_multi_invalid_second_file_has_no_partial_writes(rig,invalid):
+    r=rig;a=r.create();b=r.create(dept='财务部' if invalid=='department' else '研发部',status='submitted' if invalid=='draft' else 'published',restricted=invalid=='restricted');req=create(r).json()
+    if invalid=='index':r.index_states[b]={'searchable':False}
+    documents=[{'id':d,'version':r.q.business_read(d)['version']} for d in [a,b]]
+    if invalid=='stale':documents[1]['version']+=1
+    response=r.c.post(PATH+'/'+req['id']+'/decision',headers=r.h['head'],json={'expected':0,'action':'approve','documents':documents})
+    assert response.status_code in [404,409]
+    with r.q.connect() as c:
+        assert c.execute('SELECT COUNT(*) FROM business_grants').fetchone()[0]==0
+        assert c.execute('SELECT COUNT(*) FROM access_request_documents').fetchone()[0]==0
+        assert c.execute('SELECT COUNT(*) FROM business_events').fetchone()[0]==0
+        assert r.q.business_read(a)['version']==0
+        assert c.execute('SELECT status FROM access_requests WHERE id=?',(req['id'],)).fetchone()[0]=='pending'
+
+
+def test_multi_input_validation_and_content_completion(rig):
+    r=rig;a=r.create();b=r.create();req=create(r).json()
+    assert multi_decide(r,req,[a,a]).status_code==422
+    assert multi_decide(r,req,[]).status_code==422
+    assert multi_decide(r,req,[a],document_id=a,document_version=0).status_code==422
+    assert multi_decide(r,req,[a],action='reject',note='拒绝').status_code==422
+    gap=decide(r,req,action='needs_content',note='待补充').json()
+    result=multi_decide(r,gap,[a,b],action='resolve',note='两份资料已补齐')
+    assert result.status_code==200,result.text
+    assert result.json()['status']=='resolved' and len(result.json()['documents'])==2
+    with r.q.connect() as c:
+        assert c.execute('SELECT COUNT(*) FROM access_request_documents WHERE request_id=?',(req['id'],)).fetchone()[0]==2
+        assert c.execute("SELECT COUNT(*) FROM access_request_events WHERE action='resolve'").fetchone()[0]==1
+
+
+def test_multi_legacy_approval_backfill_repeatable(rig):
+    from app.access_requests import install
+    r=rig;doc=r.create();req=create(r).json();assert decide(r,req,doc=doc).status_code==200
+    with r.q.connect() as c:
+        c.execute('DROP TABLE access_request_documents')
+        grants=[tuple(x) for x in c.execute('SELECT * FROM business_grants')]
+    for _ in range(2):install(r.q,r.q,lambda:None,None,None,None)
+    with r.q.connect() as c:
+        assert c.execute('SELECT COUNT(*) FROM access_request_documents').fetchone()[0]==1
+        assert [tuple(x) for x in c.execute('SELECT * FROM business_grants')]==grants
+    assert listing(r,'prd')[0]['documents'][0]['id']==doc

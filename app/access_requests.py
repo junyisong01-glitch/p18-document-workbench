@@ -19,12 +19,19 @@ class CreateRequest(BaseModel):
     department: str
 
 
+class DocumentSelection(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    id: str = Field(min_length=1)
+    version: int = Field(ge=0)
+
+
 class Decision(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     expected: int = Field(ge=0)
     action: Literal['approve', 'reject', 'cancel', 'needs_content', 'resolve']
     document_id: str | None = None
     document_version: int | None = Field(default=None, ge=0)
+    documents: list[DocumentSelection] | None = Field(default=None, min_length=1, max_length=50)
     days: int = Field(default=7, ge=1, le=30)
     note: str = Field(default='', max_length=1000)
 
@@ -52,6 +59,16 @@ def install(store, central, user, read, visible, manager):
             c.execute('ALTER TABLE access_request_events ADD COLUMN note TEXT')
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS access_request_open ON access_requests(owner,department,question) WHERE status IN ('pending','needs_content')")
 
+    with store.connect() as c:
+        c.execute('''CREATE TABLE IF NOT EXISTS access_request_documents (
+          request_id TEXT NOT NULL, document_id TEXT NOT NULL, expires REAL,
+          PRIMARY KEY(request_id,document_id))''')
+        # Backfill historical single-file approvals without changing grants.
+        c.execute("""INSERT INTO access_request_documents(request_id,document_id,expires)
+          SELECT r.id,r.document_id,r.expires FROM access_requests r
+          WHERE r.status IN ('approved','resolved') AND r.document_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM access_request_documents d WHERE d.request_id=r.id)""")
+
     def internal():
         u = user()
         if u['role'] not in {'employee', 'supervisor', 'boss'}:
@@ -70,14 +87,20 @@ def install(store, central, user, read, visible, manager):
         result['reviewer_scope'] = f"{row['department']}主管或管理层" if row['status'] in {'pending','needs_content'} else None
         result['handled_by'] = row['actor'] if row['status'] not in {'pending','needs_content'} else None
         # Do not retain a revoked file's title/identifier in applicant notifications.
-        if row['status'] in {'approved','resolved'} and row['document_id']:
-            try:
-                doc = store.get(row['document_id'])
-                if visible(doc, u, evidence=True):
-                    result['document'] = {'id':doc['id'], 'name':doc['name']}
-                    result['access_available'] = True
-            except HTTPException:
-                pass
+        result['documents'] = []
+        if row['status'] in {'approved','resolved'}:
+            with store.connect() as c:
+                linked = c.execute('SELECT document_id,expires FROM access_request_documents WHERE request_id=? ORDER BY rowid',(row['id'],)).fetchall()
+            for item in linked:
+                try:
+                    doc = store.get(item['document_id'])
+                    if visible(doc, u, evidence=True):
+                        result['documents'].append({'id':doc['id'], 'name':doc['name'], 'expires_at':item['expires']})
+                except HTTPException:
+                    pass
+            if result['documents']:
+                first = result['documents'][0]
+                result.update(document={'id':first['id'],'name':first['name']},access_available=True,expires_at=first['expires_at'])
         return result
 
     @store.app.get('/api/business/access-requests')
@@ -209,7 +232,7 @@ def install(store, central, user, read, visible, manager):
                 raise HTTPException(422, '请填写供申请人查看的处理说明')
             if body.action=='cancel' and note:
                 raise HTTPException(422, '撤回操作不接受处理说明')
-            if body.action not in {'approve','resolve'} and (body.document_id is not None or body.document_version is not None):
+            if body.action not in {'approve','resolve'} and (body.document_id is not None or body.document_version is not None or body.documents is not None):
                 raise HTTPException(422,'此操作不接受文件参数')
             document_id = None
             expires = None
@@ -219,29 +242,45 @@ def install(store, central, user, read, visible, manager):
                       JOIN business_profiles p ON p.username=a.username WHERE a.username=?''',(row['owner'],)).fetchone()
                 if not person or not person['active'] or person['role'] not in {'employee','supervisor','boss'} or person['department']!=row['owner_department']:
                     raise HTTPException(409,'申请人身份已变化，请重新提交申请')
-                b = read(body.document_id,c) if body.document_id else None
-                if (not b or b['department']!=row['department'] or not manager(u,b)
-                        or b.get('restricted') and u['role']!='boss'):
-                    raise HTTPException(404,'所选资料不可用于此申请')
-                doc = store.get(body.document_id)
-                if (b['status']!='published' or b.get('archived') or b.get('deleted') or b.get('purged')
-                        or not visible(doc,u,evidence=True) or not store.business_raw_index_status(body.document_id).get('searchable')):
-                    raise HTTPException(409,'请选择当前已发布且可检索的资料')
-                if body.document_version is None or body.document_version!=b['version']:
-                    raise HTTPException(409,'资料已变化，请刷新后重新选择')
-                document_id = body.document_id
-                expires = now = time.time()
-                expires += body.days*86400
-                existing = c.execute('SELECT expires FROM business_grants WHERE document_id=? AND username=?',
-                                     (document_id,row['owner'])).fetchone()
-                # An approval must never shorten an existing permanent or longer grant.
-                if existing and (existing['expires'] is None or existing['expires']>expires):
-                    expires = existing['expires']
-                c.execute('INSERT OR REPLACE INTO business_grants VALUES (?,?,?)',(document_id,row['owner'],expires))
-                b['version']+=1
-                c.execute('UPDATE business_documents SET body=? WHERE document_id=?',(json.dumps(b,ensure_ascii=False),document_id))
-                c.execute('INSERT INTO business_events(document_id,at,actor,action,body) VALUES (?,?,?,?,?)',
-                          (document_id,now,u['username'],'share',json.dumps({'username':row['owner'],'expires_at':expires,'version':b['version'],'request_id':identifier},ensure_ascii=False)))
+                if body.documents is not None:
+                    if body.document_id is not None or body.document_version is not None:
+                        raise HTTPException(422,'请勿同时提交单文件和多文件参数')
+                    selections = body.documents
+                else:
+                    if not body.document_id or body.document_version is None:
+                        raise HTTPException(422,'请选择至少一份资料并提供版本')
+                    selections = [DocumentSelection(id=body.document_id,version=body.document_version)]
+                if len({item.id for item in selections}) != len(selections):
+                    raise HTTPException(422,'请勿重复选择同一份资料')
+                prepared = []
+                # Validate the entire batch before creating any read grants.
+                for item in selections:
+                    b = read(item.id,c)
+                    if (not b or b['department']!=row['department'] or not manager(u,b)
+                            or b.get('restricted') and u['role']!='boss'):
+                        raise HTTPException(404,'所选资料不可用于此申请')
+                    doc = store.get(item.id)
+                    if (b['status']!='published' or b.get('archived') or b.get('deleted') or b.get('purged')
+                            or not visible(doc,u,evidence=True) or not store.business_raw_index_status(item.id).get('searchable')):
+                        raise HTTPException(409,'请选择当前已发布且可检索的资料')
+                    if item.version!=b['version']:
+                        raise HTTPException(409,'资料已变化，请刷新后重新选择')
+                    prepared.append((item.id,b))
+                for file_id,b in prepared:
+                    now = time.time()
+                    file_expires = now + body.days*86400
+                    existing = c.execute('SELECT expires FROM business_grants WHERE document_id=? AND username=?',
+                                         (file_id,row['owner'])).fetchone()
+                    if existing and (existing['expires'] is None or existing['expires']>file_expires):
+                        file_expires = existing['expires']
+                    c.execute('INSERT OR REPLACE INTO business_grants VALUES (?,?,?)',(file_id,row['owner'],file_expires))
+                    c.execute('INSERT INTO access_request_documents VALUES (?,?,?)',(identifier,file_id,file_expires))
+                    b['version']+=1
+                    c.execute('UPDATE business_documents SET body=? WHERE document_id=?',(json.dumps(b,ensure_ascii=False),file_id))
+                    c.execute('INSERT INTO business_events(document_id,at,actor,action,body) VALUES (?,?,?,?,?)',
+                              (file_id,now,u['username'],'share',json.dumps({'username':row['owner'],'expires_at':file_expires,'version':b['version'],'request_id':identifier},ensure_ascii=False)))
+                    if document_id is None:
+                        document_id, expires = file_id, file_expires
             status = {'approve':'approved','reject':'rejected','cancel':'cancelled','needs_content':'needs_content','resolve':'resolved'}[body.action]
             now = time.time()
             c.execute('''UPDATE access_requests SET status=?,version=version+1,document_id=?,expires=?,actor=?,updated=? WHERE id=?''',
