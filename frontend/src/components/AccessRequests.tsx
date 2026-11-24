@@ -94,7 +94,7 @@ export function AccessRequestList({rows,review=false,onChanged,onAsk}:{rows:Acce
     </div>
     <div className="access-manual-picker" id={manualId} hidden={!manualOpen}><label>选择借阅文件<select disabled={loading||busy} value={documentId} onChange={e=>{chooseDocument(e.target.value);if(e.target.value)manualToggle.current?.focus()}}><option value="">{loading?'正在读取可授权资料…':'请选择一份已发布资料'}</option>{available.map(d=><option key={d.id} value={d.id}>{d.name} · {d.version}</option>)}</select></label></div>
     {!loading&&!available.length&&<p>该部门暂无你可授权的已发布且可检索资料。</p>}
-    <label className="access-duration"><span>借阅期限<small>仅授予只读权限</small></span><select value={days} disabled={busy} onChange={e=>setDays(Number(e.target.value))}>{[1,3,7,30].map(n=><option key={n} value={n}>{n} 天</option>)}</select></label>
+    <label className="access-duration"><span>借阅期限<small>仅授予只读权限</small></span><span className="access-duration-control"><select value={days} disabled={busy} onChange={e=>setDays(Number(e.target.value))}>{[1,3,7,30].map(n=><option key={n} value={n}>{n} 天</option>)}</select><ChevronDown size={14} aria-hidden="true"/></span></label>
    </section>
    {error&&<p role="alert">{error}</p>}<div className="dm-modal-actions access-review-actions"><button type="button" className="access-reject" disabled={busy} onClick={()=>void decide(selected,'reject')}>不予批准</button><button type="button" className="dm-primary" disabled={busy||loading||!selectedDocument} onClick={()=>void decide(selected,'approve')}>批准并授权</button></div>
   </div></DocumentModal>}
