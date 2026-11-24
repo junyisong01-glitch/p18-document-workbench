@@ -6,3 +6,10 @@
 .qa-answer-external{font-size:11px;color:#956324}
 .qa-answer-explanation{flex-basis:100%;margin:4px 0 0;padding:10px 14px;border-left:2px solid var(--qa-line);line-height:1.8;font-size:12px}
 .qa-answer-explanation p{margin:0}
+
+.qa-empty-actions{gap:8px 12px;margin-top:16px}
+.qa-empty-actions>.qa-answer-action{margin-left:0;white-space:nowrap}
+.qa-empty-actions>.qa-answer-action-primary{padding:9px 14px;min-height:36px;border-radius:8px;color:#fff;background:var(--qa-accent);font-weight:500}
+.qa-empty-actions>.qa-answer-action-primary:hover:not(:disabled){color:#fff;background:var(--qa-accent);filter:brightness(.94)}
+.qa-empty-actions>.qa-answer-action:focus-visible{outline:2px solid var(--qa-accent);outline-offset:3px}
+.qa-first-empty>.qa-empty-actions .qa-answer-explanation p{margin:0;font-size:12px}
