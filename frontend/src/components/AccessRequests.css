@@ -23,3 +23,13 @@
 @media(max-width:600px){.access-recommendation{grid-template-columns:minmax(0,1fr);gap:8px}.access-recommendation>button{justify-self:end}}
 
 .access-document-version{display:inline-block;margin-left:8px;padding:1px 6px;border-radius:4px;background:hsl(var(--secondary));color:hsl(var(--muted-foreground));font-size:10px;font-weight:400;vertical-align:middle;white-space:nowrap}.access-form .access-document-number{margin-top:12px;font-size:11px;color:hsl(var(--muted-foreground))}
+
+.access-priority{display:inline-block;margin-top:5px;padding:2px 6px;border-radius:4px;font-size:10px;color:hsl(var(--primary));background:hsl(var(--primary)/.08)}
+.access-recommendation-reason{grid-column:1/-1;padding:8px 10px;border-radius:6px;background:hsl(var(--secondary)/.5)}
+.access-form .access-recommendation-reason p{margin:0;font-size:11px;line-height:1.65}
+.access-form .access-recommendation-reason .access-support-quote{margin-top:4px;color:hsl(var(--foreground));overflow-wrap:anywhere}
+.access-more>summary{display:flex;align-items:center;gap:8px;cursor:pointer;padding:10px 0;color:hsl(var(--muted-foreground));font-size:12px;list-style:none}
+.access-more>summary::-webkit-details-marker{display:none}
+.access-more[open]>summary>svg{transform:rotate(180deg)}
+.access-more>div{display:grid;gap:8px}
+.access-more>summary:focus-visible{outline:2px solid hsl(var(--primary));outline-offset:2px}

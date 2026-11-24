@@ -5,6 +5,11 @@ from tests.test_business_workflow import rig
 
 PATH='/api/business/access-requests'
 
+@pytest.fixture(autouse=True)
+def local_review_stub(monkeypatch):
+    monkeypatch.setattr('app.access_recommendations.classify', lambda question, purpose, items: ({}, False))
+
+
 def create(r,who='prd',department='研发部',question='错误码如何处理？'):
     return r.c.post(PATH,headers=r.h[who],json={'question':question,'purpose':'现场排障','department':department})
 
@@ -100,6 +105,10 @@ def test_recommendations_are_reviewer_only_and_filtered_before_search(rig,monkey
         # Even an unexpected search result cannot escape the post-search gate.
         return {'results':[{'document_id':d,'text':'排查设备离线。','section':'排障步骤'} for d in [secret,other,draft,doc,doc]]}
     monkeypatch.setattr(r.q,'require_semantic',lambda:SimpleNamespace(search=search))
+    def review(question,purpose,items):
+        assert [item['id'] for item in items]==[doc]
+        return {},True
+    monkeypatch.setattr('app.access_recommendations.classify',review)
     path=PATH+'/'+req['id']+'/recommendations'
     for who in ['prd','rd','otherhead','guest']:
         assert r.c.get(path,headers=r.h[who]).status_code in [403,404]
@@ -125,3 +134,29 @@ def test_recommendations_recheck_changes_and_do_not_assert_global_absence(rig,mo
     result=r.c.get(PATH+'/'+req['id']+'/recommendations',headers=r.h['head']).json()
     assert result['items']==[] and '不代表整个知识库' in result['notice']
     assert '不再可以显示' not in json.dumps(result)
+
+
+@pytest.mark.parametrize('change',['archive','version','request'])
+def test_recommendations_recheck_after_model_work(rig,monkeypatch,change):
+    from types import SimpleNamespace
+    r=rig;doc=r.create();req=create(r).json()
+    text='持续离线达到10分钟仍未恢复时提交IT工单。'
+    monkeypatch.setattr(r.q,'require_semantic',lambda:SimpleNamespace(search=lambda *a,**k:{'results':[{'document_id':doc,'text':text}]}))
+    def classify(question,purpose,items):
+        assert [i['id'] for i in items]==[doc]
+        with r.q.connect() as c:
+            if change=='request':
+                c.execute("UPDATE access_requests SET status='cancelled' WHERE id=?",(req['id'],))
+            else:
+                b=r.q.business_read(doc)
+                if change=='archive':b['archived']=True
+                else:b['version']+=1
+                c.execute('UPDATE business_documents SET body=? WHERE document_id=?',(json.dumps(b),doc))
+        return {doc:text},True
+    monkeypatch.setattr('app.access_recommendations.classify',classify)
+    response=r.c.get(PATH+'/'+req['id']+'/recommendations',headers=r.h['head'])
+    if change=='request':assert response.status_code==409
+    else:
+        assert response.status_code==200
+        assert response.json()['items']==[]
+        assert text not in response.text

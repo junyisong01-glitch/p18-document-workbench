@@ -105,7 +105,7 @@ def install(store, central, user, read, visible, manager):
                 raise HTTPException(404,'申请不存在或不可处理')
             if row['status'] != 'pending':
                 raise HTTPException(409,'申请已处理，请刷新')
-            question, department = row['question'], row['department']
+            question, purpose, department = row['question'], row['purpose'], row['department']
 
         def eligible(doc):
             b = read(doc['id'])
@@ -145,7 +145,29 @@ def install(store, central, user, read, visible, manager):
                 seen.add(doc_id)
                 if len(found)==5:
                     break
-            return {'items':found,'notice':'按问题相关性提供候选片段，不保证包含答案；请核对内容与借阅用途后选择。' if found else
+        from app.access_recommendations import classify, arrange
+        quotes, checked = classify(question, purpose, found)
+        # Model work happens outside the lock. Recheck identity, request and document
+        # versions afterwards so revoked access or changed text cannot leak via reasons.
+        with store.LOCK, store.connect() as c:
+            u = internal()
+            current = c.execute('SELECT * FROM access_requests WHERE id=?',(identifier,)).fetchone()
+            if not current or not reviewer(u,current):
+                raise HTTPException(404,'申请不存在或不可处理')
+            if current['status'] != 'pending':
+                raise HTTPException(409,'申请已处理，请刷新')
+            fresh = []
+            for item in found:
+                try:
+                    doc = store.get(item['id'])
+                except HTTPException:
+                    continue
+                b = read(item['id'],c)
+                if b and b['version'] == item['document_version'] and eligible(doc):
+                    fresh.append(item)
+            return {'items':arrange(fresh, quotes),'review_available':checked,
+                    'notice':('推荐仅辅助核对，仍需结合用途选择文件。' if checked else
+                    '暂未完成依据核对，以下仅为相关候选，可展开原文人工选择。') if fresh else
                     '在你可授权的本部门资料中未检索到相关候选。请人工核对，必要时补充资料；这不代表整个知识库没有相关内容。'}
 
     @store.app.post('/api/business/access-requests/{identifier}/decision')
