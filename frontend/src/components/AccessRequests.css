@@ -21,3 +21,5 @@
 .access-recommendation button[aria-pressed=true]{color:hsl(var(--primary));border-color:hsl(var(--primary));background:hsl(var(--primary)/.08)}
 .access-recommendation summary:focus-visible{outline:2px solid hsl(var(--primary));outline-offset:3px}
 @media(max-width:600px){.access-recommendation{grid-template-columns:minmax(0,1fr);gap:8px}.access-recommendation>button{justify-self:end}}
+
+.access-document-version{display:inline-block;margin-left:8px;padding:1px 6px;border-radius:4px;background:hsl(var(--secondary));color:hsl(var(--muted-foreground));font-size:10px;font-weight:400;vertical-align:middle;white-space:nowrap}.access-form .access-document-number{margin-top:12px;font-size:11px;color:hsl(var(--muted-foreground))}
