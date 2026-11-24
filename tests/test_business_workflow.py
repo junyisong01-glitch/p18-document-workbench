@@ -91,7 +91,8 @@ def test_grants_public_guest_and_revocation(rig):
     assert r.c.get('/api/documents/'+id,headers=r.h['prd']).status_code==404
 
 
-def test_compound_qa_respects_publication_grant_revocation_and_archive(rig, monkeypatch):
+@pytest.mark.parametrize('grant_style', ['direct', 'request'])
+def test_compound_qa_respects_publication_grant_revocation_and_archive(rig, monkeypatch, grant_style):
     from app.external_model import QuestionOnlyRag
     from app.library_api import principal
     from app.llm import RoutedClient
@@ -181,7 +182,15 @@ def test_compound_qa_respects_publication_grant_revocation_and_archive(rig, monk
     verify('rd', {arch,private}, True)
     for who in ('prd','guest'):
         verify(who, {arch}, False)
-    assert r.action(private, 'head', 'share', username='prd').status_code == 200
+    if grant_style == 'direct':
+        assert r.action(private, 'head', 'share', username='prd').status_code == 200
+    else:
+        request = r.c.post('/api/business/access-requests', headers=r.h['prd'], json={
+            'question':question, 'purpose':'现场排查', 'department':'研发部'})
+        assert request.status_code == 200
+        approved = r.c.post('/api/business/access-requests/'+request.json()['id']+'/decision', headers=r.h['head'], json={
+            'expected':0, 'action':'approve', 'document_id':private, 'document_version':r.q.business_read(private)['version']})
+        assert approved.status_code == 200, approved.text
     verify('prd', {arch,private}, True)
     verify('guest', {arch}, False)
     ticket = prepare('prd', {arch,private})
@@ -193,7 +202,9 @@ def test_compound_qa_respects_publication_grant_revocation_and_archive(rig, monk
     verify('rd', {arch}, True)
     verify('guest', {arch}, False)
 
-def test_native_mutations_and_external_egress_are_blocked(rig):
+def test_native_mutations_and_external_egress_are_blocked(rig, monkeypatch):
+    # This case exercises the external route; do not inherit a developer's local Ollama .env.
+    monkeypatch.setenv('LLM_PROVIDER', 'deepseek')
     r=rig;id=r.create()
     for name in r.h:
         for path in ['/api/rag/answer','/api/library/upload','/api/documents/'+id+'/reparse','/api/documents/'+id+'/external-permission']:

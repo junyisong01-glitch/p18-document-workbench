@@ -1,3 +1,4 @@
+import {AccessRequestList,useAccessRequests} from '@/components/AccessRequests'
 import {useEffect,useRef,useState}from 'react'
 import {PageHeader}from '@/components/bits'
 import {DocPreviewDialog}from '@/components/DocView'
@@ -31,6 +32,7 @@ export default function BusinessPage(){
  const [auditRow,setAuditRow]=useState<Row|null>(null)
  const [target,setTarget]=useState<Row|null>(null),[operation,setOperation]=useState(''),[note,setNote]=useState(''),[recipient,setRecipient]=useState(''),[confirmation,setConfirmation]=useState('')
  const boss=user?.accessRole==='boss',head=user?.accessRole==='supervisor',guest=user?.accessRole==='guest'
+ const requests=useAccessRequests(!!user&&!guest)
  const canFilterAccess=!!(boss||head)&&tab!=='我的提交',accessFilterCount=Number(!!classificationFilter)+Number(!!scopeFilter)
  const lastRows=useRef(''),requestSeq=useRef(0),mounted=useRef(true)
  async function load(){const request=++requestSeq.current;try{const next=await api.get<Row[]>('/api/business/documents');if(!mounted.current||request!==requestSeq.current)return;setRows(next);setLoaded(true);const signature=JSON.stringify(next.map(r=>[r.id,r.workflow.version,r.workflow.status,r.technical_state,r.technical_index_ready]));if(lastRows.current&&signature!==lastRows.current)void refresh();lastRows.current=signature}catch(e){if(mounted.current)setError((e as Error).message)}}
@@ -47,7 +49,7 @@ export default function BusinessPage(){
  }
  async function act(){if(!target||busy)return;setBusy(true);setError('');try{await api.post('/api/business/documents/'+target.id+'/action',{action:operation,expected:target.workflow.version,note,username:recipient,confirm:confirmation});setTarget(null);setFeedback('操作已完成，状态以服务端最新记录为准。');await load();await refresh()}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
 
- const tabs=['可查阅资料',...(!guest?['我的提交']:[]),...(head?['部门资料']:[]),...((boss||head)?['待我审核','部门异常','借阅记录']:[]),...(!guest?['历史归档','回收站']:[]),...(boss?['已下架']:[])]
+ const tabs=['可查阅资料',...(!guest?['我的提交','我的申请']:[]),...(head?['部门资料']:[]),...((boss||head)?['待我审核','部门异常','借阅申请','借阅记录']:[]),...(!guest?['历史归档','回收站']:[]),...(boss?['已下架']:[])]
  const activeTab=tabs.includes(tab)?tab:'可查阅资料'
  function ownRow(row:Row){return row.workflow.owner===user?.username&&(boss||row.department===user?.role.dept)}
  function inView(row:Row,view:string){
@@ -66,6 +68,9 @@ export default function BusinessPage(){
  }
  const scopedRows=rows.filter(row=>activeTab==='我的提交'||!boss||departmentFilter==='全公司总览'||row.department===departmentFilter)
  const viewCounts=Object.fromEntries(tabs.map(view=>[view,scopedRows.filter(row=>inView(row,view)).length]))
+ viewCounts['我的申请']=requests.rows.filter(r=>r.owner===user?.username).length
+ viewCounts['借阅申请']=requests.rows.filter(r=>r.can_review&&r.status==='pending').length
+ const requestTab=activeTab==='我的申请'||activeTab==='借阅申请'
  const myRows=scopedRows.filter(row=>inView(row,'我的提交'))
  const actionCount=myRows.filter(row=>submissionGroup(row,!!(boss||head))==='需要处理').length
  const selectedSubmissionView=submissionView
@@ -83,7 +88,7 @@ export default function BusinessPage(){
  return <div className="document-manager space-y-5"><PageHeader kicker="Documents" title={guest?'公开资料':boss?'全公司资料':'文档管理'} desc={guest?'查阅已获准对外公开的资料，也可以在知识问答中提问。':'查阅你有权查看的资料，或跟进自己上传的文件。普通资料检查通过后自动发布，需要审核的资料会交给审核人处理。'} extra={!guest?<button type="button" className="dm-primary" aria-label="上传资料" disabled={busy} onClick={openSubmit}><Plus size={16}/>上传资料</button>:undefined}/>
  <div className="dm-navigation"><DocumentViews tabs={tabs} active={activeTab} counts={viewCounts} loaded={loaded} onSelect={value=>{setTab(value);setQuery('');setSubmissionView('全部提交');setSubmissionFilter('全部')}}/></div>
  {error&&<p role="alert" className="border-l-2 border-[hsl(12_74%_42%)] pl-3 text-[13px]">{error}</p>}
- <section className="space-y-5">
+ {requestTab?<><p role="status" className="text-sm text-muted-foreground">申请和结果自动更新，每5秒检查一次。</p>{requests.error&&<p role="alert">{requests.error}</p>}{!requests.loaded?<p>正在加载申请…</p>:<AccessRequestList rows={requests.rows.filter(r=>activeTab==='我的申请'?r.owner===user?.username:r.can_review)} review={activeTab==='借阅申请'} onChanged={async()=>{await requests.load();await load();await refresh()}}/>}</>:<section className="space-y-5">
  {activeTab==='借阅记录'&&<div className="dm-borrowing-intro"><h2>当前借出</h2><p>查看有效借阅授权，按借阅人撤销。已撤销或到期的历史可在文件的操作记录中查看。</p></div>}
  {(boss||head)&&activeTab!=='我的提交'&&activeTab!=='借阅记录'&&(activeTab==='待我审核'||activeTab==='部门异常'?<div className="border-l-2 border-primary/50 pl-3 text-xs leading-7 text-muted-foreground" role="note"><strong className="font-medium text-foreground">{activeTab==='待我审核'?'内容待审：判断这份资料能否发布。':'解析异常：处理文件没有读出来、读不全或读不准的问题。'}</strong><p>{activeTab==='待我审核'?'机密、敏感内容等需要审核的资料会进入这里。请查看送审原因，再批准发布或退回修改。':'请根据异常原因更换文件或核对解析结果；临时故障可以重试。处理完成后，如涉及机密或敏感内容，还需进入内容审核。'}</p></div>:<p className="border-l-2 border-[hsl(12_74%_42%/0.5)] pl-3 text-xs leading-relaxed text-muted-foreground">{boss?'全公司资料按部门分类。可处理本人及其他人的提交，管理操作记录在文档审计中。':'可管理本部门资料，并将普通资料授权给其他部门的指定员工。机密资料授权及本人提交的高风险资料由管理层处理。'}</p>)}
  {boss&&activeTab!=='我的提交'&&<nav aria-label="部门分类" className="flex flex-wrap gap-1.5 rounded-lg border border-border bg-card p-2">{['全公司总览',...depts].map(d=><button type="button" key={d} aria-pressed={departmentFilter===d} className={control+(departmentFilter===d?' !bg-primary text-white':' border-transparent')} onClick={()=>setDepartmentFilter(d)}>{d}</button>)}</nav>}
@@ -100,7 +105,7 @@ export default function BusinessPage(){
  return <article key={row.id} data-document-id={row.id} data-workflow-version={b.version} className="dm-document-row"><div className="dm-row-main"><DocumentFormat format={row.format} secret={b.restricted} legacy={b.legacy}/><div className="dm-row-copy"><div className="dm-title-line"><button type="button" onClick={()=>setPreview(doc(row))} className="dm-document-title" title={row.name}>{documentTitleParts(row.name).title}</button><span className="dm-version">{row.version}</span>{b.status==='correction_pending'&&<span className="dm-correction">勘误处理中 · 旧内容继续生效</span>}</div><p className="dm-row-meta"><span>{row.department}</span><span title={documentScope(row).description} className={b.restricted?'dm-tag dm-tag-secret':'dm-tag'}>{documentScope(row).label}</span>{b.legacy&&<span className="dm-tag dm-tag-legacy">历史导入资料</span>}</p>{row.review_reasons?.map(reason=><p key={reason} className="dm-row-error">送审原因 · {reason}</p>)}
  {row.parse_reasons?.map(reason=><p key={reason} className="dm-row-error">{reason}</p>)}
  {(row.technical_error||b.correction_error||b.auto_publish_error||row.index_error)&&<p role="status" className="dm-row-error">{b.auto_publish_error||b.correction_error||row.technical_error||row.index_error}</p>}</div></div><div className="dm-row-side"><div className="dm-state"><WorkflowBadge row={row}/><span title="技术处理状态，独立于业务发布状态">{b.status==='withdrawn'?'已停止流转 · 不参与检索':b.deleted?'已移入回收站':b.archived?'历史记录 · 不参与当前问答':b.status==='taken_down'?'已停止提供检索':(row.technical_state==='ready'?'处理完成':row.technical_state==='review'?'待核对解析':row.technical_state==='failed'?(canRetryParse(row)?'可重试处理':'需要检查文件'):'处理中')+' · '+(row.technical_index_ready?'索引有效':'尚不可检索')}</span></div>{!((activeTab==='我的提交'||activeTab==='部门异常')&&b.owner===user?.username)&&<span className="dm-owner" title={'提交者：'+b.owner}><i>{b.owner==='legacy_import'?'导':(demoIdentityName(b.owner)||(b.legacy?'历史导入':'未登记姓名')).charAt(0)}</i><span>{b.owner==='legacy_import'?'历史导入':demoIdentityName(b.owner)||(b.legacy?'历史导入':'未登记姓名')}</span></span>}<DocumentRowActions row={row} own={own} manage={manage} boss={!!boss} busy={busy} review={()=>setReview(doc(row))} start={action=>start(row,action)} act={action=>{void actOn(row,action)}} audit={()=>setAuditRow(row)} correct={()=>setCorrecting(row.id)} reupload={()=>{setReplacement(row);setError('');setSubmitOpen(true)}}/></div></article>})}</div></section>)}
- </section>
+ </section>}
 
  {submitOpen&&!guest&&<BusinessUpload replacement={replacement} rows={rows} onClose={()=>setSubmitOpen(false)} onUploaded={async()=>{setTab('我的提交');setSubmissionView('全部提交');setSubmissionFilter('全部');setQuery('');await load();await refresh()}}/>}
  {feedback&&<div className="dm-feedback" role="status"><span>{feedback}</span><button type="button" aria-label="关闭操作提示" onClick={()=>setFeedback('')}>×</button></div>}
