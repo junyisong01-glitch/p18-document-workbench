@@ -79,7 +79,12 @@ export function AccessRequestList({rows,review=false,onChanged,onAsk}:{rows:Acce
     {!review&&row.status==='approved'&&row.access_available&&(onAsk?<button className="dm-primary" onClick={()=>onAsk(row.question)}>重新提问</button>:<a href={'/qa?question='+encodeURIComponent(row.question)}>去知识问答重新提问 →</a>)}
    </div>
   </article>)}
-  {selected&&<DocumentModal open title="处理借阅申请" description="仅批准本次需要的文件；阅读授权不包含修改、发布或再次授权。" busy={busy} onClose={()=>{openSequence.current++;setSelected(null)}}><div className="access-form"><strong>{selected.question}</strong><p>{demoIdentityName(selected.owner)||selected.owner} · {selected.owner_department}</p><p>用途：{selected.purpose}</p>
+  {selected&&<DocumentModal open title="处理借阅申请" description="按用途授予只读借阅，不包含修改、发布或再次授权。" busy={busy} onClose={()=>{openSequence.current++;setSelected(null)}}><div className="access-form">
+   <section className="access-request-summary" aria-label="申请详情">
+    <div className="access-applicant"><span className="access-applicant-avatar" aria-hidden="true">{(demoIdentityName(selected.owner)||selected.owner).slice(0,1)}</span><div><span className="access-summary-label">申请人</span><div className="access-applicant-meta"><strong>{demoIdentityName(selected.owner)||selected.owner}</strong><span>{selected.owner_department}</span></div></div></div>
+    <div className="access-request-question"><span className="access-summary-label">申请问题</span><h3>{selected.question}</h3></div>
+    <div className="access-request-purpose"><span className="access-summary-label">使用用途</span><p>{selected.purpose}</p></div>
+   </section>
    <section className="access-recommendations" aria-label="相关资料推荐"><strong>相关资料推荐</strong><p>优先核对原文依据，再结合用途选择一份文件。仅展示你可授权的本部门资料。</p>
     {loading?<p role="status">正在检索并核对原文依据…</p>:recommendationError?<p role="alert">{recommendationError}；可使用下方列表手动选择。</p>:<>{(!recommendations?.items.length||!recommendations.review_available)&&<p>{recommendations?.notice}</p>}{primary.map(renderRecommendation)}{more.length>0&&<details className="access-more"><summary>更多相关资料 · {more.length} 份{more.some(item=>item.id===documentId)?' · 含已选文件':''}<ChevronDown size={14}/></summary><div>{more.map(renderRecommendation)}</div></details>}</>}
    </section>
