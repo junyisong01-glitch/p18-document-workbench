@@ -33,3 +33,22 @@
 .access-more[open]>summary>svg{transform:rotate(180deg)}
 .access-more>div{display:grid;gap:8px}
 .access-more>summary:focus-visible{outline:2px solid hsl(var(--primary));outline-offset:2px}
+
+/* One selection, two entry points: cards first, manual picker on demand. */
+.access-selection{display:flex;align-items:flex-start;gap:9px;min-width:0}
+.access-selection>svg{flex-shrink:0;margin-top:3px;color:hsl(var(--primary))}
+.access-selection>div{min-width:0}
+.access-selection span{display:block;font-size:11px;color:hsl(var(--muted-foreground));margin-bottom:4px}
+.access-selection strong{display:block;font-size:13px;line-height:1.6;font-weight:500;overflow-wrap:anywhere}
+.access-selection small{margin-left:8px;font-size:11px;font-weight:400;color:hsl(var(--muted-foreground));white-space:nowrap}
+.access-form .access-selection>p{margin:0;font-size:12px}
+.access-manual{margin-top:-10px}
+.access-form .access-manual>.access-manual-toggle{display:inline-flex;align-items:center;gap:6px;padding:5px 0;border:0;background:transparent;cursor:pointer;font-size:12px;color:hsl(var(--muted-foreground));border-radius:3px}
+.access-form .access-manual>.access-manual-toggle::-webkit-details-marker{display:none}
+.access-form .access-manual>.access-manual-toggle:hover{color:hsl(var(--primary))}
+.access-form .access-manual>.access-manual-toggle:focus-visible{outline:2px solid hsl(var(--primary));outline-offset:3px}
+.access-manual-toggle[aria-expanded=true]>svg{transform:rotate(180deg)}
+.access-manual>div>label{margin-top:10px}
+.access-form .access-review-actions>button{display:inline-flex;align-items:center;justify-content:center;min-width:104px;min-height:38px;padding:9px 16px;border-radius:8px;font-size:13px;font-weight:500;line-height:18px;border:1px solid transparent;transition:background-color .15s,border-color .15s}
+.access-form .access-review-actions>.access-reject{color:hsl(var(--muted-foreground));background:hsl(var(--secondary)/.65);border-color:hsl(var(--border))}
+.access-form .access-review-actions>.access-reject:hover:not(:disabled){color:hsl(var(--foreground));background:hsl(var(--secondary));border-color:hsl(var(--muted-foreground)/.35)}
