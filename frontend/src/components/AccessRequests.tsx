@@ -1,5 +1,5 @@
-import {useCallback,useEffect,useRef,useState} from 'react'
-import {FileQuestion,RefreshCw,ChevronDown,FileText} from 'lucide-react'
+import {useCallback,useEffect,useId,useRef,useState} from 'react'
+import {FileQuestion,RefreshCw,ChevronDown,FileText,CheckCircle2} from 'lucide-react'
 import {api} from '@/lib/api'
 import {documentTitleParts} from '@/lib/document-title'
 import {useSession} from '@/lib/session'
@@ -39,16 +39,19 @@ export function AccessRequestList({rows,review=false,onChanged,onAsk}:{rows:Acce
  const {user}=useSession()
  const [selected,setSelected]=useState<AccessRequest|null>(null),[docs,setDocs]=useState<BusinessRow[]>([]),[documentId,setDocumentId]=useState(''),[days,setDays]=useState(7),[busy,setBusy]=useState(false),[loading,setLoading]=useState(false),[error,setError]=useState('')
  const [recommendations,setRecommendations]=useState<Recommendations|null>(null),[recommendationError,setRecommendationError]=useState('')
+ const [manualOpen,setManualOpen]=useState(false)
+ const manualId=useId(),manualToggle=useRef<HTMLButtonElement>(null)
  const openSequence=useRef(0)
  useEffect(()=>()=>{openSequence.current++},[])
  const pending=rows.filter(r=>r.status==='pending').length
  async function open(row:AccessRequest){
   const seq=++openSequence.current
-  setSelected(row);setDocumentId('');setDocs([]);setRecommendations(null);setRecommendationError('');setError('');setDays(7);setLoading(true)
+  setSelected(row);setDocumentId('');setManualOpen(false);setDocs([]);setRecommendations(null);setRecommendationError('');setError('');setDays(7);setLoading(true)
   const results=await Promise.allSettled([api.get<BusinessRow[]>('/api/business/documents'),api.get<Recommendations>('/api/business/access-requests/'+row.id+'/recommendations')])
   if(seq!==openSequence.current)return
   if(results[0].status==='fulfilled')setDocs(results[0].value);else setError((results[0].reason as Error).message)
   if(results[1].status==='fulfilled')setRecommendations(results[1].value);else setRecommendationError((results[1].reason as Error).message)
+  setManualOpen(results[1].status==='rejected'||!results[1].value.items.length)
   setLoading(false)
  }
  async function decide(row:AccessRequest,action:'approve'|'reject'|'cancel'){
@@ -60,7 +63,9 @@ export function AccessRequestList({rows,review=false,onChanged,onAsk}:{rows:Acce
  const available=docs.filter(d=>d.department===selected?.department&&d.workflow.status==='published'&&!d.workflow.deleted&&!d.workflow.archived&&d.technical_index_ready&&(!d.workflow.restricted||user?.accessRole==='boss'))
  const candidates=(recommendations?.items||[]).filter(item=>available.some(d=>d.id===item.id))
  const primary=candidates.slice(0,2),more=candidates.slice(2)
- const renderRecommendation=(item:Recommendation)=>{const {title,number}=documentTitleParts(item.name);const version=available.find(d=>d.id===item.id)?.version;return <article key={item.id} className={'access-recommendation'+(documentId===item.id?' is-selected':'')}><details name="access-recommendation-preview"><summary><FileText size={18} aria-hidden="true"/><span className="access-recommendation-title"><strong title={item.name}>{title.replace(/\s+[vV]\d+(?:\.\d+)*$/,'')}{version&&<span className="access-document-version">{version}</span>}</strong>{item.priority&&<span className="access-priority">优先核对</span>}<small>{item.section||'相关片段'} · <span className="access-show-excerpt">查看片段</span><span className="access-hide-excerpt">收起片段</span></small></span><ChevronDown size={15} className="access-recommendation-chevron" aria-hidden="true"/></summary>{number&&<p className="access-document-number">文档编号：{number}</p>}<blockquote>{item.excerpt}</blockquote></details><button type="button" disabled={busy} aria-pressed={documentId===item.id} onClick={()=>setDocumentId(item.id)}>{documentId===item.id?'已选此文件':'选择此文件'}</button><div className="access-recommendation-reason"><p>{item.reason}</p>{item.support_quote&&<p className="access-support-quote">原文依据：{item.support_quote}</p>}</div></article>}
+ const selectedDocument=available.find(d=>d.id===documentId)
+ function chooseDocument(id:string){setDocumentId(id);if(id)setManualOpen(false)}
+ const renderRecommendation=(item:Recommendation)=>{const {title,number}=documentTitleParts(item.name);const version=available.find(d=>d.id===item.id)?.version;return <article key={item.id} className={'access-recommendation'+(documentId===item.id?' is-selected':'')}><details name="access-recommendation-preview"><summary><FileText size={18} aria-hidden="true"/><span className="access-recommendation-title"><strong title={item.name}>{title.replace(/\s+[vV]\d+(?:\.\d+)*$/,'')}{version&&<span className="access-document-version">{version}</span>}</strong>{item.priority&&<span className="access-priority">优先核对</span>}<small>{item.section||'相关片段'} · <span className="access-show-excerpt">查看片段</span><span className="access-hide-excerpt">收起片段</span></small></span><ChevronDown size={15} className="access-recommendation-chevron" aria-hidden="true"/></summary>{number&&<p className="access-document-number">文档编号：{number}</p>}<blockquote>{item.excerpt}</blockquote></details><button type="button" disabled={busy} aria-pressed={documentId===item.id} onClick={()=>chooseDocument(item.id)}>{documentId===item.id?'已选此文件':'选择此文件'}</button><div className="access-recommendation-reason"><p>{item.reason}</p>{item.support_quote&&<p className="access-support-quote">原文依据：{item.support_quote}</p>}</div></article>}
  return <div className="access-requests"><div className="access-intro"><strong>{review?'借阅申请':'我的申请'}{pending>0&&` · ${pending} 条待处理`}</strong><p>{review?'申请按资料相关部门送达。选择文件批准后，系统会授予申请人只读借阅权限。':'批准表示文件可以查阅，不保证包含问题答案。重新提问后仍缺少依据，可继续申请资料支持或反馈资料缺口。'}</p></div>
   {error&&!selected&&<p role="alert">{error}</p>}
   {!rows.length&&<p className="access-empty">{review?'暂无需要处理的借阅申请。':'暂无资料支持申请。'}</p>}
@@ -78,10 +83,11 @@ export function AccessRequestList({rows,review=false,onChanged,onAsk}:{rows:Acce
    <section className="access-recommendations" aria-label="相关资料推荐"><strong>相关资料推荐</strong><p>优先核对原文依据，再结合用途选择一份文件。仅展示你可授权的本部门资料。</p>
     {loading?<p role="status">正在检索并核对原文依据…</p>:recommendationError?<p role="alert">{recommendationError}；可使用下方列表手动选择。</p>:<>{(!recommendations?.items.length||!recommendations.review_available)&&<p>{recommendations?.notice}</p>}{primary.map(renderRecommendation)}{more.length>0&&<details className="access-more"><summary>更多相关资料 · {more.length} 份{more.some(item=>item.id===documentId)?' · 含已选文件':''}<ChevronDown size={14}/></summary><div>{more.map(renderRecommendation)}</div></details>}</>}
    </section>
-   <label>选择借阅文件<select disabled={loading||busy} value={documentId} onChange={e=>setDocumentId(e.target.value)}><option value="">{loading?'正在读取可授权资料…':'请选择一份已发布资料'}</option>{available.map(d=><option key={d.id} value={d.id}>{d.name} · {d.version}</option>)}</select></label>
+   <div className="access-selection" aria-live="polite">{selectedDocument?<><CheckCircle2 size={17} aria-hidden="true"/><div><span>本次借阅文件</span><strong title={selectedDocument.name}>{documentTitleParts(selectedDocument.name).title.replace(/\s+[vV]\d+(?:\.\d+)*$/,'')}{selectedDocument.version&&<small>{selectedDocument.version}</small>}</strong></div></>:<p>请从推荐资料中选择一份文件，或手动选择其他文件。</p>}</div>
+   <div className="access-manual"><button type="button" className="access-manual-toggle" ref={manualToggle} aria-expanded={manualOpen} aria-controls={manualId} onClick={()=>setManualOpen(value=>!value)}>手动选择其他文件<ChevronDown size={14} aria-hidden="true"/></button><div id={manualId} hidden={!manualOpen}><label>选择借阅文件<select disabled={loading||busy} value={documentId} onChange={e=>{chooseDocument(e.target.value);if(e.target.value)manualToggle.current?.focus()}}><option value="">{loading?'正在读取可授权资料…':'请选择一份已发布资料'}</option>{available.map(d=><option key={d.id} value={d.id}>{d.name} · {d.version}</option>)}</select></label></div></div>
    {!loading&&!available.length&&<p>该部门暂无你可授权的已发布且可检索资料。</p>}
    <label>借阅期限<select value={days} disabled={busy} onChange={e=>setDays(Number(e.target.value))}>{[1,3,7,30].map(n=><option key={n} value={n}>{n} 天</option>)}</select></label>
-   {error&&<p role="alert">{error}</p>}<div className="dm-modal-actions"><button className="dm-primary" disabled={busy||loading||!documentId} onClick={()=>void decide(selected,'approve')}>批准并授权</button><button disabled={busy} onClick={()=>void decide(selected,'reject')}>不批准</button></div>
+   {error&&<p role="alert">{error}</p>}<div className="dm-modal-actions access-review-actions"><button type="button" className="access-reject" disabled={busy} onClick={()=>void decide(selected,'reject')}>不予批准</button><button type="button" className="dm-primary" disabled={busy||loading||!selectedDocument} onClick={()=>void decide(selected,'approve')}>批准并授权</button></div>
   </div></DocumentModal>}
  </div>
 }
