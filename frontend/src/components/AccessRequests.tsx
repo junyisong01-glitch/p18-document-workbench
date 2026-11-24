@@ -38,6 +38,18 @@ export function RequestSupport({question,onClose,onSaved}:{question:string;onClo
  </form></DocumentModal>
 }
 
+function ApprovedMaterials({row,review,onAsk}:{row:AccessRequest;review:boolean;onAsk?:(question:string)=>void}){
+ const files=row.documents??(row.document?[{...row.document,expires_at:row.expires_at}]:[])
+ return <section className="access-approved-materials" aria-label="当前可查阅资料">
+  {!!files.length&&<><header><strong>当前可查阅资料</strong><span>{files.length} 份</span><small>只读借阅</small></header>
+   <ul className="access-granted-files">{files.map(doc=>{
+    const title=documentTitleParts(doc.name).title,version=/\s+([vV]\d+(?:\.\d+)*)$/.exec(title)
+    return <li key={doc.id}><span className="access-granted-icon" aria-hidden="true"><FileText size={18}/></span><div className="access-granted-title"><strong title={doc.name}>{version?title.slice(0,-version[0].length):title}</strong>{version&&<span className="access-document-version">{version[1]}</span>}</div><div className="access-granted-expiry"><small>{doc.expires_at?'借阅有效至':'借阅期限'}</small>{doc.expires_at?<time dateTime={new Date(doc.expires_at*1000).toISOString()}>{new Date(doc.expires_at*1000).toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</time>:<span>长期授权</span>}</div></li>
+   })}</ul></>}
+  {!review&&requestIsComplete(row)&&row.access_available&&<footer><p>可使用获准资料重新查询原问题</p>{onAsk?<button className="dm-primary" onClick={()=>onAsk(row.question)}>重新提问</button>:<a className="dm-primary" href={'/qa?question='+encodeURIComponent(row.question)}>重新提问</a>}</footer>}
+ </section>
+}
+
 export function AccessRequestList({rows,review=false,onChanged,onAsk,showIntro=true,emptyText}:{rows:AccessRequest[];review?:boolean;showIntro?:boolean;emptyText?:string;onChanged:()=>Promise<void>;onAsk?:(question:string)=>void}){
  const {user}=useSession()
  const [selected,setSelected]=useState<AccessRequest|null>(null),[docs,setDocs]=useState<BusinessRow[]>([]),[documentIds,setDocumentIds]=useState<string[]>([]),[days,setDays]=useState(7),[busy,setBusy]=useState(false),[loading,setLoading]=useState(false),[error,setError]=useState('')
@@ -77,11 +89,11 @@ export function AccessRequestList({rows,review=false,onChanged,onAsk,showIntro=t
  return <div className="access-requests">{showIntro&&<div className="access-intro"><strong>{review?'借阅申请':'我的申请'}{pending>0&&` · ${pending} 条待处理`}</strong><p>{review?'申请按资料相关部门送达。选择文件批准后，系统会授予申请人只读借阅权限。':'批准表示文件可以查阅，不保证包含问题答案。重新提问后仍缺少依据，可继续申请资料支持或反馈资料缺口。'}</p></div>}
   {error&&!selected&&<p role="alert">{error}</p>}
   {!rows.length&&<p className="access-empty">{emptyText||(review?'暂无需要处理的借阅申请。':'暂无资料支持申请。')}</p>}
-  {rows.map(row=><article key={row.id} className="access-request"><div className="access-request-heading"><strong>{row.question}</strong><span className={'access-status '+row.status}>{({pending:'待核查',needs_content:'待补充',resolved:row.access_available?'已补充 · 可查阅':'已补充 · 当前不可查阅',approved:row.access_available?'已批准 · 可查阅':'已批准 · 当前不可查阅',rejected:'未批准',cancelled:'已撤回'})[row.status]}</span></div>
-   <p>{review?`${demoIdentityName(row.owner)||row.owner} · ${row.owner_department} → `:''}{row.department} · {new Date(row.updated*1000).toLocaleString('zh-CN')}</p><p>用途：{row.purpose}</p>
+  {rows.map(row=><article key={row.id} className={'access-request'+(requestIsComplete(row)&&row.access_available?' access-request-complete':'')}><div className="access-request-heading"><strong>{row.question}</strong><span className={'access-status '+row.status}>{({pending:'待核查',needs_content:'待补充',resolved:row.access_available?'已补充 · 可查阅':'已补充 · 当前不可查阅',approved:row.access_available?'已批准 · 可查阅':'已批准 · 当前不可查阅',rejected:'未批准',cancelled:'已撤回'})[row.status]}</span></div>
+   <p className="access-request-meta">{review?`${demoIdentityName(row.owner)||row.owner} · ${row.owner_department} → `:''}{row.department} · {new Date(row.updated*1000).toLocaleString('zh-CN')}</p><p className="access-request-use"><span>使用用途</span>{row.purpose}</p>
    <div className="access-handler-row"><div className="access-handler"><UserRound size={14} aria-hidden="true"/><span>{requestIsOpen(row)?<><span className="access-handler-label">{row.status==='needs_content'?'负责部门':'待处理方'}</span>{row.reviewer_scope||`${row.department}主管或管理层`}<small>{row.status==='needs_content'?'补充进度会在此更新':'按部门送达，尚未指定个人'}</small></>:<><span className="access-handler-label">{row.status==='resolved'?'完成人':requestIsComplete(row)?'批准人':row.status==='rejected'?'处理人':'撤回人'}</span>{row.handled_by?demoIdentityName(row.handled_by):'暂无处理人记录'}</>}</span></div>{!review&&requestIsOpen(row)&&<button type="button" className="access-withdraw" disabled={busy} onClick={()=>void decide(row,'cancel')}>撤回申请</button>}</div>
    {(row.gap_note||row.review_note)&&<div className="access-result-note"><strong>{row.status==='needs_content'?'需要补充资料':row.status==='resolved'?'补充结果':row.status==='rejected'?'未批准原因':'处理说明'}</strong><p>{row.review_note||row.gap_note}</p>{row.status==='needs_content'&&row.gap_actor&&<small>核查人：{demoIdentityName(row.gap_actor)}</small>}{row.gap_note&&row.review_note!==row.gap_note&&<details><summary>查看原资料缺口</summary><p>{row.gap_note}</p></details>}</div>}
-   {(row.document||(!review&&requestIsComplete(row)&&row.access_available))&&<div className="access-approved-row">{!!(row.documents?.length||row.document)&&<div className="access-document"><span>当前可查阅资料</span><ul className="access-granted-files">{(row.documents??(row.document?[{...row.document,expires_at:row.expires_at}]:[])).map(doc=><li key={doc.id}><strong title={doc.name}>{documentTitleParts(doc.name).title}</strong><small>{doc.expires_at?'借阅有效至 '+new Date(doc.expires_at*1000).toLocaleString('zh-CN'):'长期授权'}</small></li>)}</ul></div>}{!review&&requestIsComplete(row)&&row.access_available&&(onAsk?<button className="dm-primary" onClick={()=>onAsk(row.question)}>重新提问</button>:<a href={'/qa?question='+encodeURIComponent(row.question)}>去知识问答重新提问 →</a>)}</div>}
+   {(row.document||(!review&&requestIsComplete(row)&&row.access_available))&&<ApprovedMaterials row={row} review={review} onAsk={onAsk}/>}
    {requestIsComplete(row)&&!row.access_available&&<p>资料权限或状态已变化，请联系相关部门确认。</p>}
    {row.status==='rejected'&&<p>相关部门本次未批准借阅，可补充用途后重新申请。</p>}
    <div className="access-actions">{review&&row.can_review&&requestIsOpen(row)&&<button className="dm-primary" disabled={busy} onClick={()=>void open(row)}>{row.status==='needs_content'?'跟进补充':'处理申请'}</button>}
