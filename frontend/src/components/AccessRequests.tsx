@@ -75,12 +75,11 @@ export function AccessRequestList({rows,review=false,onChanged,onAsk,showIntro=t
   {!rows.length&&<p className="access-empty">{emptyText||(review?'暂无需要处理的借阅申请。':'暂无资料支持申请。')}</p>}
   {rows.map(row=><article key={row.id} className="access-request"><div className="access-request-heading"><strong>{row.question}</strong><span className={'access-status '+row.status}>{({pending:'待处理',approved:row.access_available?'已批准 · 可查阅':'已批准 · 当前不可查阅',rejected:'未批准',cancelled:'已撤回'})[row.status]}</span></div>
    <p>{review?`${demoIdentityName(row.owner)||row.owner} · ${row.owner_department} → `:''}{row.department} · {new Date(row.updated*1000).toLocaleString('zh-CN')}</p><p>用途：{row.purpose}</p>
-   <div className="access-handler"><UserRound size={14} aria-hidden="true"/><span>{row.status==='pending'?<><span className="access-handler-label">待处理方</span>{row.reviewer_scope||`${row.department}主管或管理层`}<small>按部门送达，尚未指定个人</small></>:<><span className="access-handler-label">{row.status==='approved'?'批准人':row.status==='rejected'?'处理人':'撤回人'}</span>{row.handled_by?demoIdentityName(row.handled_by):'暂无处理人记录'}</>}</span></div>
+   <div className="access-handler-row"><div className="access-handler"><UserRound size={14} aria-hidden="true"/><span>{row.status==='pending'?<><span className="access-handler-label">待处理方</span>{row.reviewer_scope||`${row.department}主管或管理层`}<small>按部门送达，尚未指定个人</small></>:<><span className="access-handler-label">{row.status==='approved'?'批准人':row.status==='rejected'?'处理人':'撤回人'}</span>{row.handled_by?demoIdentityName(row.handled_by):'暂无处理人记录'}</>}</span></div>{!review&&row.status==='pending'&&<button type="button" className="access-withdraw" disabled={busy} onClick={()=>void decide(row,'cancel')}>撤回申请</button>}</div>
    {row.document&&<p className="access-document">获准资料：{row.document.name}{row.expires_at&&<small>借阅有效至 {new Date(row.expires_at*1000).toLocaleString('zh-CN')}</small>}</p>}
    {row.status==='approved'&&!row.access_available&&<p>资料权限或状态已变化，请联系相关部门确认。</p>}
    {row.status==='rejected'&&<p>相关部门本次未批准借阅，可补充用途后重新申请。</p>}
    <div className="access-actions">{review&&row.can_review&&row.status==='pending'&&<button className="dm-primary" disabled={busy} onClick={()=>void open(row)}>处理申请</button>}
-    {!review&&row.status==='pending'&&<button disabled={busy} onClick={()=>void decide(row,'cancel')}>撤回申请</button>}
     {!review&&row.status==='approved'&&row.access_available&&(onAsk?<button className="dm-primary" onClick={()=>onAsk(row.question)}>重新提问</button>:<a href={'/qa?question='+encodeURIComponent(row.question)}>去知识问答重新提问 →</a>)}
    </div>
   </article>)}
