@@ -155,3 +155,10 @@
 .access-withdraw{flex-shrink:0;padding:8px 14px;min-height:36px;border:1px solid hsl(var(--border));border-radius:8px;background:hsl(var(--card));color:hsl(var(--muted-foreground));font-size:12px;line-height:18px;white-space:nowrap;transition:background-color .15s,color .15s,border-color .15s}
 .access-withdraw:hover:not(:disabled){background:hsl(var(--secondary)/.6);color:hsl(var(--foreground));border-color:hsl(var(--muted-foreground)/.35)}
 @media(max-width:480px){.access-handler-row{flex-wrap:wrap;gap:12px}.access-handler-row>.access-handler{flex-basis:100%}.access-withdraw{margin-left:auto}}
+
+/* Approved files and their next action share a compact footer. */
+.access-approved-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:12px;font-size:12px}
+.access-approved-row>.access-document{margin:0;min-width:0;flex:1}
+.access-approved-row>:is(button,a){flex-shrink:0;margin-left:auto;white-space:nowrap}
+.access-approved-row>.dm-primary{min-height:36px;padding:8px 14px;border-radius:8px;font-size:12px;line-height:18px}
+@media(max-width:480px){.access-approved-row{flex-wrap:wrap;gap:12px}.access-approved-row>.access-document{flex-basis:100%}}
