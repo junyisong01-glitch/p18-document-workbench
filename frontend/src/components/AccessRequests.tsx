@@ -36,7 +36,7 @@ export function RequestSupport({question,onClose,onSaved}:{question:string;onClo
  </form></DocumentModal>
 }
 
-export function AccessRequestList({rows,review=false,onChanged,onAsk}:{rows:AccessRequest[];review?:boolean;onChanged:()=>Promise<void>;onAsk?:(question:string)=>void}){
+export function AccessRequestList({rows,review=false,onChanged,onAsk,showIntro=true,emptyText}:{rows:AccessRequest[];review?:boolean;showIntro?:boolean;emptyText?:string;onChanged:()=>Promise<void>;onAsk?:(question:string)=>void}){
  const {user}=useSession()
  const [selected,setSelected]=useState<AccessRequest|null>(null),[docs,setDocs]=useState<BusinessRow[]>([]),[documentId,setDocumentId]=useState(''),[days,setDays]=useState(7),[busy,setBusy]=useState(false),[loading,setLoading]=useState(false),[error,setError]=useState('')
  const [recommendations,setRecommendations]=useState<Recommendations|null>(null),[recommendationError,setRecommendationError]=useState('')
@@ -70,9 +70,9 @@ export function AccessRequestList({rows,review=false,onChanged,onAsk}:{rows:Acce
  const selectedDocument=available.find(d=>d.id===documentId)
  function chooseDocument(id:string){setDocumentId(id);if(id)setManualOpen(false)}
  const renderRecommendation=(item:Recommendation)=>{const {title,number}=documentTitleParts(item.name);const version=available.find(d=>d.id===item.id)?.version;return <article key={item.id} className={'access-recommendation'+(documentId===item.id?' is-selected':'')}><details name="access-recommendation-preview"><summary><FileText size={18} aria-hidden="true"/><span className="access-recommendation-title"><strong title={item.name}>{title.replace(/\s+[vV]\d+(?:\.\d+)*$/,'')}{version&&<span className="access-document-version">{version}</span>}</strong>{item.priority&&<span className="access-priority">优先核对</span>}<small className="access-excerpt-meta"><span>{item.section||'相关片段'}</span><span className="access-excerpt-toggle"><span className="access-show-excerpt">查看片段</span><span className="access-hide-excerpt">收起片段</span><ChevronDown size={13} className="access-recommendation-chevron" aria-hidden="true"/></span></small></span></summary>{number&&<p className="access-document-number">文档编号：{number}</p>}<blockquote>{item.excerpt}</blockquote></details><button type="button" className="access-select-file" disabled={busy} aria-pressed={documentId===item.id} onClick={()=>chooseDocument(item.id)}>{documentId===item.id&&<CheckCircle2 size={14} aria-hidden="true"/>}{documentId===item.id?'已选此文件':'选择此文件'}</button><div className="access-recommendation-reason"><p>{item.reason}</p>{item.support_quote&&<p className="access-support-quote">原文依据：{item.support_quote}</p>}</div></article>}
- return <div className="access-requests"><div className="access-intro"><strong>{review?'借阅申请':'我的申请'}{pending>0&&` · ${pending} 条待处理`}</strong><p>{review?'申请按资料相关部门送达。选择文件批准后，系统会授予申请人只读借阅权限。':'批准表示文件可以查阅，不保证包含问题答案。重新提问后仍缺少依据，可继续申请资料支持或反馈资料缺口。'}</p></div>
+ return <div className="access-requests">{showIntro&&<div className="access-intro"><strong>{review?'借阅申请':'我的申请'}{pending>0&&` · ${pending} 条待处理`}</strong><p>{review?'申请按资料相关部门送达。选择文件批准后，系统会授予申请人只读借阅权限。':'批准表示文件可以查阅，不保证包含问题答案。重新提问后仍缺少依据，可继续申请资料支持或反馈资料缺口。'}</p></div>}
   {error&&!selected&&<p role="alert">{error}</p>}
-  {!rows.length&&<p className="access-empty">{review?'暂无需要处理的借阅申请。':'暂无资料支持申请。'}</p>}
+  {!rows.length&&<p className="access-empty">{emptyText||(review?'暂无需要处理的借阅申请。':'暂无资料支持申请。')}</p>}
   {rows.map(row=><article key={row.id} className="access-request"><div className="access-request-heading"><strong>{row.question}</strong><span className={'access-status '+row.status}>{({pending:'待处理',approved:row.access_available?'已批准 · 可查阅':'已批准 · 当前不可查阅',rejected:'未批准',cancelled:'已撤回'})[row.status]}</span></div>
    <p>{review?`${demoIdentityName(row.owner)||row.owner} · ${row.owner_department} → `:''}{row.department} · {new Date(row.updated*1000).toLocaleString('zh-CN')}</p><p>用途：{row.purpose}</p>
    {row.document&&<p className="access-document">获准资料：{row.document.name}{row.expires_at&&<small>借阅有效至 {new Date(row.expires_at*1000).toLocaleString('zh-CN')}</small>}</p>}
@@ -105,8 +105,24 @@ export function AccessRequestList({rows,review=false,onChanged,onAsk}:{rows:Acce
  </div>
 }
 
+type RequestFilter='all'|'pending'|'available'|'history'
+const requestCategory=(row:AccessRequest):Exclude<RequestFilter,'all'>=>row.status==='pending'?'pending':row.status==='approved'&&row.access_available?'available':'history'
+const requestFilters:{id:RequestFilter;label:string;empty:string}[]=[
+ {id:'all',label:'全部',empty:'暂无资料支持申请。'},
+ {id:'pending',label:'待处理',empty:'暂无待处理申请，可切换到“可查阅”查看已获准的资料。'},
+ {id:'available',label:'可查阅',empty:'暂无当前可查阅的申请。主管批准后，可在这里重新提问。'},
+ {id:'history',label:'历史申请',empty:'暂无历史申请。已撤回、未批准或当前不可查阅的记录会保留在这里。'},
+]
 export function MyAccessRequests({rows,error,loaded,onRefresh,onAsk}:{rows:AccessRequest[];error:string;loaded:boolean;onRefresh:()=>Promise<void>;onAsk:(question:string)=>void}){
- const [open,setOpen]=useState(false)
- const available=rows.filter(r=>r.status==='approved'&&r.access_available).length
- return <><button type="button" className="access-inbox-button" onClick={()=>{setOpen(true);void onRefresh()}}><FileQuestion size={15}/>我的申请{available>0&&<span>{available} 项可查阅</span>}</button>{open&&<DocumentModal open title="我的资料支持申请" description="结果每5秒更新，可刷新查看最新权限。" onClose={()=>setOpen(false)}><button className="access-refresh" onClick={()=>void onRefresh()}><RefreshCw size={14}/>刷新</button>{error&&<p role="alert">{error}</p>}{!loaded?<p>正在加载申请…</p>:<AccessRequestList rows={rows} onChanged={onRefresh} onAsk={question=>{setOpen(false);onAsk(question)}}/>}</DocumentModal>}</>
+ const [open,setOpen]=useState(false),[filter,setFilter]=useState<RequestFilter>('all'),[refreshing,setRefreshing]=useState(false)
+ const counts={all:rows.length,pending:0,available:0,history:0}
+ for(const row of rows)counts[requestCategory(row)]++
+ const priority={pending:0,available:1,history:2}
+ const filtered=rows.filter(row=>filter==='all'||requestCategory(row)===filter).sort((a,b)=>(filter==='all'?priority[requestCategory(a)]-priority[requestCategory(b)]:0)||b.updated-a.updated||a.id.localeCompare(b.id))
+ async function refresh(){if(refreshing)return;setRefreshing(true);try{await onRefresh()}finally{setRefreshing(false)}}
+ return <><button type="button" className="access-inbox-button" onClick={()=>{setFilter('all');setOpen(true);void onRefresh()}}><FileQuestion size={15}/>我的申请{counts.available>0&&<span>{counts.available} 项可查阅</span>}</button>{open&&<DocumentModal open title="我的资料支持申请" description="跟进审批进度，查看获准资料；申请状态会自动更新。" onClose={()=>setOpen(false)}>
+  <div className="access-inbox-toolbar"><div className="access-filter-group" role="group" aria-label="申请分类">{requestFilters.map(item=><button type="button" key={item.id} aria-pressed={filter===item.id} onClick={()=>setFilter(item.id)}>{item.label}<span>{loaded?counts[item.id]:'—'}</span></button>)}</div><button type="button" className="access-inbox-refresh" disabled={refreshing} onClick={()=>void refresh()}><RefreshCw size={14} aria-hidden="true"/>{refreshing?'刷新中':'刷新'}</button></div>
+  <p className="access-inbox-note">批准后可查阅获准资料，并重新提问；回答仍以资料中的实际依据为准。</p>
+  {error&&<p role="alert">{error}</p>}{!loaded?<p role="status">正在加载申请…</p>:<div className="access-filter-results" aria-label={requestFilters.find(item=>item.id===filter)?.label+'申请列表'}><AccessRequestList rows={filtered} showIntro={false} emptyText={requestFilters.find(item=>item.id===filter)?.empty} onChanged={onRefresh} onAsk={question=>{setOpen(false);onAsk(question)}}/></div>}
+ </DocumentModal>}</>
 }
