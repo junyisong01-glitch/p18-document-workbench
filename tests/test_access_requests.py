@@ -88,3 +88,40 @@ def test_expiration_hides_document_from_applicant(rig):
     with r.q.connect() as c:c.execute('UPDATE business_grants SET expires=? WHERE document_id=?',(time.time()-1,doc))
     assert listing(r,'prd')[0]['document'] is None
     assert r.c.get('/api/documents/'+doc,headers=r.h['prd']).status_code==404
+
+
+def test_recommendations_are_reviewer_only_and_filtered_before_search(rig,monkeypatch):
+    from types import SimpleNamespace
+    r=rig;doc=r.create();secret=r.create(restricted=True);other=r.create(dept='生产制造部');draft=r.create(status='submitted');req=create(r).json()
+    seen=[]
+    def search(question,**kw):
+        seen.extend(d for d in [doc,secret,other,draft] if kw['document_filter'](r.q.get(d)))
+        assert kw['mode']=='hybrid'
+        # Even an unexpected search result cannot escape the post-search gate.
+        return {'results':[{'document_id':d,'text':'排查设备离线。','section':'排障步骤'} for d in [secret,other,draft,doc,doc]]}
+    monkeypatch.setattr(r.q,'require_semantic',lambda:SimpleNamespace(search=search))
+    path=PATH+'/'+req['id']+'/recommendations'
+    for who in ['prd','rd','otherhead','guest']:
+        assert r.c.get(path,headers=r.h[who]).status_code in [403,404]
+    assert seen==[]
+    response=r.c.get(path,headers=r.h['head']);assert response.status_code==200,response.text
+    assert seen==[doc]
+    assert [d['id'] for d in response.json()['items']]==[doc]
+    assert response.json()['items'][0]['excerpt']=='排查设备离线。'
+    assert decide(r,req,action='reject').status_code==200
+    assert r.c.get(path,headers=r.h['head']).status_code==409
+
+
+def test_recommendations_recheck_changes_and_do_not_assert_global_absence(rig,monkeypatch):
+    from types import SimpleNamespace
+    r=rig;doc=r.create();req=create(r).json()
+    def search(question,**kw):
+        assert kw['document_filter'](r.q.get(doc))
+        with r.q.connect() as c:
+            b=r.q.business_read(doc);b['archived']=True
+            c.execute('UPDATE business_documents SET body=? WHERE document_id=?',(json.dumps(b),doc))
+        return {'results':[{'document_id':doc,'text':'不再可以显示'}]}
+    monkeypatch.setattr(r.q,'require_semantic',lambda:SimpleNamespace(search=search))
+    result=r.c.get(PATH+'/'+req['id']+'/recommendations',headers=r.h['head']).json()
+    assert result['items']==[] and '不代表整个知识库' in result['notice']
+    assert '不再可以显示' not in json.dumps(result)

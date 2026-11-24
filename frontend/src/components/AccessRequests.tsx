@@ -7,6 +7,9 @@ import {DocumentModal} from './DocumentLayout'
 import {BUSINESS_DEPARTMENTS,type BusinessRow} from './BusinessPresentation'
 import './AccessRequests.css'
 
+type Recommendation={id:string;name:string;document_version:number;excerpt:string;section:string}
+type Recommendations={items:Recommendation[];notice:string}
+
 export type AccessRequest={id:string;owner:string;owner_department:string;department:string;question:string;purpose:string;status:'pending'|'approved'|'rejected'|'cancelled';version:number;can_review:boolean;document:{id:string;name:string}|null;access_available:boolean;expires_at:number|null;updated:number}
 export function useAccessRequests(enabled:boolean){
  const [rows,setRows]=useState<AccessRequest[]>([]),[error,setError]=useState(''),[loaded,setLoaded]=useState(false)
@@ -23,7 +26,7 @@ export function useAccessRequests(enabled:boolean){
 export function RequestSupport({question,onClose,onSaved}:{question:string;onClose:()=>void;onSaved:()=>void}){
  const [text,setText]=useState(question),[purpose,setPurpose]=useState(''),[department,setDepartment]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('')
  async function submit(e:React.FormEvent){e.preventDefault();if(busy)return;setBusy(true);setError('');try{await api.post('/api/business/access-requests',{question:text.trim(),purpose:purpose.trim(),department});onSaved()}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
- return <DocumentModal open title="申请资料支持" description="说明你需要解决的问题，由相关部门主管选择可借阅的资料。提交申请不会自动获得权限。" busy={busy} onClose={onClose}><form className="access-form" onSubmit={submit}>
+ return <DocumentModal open title="申请资料支持" description="说明你需要解决的问题，由相关部门主管选择可借阅的资料。主管会核对相关资料；资料不足时也可能需要补充内容。" busy={busy} onClose={onClose}><form className="access-form" onSubmit={submit}>
   <label>需要解决的问题<textarea required maxLength={2000} value={text} onChange={e=>setText(e.target.value)} /></label>
   <label>相关部门<select required value={department} onChange={e=>setDepartment(e.target.value)}><option value="">请选择资料相关部门</option>{BUSINESS_DEPARTMENTS.map(d=><option key={d}>{d}</option>)}</select></label>
   <label>使用用途<textarea required maxLength={1000} placeholder="例如：排查生产现场的设备接口报错" value={purpose} onChange={e=>setPurpose(e.target.value)}/></label>
@@ -34,8 +37,19 @@ export function RequestSupport({question,onClose,onSaved}:{question:string;onClo
 export function AccessRequestList({rows,review=false,onChanged,onAsk}:{rows:AccessRequest[];review?:boolean;onChanged:()=>Promise<void>;onAsk?:(question:string)=>void}){
  const {user}=useSession()
  const [selected,setSelected]=useState<AccessRequest|null>(null),[docs,setDocs]=useState<BusinessRow[]>([]),[documentId,setDocumentId]=useState(''),[days,setDays]=useState(7),[busy,setBusy]=useState(false),[loading,setLoading]=useState(false),[error,setError]=useState('')
+ const [recommendations,setRecommendations]=useState<Recommendations|null>(null),[recommendationError,setRecommendationError]=useState('')
+ const openSequence=useRef(0)
+ useEffect(()=>()=>{openSequence.current++},[])
  const pending=rows.filter(r=>r.status==='pending').length
- async function open(row:AccessRequest){setSelected(row);setDocumentId('');setDocs([]);setError('');setDays(7);setLoading(true);try{setDocs(await api.get<BusinessRow[]>('/api/business/documents'))}catch(e){setError((e as Error).message)}finally{setLoading(false)}}
+ async function open(row:AccessRequest){
+  const seq=++openSequence.current
+  setSelected(row);setDocumentId('');setDocs([]);setRecommendations(null);setRecommendationError('');setError('');setDays(7);setLoading(true)
+  const results=await Promise.allSettled([api.get<BusinessRow[]>('/api/business/documents'),api.get<Recommendations>('/api/business/access-requests/'+row.id+'/recommendations')])
+  if(seq!==openSequence.current)return
+  if(results[0].status==='fulfilled')setDocs(results[0].value);else setError((results[0].reason as Error).message)
+  if(results[1].status==='fulfilled')setRecommendations(results[1].value);else setRecommendationError((results[1].reason as Error).message)
+  setLoading(false)
+ }
  async function decide(row:AccessRequest,action:'approve'|'reject'|'cancel'){
   if(busy)return
   setBusy(true);setError('')
@@ -43,7 +57,7 @@ export function AccessRequestList({rows,review=false,onChanged,onAsk}:{rows:Acce
   try{await api.post('/api/business/access-requests/'+row.id+'/decision',{expected:row.version,action,...(action==='approve'?{document_id:doc?.id,document_version:doc?.workflow.version,days}:{})});setSelected(null);await onChanged()}catch(e){setError((e as Error).message)}finally{setBusy(false)}
  }
  const available=docs.filter(d=>d.department===selected?.department&&d.workflow.status==='published'&&!d.workflow.deleted&&!d.workflow.archived&&d.technical_index_ready&&(!d.workflow.restricted||user?.accessRole==='boss'))
- return <div className="access-requests"><div className="access-intro"><strong>{review?'借阅申请':'我的申请'}{pending>0&&` · ${pending} 条待处理`}</strong><p>{review?'申请按资料相关部门送达。选择文件批准后，系统会授予申请人只读借阅权限。':'申请结果自动更新。批准后可重新提问，系统会按当前权限重新检索。'}</p></div>
+ return <div className="access-requests"><div className="access-intro"><strong>{review?'借阅申请':'我的申请'}{pending>0&&` · ${pending} 条待处理`}</strong><p>{review?'申请按资料相关部门送达。选择文件批准后，系统会授予申请人只读借阅权限。':'批准表示文件可以查阅，不保证包含问题答案。重新提问后仍缺少依据，可继续申请资料支持或反馈资料缺口。'}</p></div>
   {error&&!selected&&<p role="alert">{error}</p>}
   {!rows.length&&<p className="access-empty">{review?'暂无需要处理的借阅申请。':'暂无资料支持申请。'}</p>}
   {rows.map(row=><article key={row.id} className="access-request"><div className="access-request-heading"><strong>{row.question}</strong><span className={'access-status '+row.status}>{({pending:'待处理',approved:row.access_available?'已批准 · 可查阅':'已批准 · 当前不可查阅',rejected:'未批准',cancelled:'已撤回'})[row.status]}</span></div>
@@ -56,7 +70,10 @@ export function AccessRequestList({rows,review=false,onChanged,onAsk}:{rows:Acce
     {!review&&row.status==='approved'&&row.access_available&&(onAsk?<button className="dm-primary" onClick={()=>onAsk(row.question)}>重新提问</button>:<a href={'/qa?question='+encodeURIComponent(row.question)}>去知识问答重新提问 →</a>)}
    </div>
   </article>)}
-  {selected&&<DocumentModal open title="处理借阅申请" description="仅批准本次需要的文件；阅读授权不包含修改、发布或再次授权。" busy={busy} onClose={()=>setSelected(null)}><div className="access-form"><strong>{selected.question}</strong><p>{demoIdentityName(selected.owner)||selected.owner} · {selected.owner_department}</p><p>用途：{selected.purpose}</p>
+  {selected&&<DocumentModal open title="处理借阅申请" description="仅批准本次需要的文件；阅读授权不包含修改、发布或再次授权。" busy={busy} onClose={()=>{openSequence.current++;setSelected(null)}}><div className="access-form"><strong>{selected.question}</strong><p>{demoIdentityName(selected.owner)||selected.owner} · {selected.owner_department}</p><p>用途：{selected.purpose}</p>
+   <section className="access-recommendations" aria-label="相关资料推荐"><strong>相关资料推荐</strong><p>系统仅检索你有权查看和授权的本部门资料，请先核对片段再选择。</p>
+    {loading?<p role="status">正在检索相关资料…</p>:recommendationError?<p role="alert">{recommendationError}；可使用下方列表手动选择。</p>:<><p>{recommendations?.notice}</p>{recommendations?.items.filter(item=>available.some(d=>d.id===item.id)).map(item=><article key={item.id} className="access-recommendation"><strong>{item.name}</strong>{item.section&&<small>{item.section}</small>}<blockquote>{item.excerpt}</blockquote><button type="button" disabled={busy} aria-pressed={documentId===item.id} onClick={()=>setDocumentId(item.id)}>{documentId===item.id?'已选此文件':'选择此文件'}</button></article>)}</>}
+   </section>
    <label>选择借阅文件<select disabled={loading||busy} value={documentId} onChange={e=>setDocumentId(e.target.value)}><option value="">{loading?'正在读取可授权资料…':'请选择一份已发布资料'}</option>{available.map(d=><option key={d.id} value={d.id}>{d.name} · {d.version}</option>)}</select></label>
    {!loading&&!available.length&&<p>该部门暂无你可授权的已发布且可检索资料。</p>}
    <label>借阅期限<select value={days} disabled={busy} onChange={e=>setDays(Number(e.target.value))}>{[1,3,7,30].map(n=><option key={n} value={n}>{n} 天</option>)}</select></label>
