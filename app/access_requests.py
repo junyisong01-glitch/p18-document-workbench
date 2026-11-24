@@ -94,6 +94,60 @@ def install(store, central, user, read, visible, manager):
                       (identifier,u['username'],'create',now))
             return output(c.execute('SELECT * FROM access_requests WHERE id=?',(identifier,)).fetchone(),u)
 
+    @store.app.get('/api/business/access-requests/{identifier}/recommendations')
+    def recommendations(identifier: str):
+        from app.embedding import EmbeddingError
+        from app.semantic import SemanticError
+        u = internal()
+        with store.LOCK, store.connect() as c:
+            row = c.execute('SELECT * FROM access_requests WHERE id=?',(identifier,)).fetchone()
+            if not row or not reviewer(u,row):
+                raise HTTPException(404,'申请不存在或不可处理')
+            if row['status'] != 'pending':
+                raise HTTPException(409,'申请已处理，请刷新')
+            question, department = row['question'], row['department']
+
+        def eligible(doc):
+            b = read(doc['id'])
+            return bool(b and b['department']==department and manager(u,b)
+                and not (b.get('restricted') and u['role']!='boss')
+                and visible(doc,u,evidence=True)
+                and store.business_raw_index_status(doc['id']).get('searchable'))
+
+        # Search only the reviewer's readable, grantable department documents.
+        # No elevated principal or hidden-document discovery is used.
+        try:
+            result = store.require_semantic().search(question, top_k=20, mode='hybrid', document_filter=eligible)
+        except (EmbeddingError, SemanticError) as exc:
+            raise HTTPException(503,'相关资料检索暂不可用，请稍后重试或手动核对文件') from exc
+        with store.LOCK, store.connect() as c:
+            u = internal()
+            current = c.execute('SELECT * FROM access_requests WHERE id=?',(identifier,)).fetchone()
+            if not current or not reviewer(u,current):
+                raise HTTPException(404,'申请不存在或不可处理')
+            if current['status'] != 'pending':
+                raise HTTPException(409,'申请已处理，请刷新')
+            found = []
+            seen = set()
+            for hit in result.get('results',[]):
+                doc_id = hit.get('document_id')
+                if not doc_id or doc_id in seen:
+                    continue
+                try:
+                    doc = store.get(doc_id)
+                except HTTPException:
+                    continue
+                if not eligible(doc):
+                    continue
+                b = read(doc_id,c)
+                found.append({'id':doc_id,'name':doc['name'],'document_version':b['version'],
+                              'excerpt':str(hit.get('text',''))[:900],'section':str(hit.get('section',''))[:160]})
+                seen.add(doc_id)
+                if len(found)==5:
+                    break
+            return {'items':found,'notice':'按问题相关性提供候选片段，不保证包含答案；请核对内容与借阅用途后选择。' if found else
+                    '在你可授权的本部门资料中未检索到相关候选。请人工核对，必要时补充资料；这不代表整个知识库没有相关内容。'}
+
     @store.app.post('/api/business/access-requests/{identifier}/decision')
     def decide(identifier: str, body: Decision):
         u = internal()
