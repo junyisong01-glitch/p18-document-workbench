@@ -147,3 +147,8 @@
 
 .qa-preview-splitter{left:auto;right:var(--qa-preview-width);transform:translateX(50%)}
 .qa-preview-splitter::after{height:36px;width:3px}
+
+/* Give the initial question the full workspace until a conversation exists. */
+html .qa-chat.qa-chat-without-history .qa-chat-header{margin-left:0}
+html .qa-chat.qa-chat-without-history .qa-chat-layout{grid-template-columns:minmax(0,1fr)}
+html .qa-chat.qa-chat-without-history .qa-chat-main{grid-column:1}
