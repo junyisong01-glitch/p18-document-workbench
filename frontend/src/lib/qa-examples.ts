@@ -2,10 +2,11 @@ import type {Doc,KbId} from './types'
 export type QaExample={label:string;question:string}
 
 export function qaExamples(kbId:KbId,documents:Doc[]):QaExample[]{
-  // These are question starters, never answers or access grants. Only use
-  // current-library readable, published/indexed metadata already in the session.
+  // This general business question contains no document metadata or answer.
+  const common:QaExample[]=kbId==='business'?[{label:'设备离线多久提交 IT 工单？',question:'设备持续离线达到多少分钟仍未恢复时，应提交 IT 工单？'}]:[]
+  // Document-derived starters only use readable, published/indexed metadata.
   const docs=documents.filter(doc=>doc.kbId===kbId&&doc.status==='active'&&doc.indexStatus==='indexed')
-  if(!docs.length)return []
+  if(!docs.length)return common
   const definitions=kbId==='demo'?[
     {label:'晨间与夜间校准',question:'虚构ZX8的晨间和夜间校准分别需要多长时间？',match:/ZX8.*维护指南/i},
     {label:'校准前的操作',question:'虚构ZX8开始校准前需要执行哪些操作？',match:/ZX8.*维护指南/i},
@@ -29,5 +30,5 @@ export function qaExamples(kbId:KbId,documents:Doc[]):QaExample[]{
     }
   }
   if(directory)result.unshift({label:'员工通讯录包含哪些信息？',question:'《员工通讯录》包含哪些信息？'})
-  return result.slice(0,4)
+  return [...common,...result].slice(0,4)
 }
