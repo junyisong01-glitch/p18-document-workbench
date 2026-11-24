@@ -57,3 +57,17 @@
 .access-form .access-review-actions>button{display:inline-flex;align-items:center;justify-content:center;min-width:104px;min-height:38px;padding:9px 16px;border-radius:8px;font-size:13px;font-weight:500;line-height:18px;border:1px solid transparent;transition:background-color .15s,border-color .15s}
 .access-form .access-review-actions>.access-reject{color:hsl(var(--muted-foreground));background:hsl(var(--secondary)/.65);border-color:hsl(var(--border))}
 .access-form .access-review-actions>.access-reject:hover:not(:disabled){color:hsl(var(--foreground));background:hsl(var(--secondary));border-color:hsl(var(--muted-foreground)/.35)}
+
+/* A readable request brief above the recommendation and borrowing controls. */
+.access-request-summary{display:grid;gap:14px;padding:18px;border:1px solid hsl(var(--border));border-radius:12px;background:hsl(var(--secondary)/.22);min-width:0}
+.access-applicant{display:flex;align-items:center;gap:10px;min-width:0}
+.access-applicant-avatar{display:grid;place-items:center;flex-shrink:0;width:34px;height:34px;border-radius:10px;background:hsl(var(--primary)/.09);color:hsl(var(--primary));font-size:14px;font-weight:600}
+.access-applicant>div{min-width:0}
+.access-summary-label{display:block;color:hsl(var(--muted-foreground));font-size:11px;line-height:1.6;font-weight:400}
+.access-applicant-meta{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;line-height:1.6;overflow-wrap:anywhere}
+.access-applicant-meta strong{font-size:13px;font-weight:600}
+.access-applicant-meta>span{font-size:12px;color:hsl(var(--muted-foreground))}
+.access-request-question h3{margin:4px 0 0;font-size:15px;font-weight:600;line-height:1.65;overflow-wrap:anywhere;white-space:pre-wrap}
+.access-request-purpose{display:grid;grid-template-columns:56px minmax(0,1fr);align-items:baseline;gap:10px;padding-top:12px;border-top:1px solid hsl(var(--border))}
+.access-form .access-request-purpose p{margin:0;font-size:12px;line-height:1.75;color:hsl(var(--foreground)/.75);white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:600px){.access-request-summary{padding:14px;gap:12px}.access-request-purpose{grid-template-columns:minmax(0,1fr);gap:4px}.access-request-question h3{font-size:14px}}
