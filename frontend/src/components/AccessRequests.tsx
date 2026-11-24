@@ -61,6 +61,10 @@ export function AccessRequestList({rows,review=false,onChanged,onAsk}:{rows:Acce
   try{await api.post('/api/business/access-requests/'+row.id+'/decision',{expected:row.version,action,...(action==='approve'?{document_id:doc?.id,document_version:doc?.workflow.version,days}:{})});setSelected(null);await onChanged()}catch(e){setError((e as Error).message)}finally{setBusy(false)}
  }
  const available=docs.filter(d=>d.department===selected?.department&&d.workflow.status==='published'&&!d.workflow.deleted&&!d.workflow.archived&&d.technical_index_ready&&(!d.workflow.restricted||user?.accessRole==='boss'))
+ const documentGroups=Array.from(available.reduce((groups,doc)=>{
+  const category=doc.docType?.trim()||'未分类'
+  const group=groups.get(category)||[];group.push(doc);groups.set(category,group);return groups
+ },new Map<string,BusinessRow[]>())).sort(([a],[b])=>a===b?0:a==='未分类'?1:b==='未分类'?-1:a.localeCompare(b,'zh-CN')).map(([category,items])=>({category,items:items.sort((a,b)=>a.name.localeCompare(b.name,'zh-CN',{numeric:true}))}))
  const candidates=(recommendations?.items||[]).filter(item=>available.some(d=>d.id===item.id))
  const primary=candidates.slice(0,2),more=candidates.slice(2)
  const selectedDocument=available.find(d=>d.id===documentId)
@@ -92,7 +96,7 @@ export function AccessRequestList({rows,review=false,onChanged,onAsk}:{rows:Acce
     <div className="access-choice-row"><div className="access-selection" aria-live="polite">{selectedDocument?<><CheckCircle2 size={18} aria-hidden="true"/><div><span>已选文件</span><strong title={selectedDocument.name}>{documentTitleParts(selectedDocument.name).title.replace(/\s+[vV]\d+(?:\.\d+)*$/,'')}{selectedDocument.version&&<small>{selectedDocument.version}</small>}</strong></div></>:<><FileText size={18} aria-hidden="true"/><div><strong>尚未选择文件</strong><span>从推荐资料选择，或手动查找</span></div></>}</div>
      <div className="access-manual"><button type="button" className="access-manual-toggle" ref={manualToggle} aria-expanded={manualOpen} aria-controls={manualId} onClick={()=>setManualOpen(value=>!value)}><FileText size={15} aria-hidden="true"/>手动选择文件<ChevronDown size={14} aria-hidden="true"/></button></div>
     </div>
-    <div className="access-manual-picker" id={manualId} hidden={!manualOpen}><label>选择借阅文件<select disabled={loading||busy} value={documentId} onChange={e=>{chooseDocument(e.target.value);if(e.target.value)manualToggle.current?.focus()}}><option value="">{loading?'正在读取可授权资料…':'请选择一份已发布资料'}</option>{available.map(d=><option key={d.id} value={d.id}>{d.name} · {d.version}</option>)}</select></label></div>
+    <div className="access-manual-picker" id={manualId} hidden={!manualOpen}><div className="access-picker-scope"><span>{selected.department}</span><small>{loading?'正在读取资料…':`按文档类型分组 · 共 ${available.length} 份`}</small></div><label>选择借阅文件<select disabled={loading||busy} value={documentId} onChange={e=>{chooseDocument(e.target.value);if(e.target.value)manualToggle.current?.focus()}}><option value="">{loading?'正在读取可授权资料…':'请按分类选择一份资料'}</option>{documentGroups.map(group=><optgroup key={group.category} label={`${group.category}（${group.items.length}）`}>{group.items.map(d=><option key={d.id} value={d.id}>{d.name} · {d.version}</option>)}</optgroup>)}</select></label></div>
     {!loading&&!available.length&&<p>该部门暂无你可授权的已发布且可检索资料。</p>}
     <label className="access-duration"><span>借阅期限<small>仅授予只读权限</small></span><span className="access-duration-control"><select value={days} disabled={busy} onChange={e=>setDays(Number(e.target.value))}>{[1,3,7,30].map(n=><option key={n} value={n}>{n} 天</option>)}</select><ChevronDown size={14} aria-hidden="true"/></span></label>
    </section>

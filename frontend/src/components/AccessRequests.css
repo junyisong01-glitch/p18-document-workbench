@@ -73,3 +73,7 @@
 .access-request-purpose{display:grid;grid-template-columns:56px minmax(0,1fr);align-items:baseline;gap:10px;padding-top:12px;border-top:1px solid hsl(var(--border))}
 .access-form .access-request-purpose p{margin:0;font-size:12px;line-height:1.75;color:hsl(var(--foreground)/.75);white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:600px){.access-request-summary{padding:14px;gap:12px}.access-request-purpose{grid-template-columns:minmax(0,1fr);gap:4px}.access-request-question h3{font-size:14px}}
+
+.access-picker-scope{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:10px}
+.access-picker-scope>span{padding:3px 8px;border-radius:5px;background:hsl(var(--primary)/.08);color:hsl(var(--primary));font-size:11px;font-weight:500}
+.access-picker-scope>small{font-size:11px;color:hsl(var(--muted-foreground))}
