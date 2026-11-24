@@ -181,3 +181,13 @@
 .access-status.needs_content{color:hsl(var(--foreground));background:hsl(var(--secondary));border:1px solid hsl(var(--border))}
 .access-status.resolved{color:hsl(var(--primary));background:hsl(var(--primary)/.08)}
 @media(max-width:600px){.access-outcomes>div{grid-template-columns:1fr}.access-form .access-outcomes label{padding:10px 12px}}
+.access-selected-files{display:grid;gap:6px;list-style:none;margin:0;padding:0}
+.access-selected-files li{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid hsl(var(--border));border-radius:7px;background:hsl(var(--card));font-size:12px;min-width:0}
+.access-selected-files li>svg{color:hsl(var(--muted-foreground));flex-shrink:0}
+.access-selected-files li>span{min-width:0;flex:1;overflow-wrap:anywhere}
+.access-form .access-selected-files button{padding:4px;border:0;border-radius:4px;color:hsl(var(--muted-foreground));flex-shrink:0}
+.access-selected-files button:hover{background:hsl(var(--secondary));color:hsl(var(--foreground))}
+.access-granted-files{list-style:none;padding:0;margin:6px 0 0;display:grid;gap:8px}
+.access-granted-files strong{font-size:12px;font-weight:500;color:hsl(var(--foreground));overflow-wrap:anywhere}
+.access-granted-files small{font-size:11px}
+.access-approved-row>.access-document{color:hsl(var(--muted-foreground));font-size:12px;overflow-wrap:anywhere}
