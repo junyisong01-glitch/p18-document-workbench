@@ -83,3 +83,13 @@ AR11界面更新：点击“手动选择文件”打开独立弹窗，按类型�
 ## AR18 处理信息（2026-11-24）
 
 待处理申请以相关部门主管或管理层为审批范围，不表示已分派给个人。接口reviewer_scope仅待处理时返回；handled_by为已处理申请真实记录的actor，旧记录缺失时为空。界面显示实际批准人、处理人或撤回人；角色变化或文件阅读权撤回不会改写历史处理人。现有权限校验、本人不得自批及隐藏不可读文件信息的规则不变。
+
+## AR21 资料缺口与补充跟进（2026-11-24）
+
+未结束状态为pending（待核查）和needs_content（待补充）。同一申请人、相关部门和标准化问题在两种状态下统一去重。主管或管理层核查后可选择approve、needs_content或reject；申请人可cancel。needs_content可再次更新说明、reject、cancel或resolve，禁止用普通approve绕过补充完成说明。resolve仅对needs_content有效，必须关联所属部门已发布、可授权、可阅读且有有效索引的资料，并提交最新文件版本。
+
+needs_content、reject、resolve的note去除空白后必填。note会向申请人展示，不得放入未授权文档名称或片段。review_note保存最近结果；gap_note/gap_actor保存最近缺口说明和核查人；逐次说明追加在access_request_events.note中。负责部门沿用申请department，不虚构个人指派。resolve原子创建只读借阅授权并将申请变为resolved；授权不会缩短已有更长或永久授权。
+
+员工分类：pending/needs_content进入待处理，approved/resolved且实时access_available为真进入可查阅，其余进入历史。发布文件不会自动结束申请；主管核对关联文件并完成补充后，轮询更新结果，员工可重新提问。文档权限撤回或状态变化后，返回结果继续隐藏不可读文件ID和名称。
+
+兼容迁移仅增加可空字段与未结束申请唯一索引，重复启动安全。暂未加入自动全库探测或公开受限目录，不根据检索失败宣称整个知识库不存在答案。

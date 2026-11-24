@@ -69,7 +69,7 @@ export default function BusinessPage(){
  const scopedRows=rows.filter(row=>activeTab==='我的提交'||!boss||departmentFilter==='全公司总览'||row.department===departmentFilter)
  const viewCounts=Object.fromEntries(tabs.map(view=>[view,scopedRows.filter(row=>inView(row,view)).length]))
  viewCounts['我的申请']=requests.rows.filter(r=>r.owner===user?.username).length
- viewCounts['借阅申请']=requests.rows.filter(r=>r.can_review&&r.status==='pending').length
+ viewCounts['借阅申请']=requests.rows.filter(r=>r.can_review&&(r.status==='pending'||r.status==='needs_content')).length
  const requestTab=activeTab==='我的申请'||activeTab==='借阅申请'
  const myRows=scopedRows.filter(row=>inView(row,'我的提交'))
  const actionCount=myRows.filter(row=>submissionGroup(row,!!(boss||head))==='需要处理').length
