@@ -108,7 +108,7 @@
 .qa-chat-composer button:not(:disabled):hover { background: hsl(12 75% 33%); }
 .qa-chat-composer button:disabled { opacity: .68; }
 .qa-chat-composer-follow { min-height: 100px; padding: 12px 14px; align-items: end; }
-.qa-chat-composer-follow textarea { grid-column: 1 / -1; min-height: 2.5em; }
+.qa-chat-composer-follow textarea { grid-column: 1 / -1; min-height: 2.5em; align-self: start; }
 .qa-chat-mobile { display: none; }
 @media (max-width: 760px) {
   .qa-chat-header { padding-inline: 10px; }
