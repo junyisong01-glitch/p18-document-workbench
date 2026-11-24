@@ -160,3 +160,27 @@ def test_recommendations_recheck_after_model_work(rig,monkeypatch,change):
         assert response.status_code==200
         assert response.json()['items']==[]
         assert text not in response.text
+
+
+def test_request_handler_projection_tracks_routing_and_actual_actor(rig):
+    r = rig
+    doc = r.create()
+    pending = create(r).json()
+    assert pending['reviewer_scope'] == '研发部主管或管理层'
+    assert pending['handled_by'] is None
+    approved = decide(r, pending, who='boss', doc=doc).json()
+    assert approved['handled_by'] == 'boss'
+    assert approved['reviewer_scope'] is None
+    assert listing(r, 'prd')[0]['handled_by'] == 'boss'
+    assert r.action(doc, 'head', 'revoke_share', username='prd').status_code == 200
+    historical = listing(r, 'prd')[0]
+    assert historical['handled_by'] == 'boss' and historical['document'] is None
+    rejected = decide(r, create(r).json(), action='reject').json()
+    assert rejected['handled_by'] == 'head' and rejected['reviewer_scope'] is None
+    cancelled = decide(r, create(r).json(), who='prd', action='cancel').json()
+    assert cancelled['handled_by'] == 'prd' and cancelled['reviewer_scope'] is None
+    # Preserve an honest empty value for older records without a recorded actor.
+    with r.q.connect() as c:
+        c.execute('UPDATE access_requests SET actor=NULL WHERE id=?', (cancelled['id'],))
+    assert next(x for x in listing(r, 'prd') if x['id'] == cancelled['id'])['handled_by'] is None
+    assert listing(r, 'otherhead') == [] and listing(r, 'rd') == []

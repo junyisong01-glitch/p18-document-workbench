@@ -53,6 +53,10 @@ def install(store, central, user, read, visible, manager):
     def output(row, u):
         result = {k:row[k] for k in ('id','owner','owner_department','department','question','purpose','status','version','created','updated')}
         result.update(can_review=reviewer(u,row), document=None, access_available=False, expires_at=row['expires'])
+        # Requests route to a role, not to an assigned individual. The stored
+        # actor is the historical decision maker, even after later role changes.
+        result['reviewer_scope'] = f"{row['department']}主管或管理层" if row['status'] == 'pending' else None
+        result['handled_by'] = row['actor'] if row['status'] != 'pending' else None
         # Do not retain a revoked file's title/identifier in applicant notifications.
         if row['status'] == 'approved' and row['document_id']:
             try:

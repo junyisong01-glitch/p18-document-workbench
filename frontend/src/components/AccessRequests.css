@@ -142,3 +142,9 @@
 .access-inbox-note{font-size:12px;line-height:1.8;color:hsl(var(--muted-foreground));margin-top:-8px}
 .access-filter-results{min-width:0}
 @media(max-width:600px){.access-filter-group{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%}.access-filter-group>button{justify-content:space-between;padding:8px 12px}.access-inbox-toolbar{gap:6px}}
+
+/* Distinguish department routing from the recorded decision maker. */
+.access-handler{display:flex;align-items:flex-start;gap:7px;margin:10px 0;color:hsl(var(--foreground));font-size:12px;line-height:1.7;overflow-wrap:anywhere}
+.access-handler>svg{flex-shrink:0;margin-top:3px;color:hsl(var(--muted-foreground))}
+.access-handler-label{margin-right:8px;color:hsl(var(--muted-foreground))}
+.access-handler small{display:block;color:hsl(var(--muted-foreground));font-size:11px}
