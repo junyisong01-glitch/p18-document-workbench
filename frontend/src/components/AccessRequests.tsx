@@ -1,5 +1,5 @@
 import {useCallback,useEffect,useRef,useState} from 'react'
-import {FileQuestion,RefreshCw,ChevronDown,FileText,CheckCircle2} from 'lucide-react'
+import {FileQuestion,RefreshCw,ChevronDown,FileText,CheckCircle2,UserRound} from 'lucide-react'
 import {api} from '@/lib/api'
 import {documentTitleParts} from '@/lib/document-title'
 import {useSession} from '@/lib/session'
@@ -12,7 +12,7 @@ import './AccessRequests.css'
 type Recommendation={id:string;name:string;document_version:number;excerpt:string;section:string;priority?:boolean;support_quote?:string;reason?:string}
 type Recommendations={items:Recommendation[];notice:string;review_available?:boolean}
 
-export type AccessRequest={id:string;owner:string;owner_department:string;department:string;question:string;purpose:string;status:'pending'|'approved'|'rejected'|'cancelled';version:number;can_review:boolean;document:{id:string;name:string}|null;access_available:boolean;expires_at:number|null;updated:number}
+export type AccessRequest={id:string;owner:string;owner_department:string;department:string;question:string;purpose:string;status:'pending'|'approved'|'rejected'|'cancelled';version:number;can_review:boolean;reviewer_scope?:string|null;handled_by?:string|null;document:{id:string;name:string}|null;access_available:boolean;expires_at:number|null;updated:number}
 export function useAccessRequests(enabled:boolean){
  const [rows,setRows]=useState<AccessRequest[]>([]),[error,setError]=useState(''),[loaded,setLoaded]=useState(false)
  const sequence=useRef(0)
@@ -75,6 +75,7 @@ export function AccessRequestList({rows,review=false,onChanged,onAsk,showIntro=t
   {!rows.length&&<p className="access-empty">{emptyText||(review?'暂无需要处理的借阅申请。':'暂无资料支持申请。')}</p>}
   {rows.map(row=><article key={row.id} className="access-request"><div className="access-request-heading"><strong>{row.question}</strong><span className={'access-status '+row.status}>{({pending:'待处理',approved:row.access_available?'已批准 · 可查阅':'已批准 · 当前不可查阅',rejected:'未批准',cancelled:'已撤回'})[row.status]}</span></div>
    <p>{review?`${demoIdentityName(row.owner)||row.owner} · ${row.owner_department} → `:''}{row.department} · {new Date(row.updated*1000).toLocaleString('zh-CN')}</p><p>用途：{row.purpose}</p>
+   <div className="access-handler"><UserRound size={14} aria-hidden="true"/><span>{row.status==='pending'?<><span className="access-handler-label">待处理方</span>{row.reviewer_scope||`${row.department}主管或管理层`}<small>按部门送达，尚未指定个人</small></>:<><span className="access-handler-label">{row.status==='approved'?'批准人':row.status==='rejected'?'处理人':'撤回人'}</span>{row.handled_by?demoIdentityName(row.handled_by):'暂无处理人记录'}</>}</span></div>
    {row.document&&<p className="access-document">获准资料：{row.document.name}{row.expires_at&&<small>借阅有效至 {new Date(row.expires_at*1000).toLocaleString('zh-CN')}</small>}</p>}
    {row.status==='approved'&&!row.access_available&&<p>资料权限或状态已变化，请联系相关部门确认。</p>}
    {row.status==='rejected'&&<p>相关部门本次未批准借阅，可补充用途后重新申请。</p>}
