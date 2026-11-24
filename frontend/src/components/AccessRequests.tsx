@@ -8,8 +8,8 @@ import {DocumentModal} from './DocumentLayout'
 import {BUSINESS_DEPARTMENTS,type BusinessRow} from './BusinessPresentation'
 import './AccessRequests.css'
 
-type Recommendation={id:string;name:string;document_version:number;excerpt:string;section:string}
-type Recommendations={items:Recommendation[];notice:string}
+type Recommendation={id:string;name:string;document_version:number;excerpt:string;section:string;priority?:boolean;support_quote?:string;reason?:string}
+type Recommendations={items:Recommendation[];notice:string;review_available?:boolean}
 
 export type AccessRequest={id:string;owner:string;owner_department:string;department:string;question:string;purpose:string;status:'pending'|'approved'|'rejected'|'cancelled';version:number;can_review:boolean;document:{id:string;name:string}|null;access_available:boolean;expires_at:number|null;updated:number}
 export function useAccessRequests(enabled:boolean){
@@ -58,6 +58,9 @@ export function AccessRequestList({rows,review=false,onChanged,onAsk}:{rows:Acce
   try{await api.post('/api/business/access-requests/'+row.id+'/decision',{expected:row.version,action,...(action==='approve'?{document_id:doc?.id,document_version:doc?.workflow.version,days}:{})});setSelected(null);await onChanged()}catch(e){setError((e as Error).message)}finally{setBusy(false)}
  }
  const available=docs.filter(d=>d.department===selected?.department&&d.workflow.status==='published'&&!d.workflow.deleted&&!d.workflow.archived&&d.technical_index_ready&&(!d.workflow.restricted||user?.accessRole==='boss'))
+ const candidates=(recommendations?.items||[]).filter(item=>available.some(d=>d.id===item.id))
+ const primary=candidates.slice(0,2),more=candidates.slice(2)
+ const renderRecommendation=(item:Recommendation)=>{const {title,number}=documentTitleParts(item.name);const version=available.find(d=>d.id===item.id)?.version;return <article key={item.id} className={'access-recommendation'+(documentId===item.id?' is-selected':'')}><details name="access-recommendation-preview"><summary><FileText size={18} aria-hidden="true"/><span className="access-recommendation-title"><strong title={item.name}>{title.replace(/\s+[vV]\d+(?:\.\d+)*$/,'')}{version&&<span className="access-document-version">{version}</span>}</strong>{item.priority&&<span className="access-priority">优先核对</span>}<small>{item.section||'相关片段'} · <span className="access-show-excerpt">查看片段</span><span className="access-hide-excerpt">收起片段</span></small></span><ChevronDown size={15} className="access-recommendation-chevron" aria-hidden="true"/></summary>{number&&<p className="access-document-number">文档编号：{number}</p>}<blockquote>{item.excerpt}</blockquote></details><button type="button" disabled={busy} aria-pressed={documentId===item.id} onClick={()=>setDocumentId(item.id)}>{documentId===item.id?'已选此文件':'选择此文件'}</button><div className="access-recommendation-reason"><p>{item.reason}</p>{item.support_quote&&<p className="access-support-quote">原文依据：{item.support_quote}</p>}</div></article>}
  return <div className="access-requests"><div className="access-intro"><strong>{review?'借阅申请':'我的申请'}{pending>0&&` · ${pending} 条待处理`}</strong><p>{review?'申请按资料相关部门送达。选择文件批准后，系统会授予申请人只读借阅权限。':'批准表示文件可以查阅，不保证包含问题答案。重新提问后仍缺少依据，可继续申请资料支持或反馈资料缺口。'}</p></div>
   {error&&!selected&&<p role="alert">{error}</p>}
   {!rows.length&&<p className="access-empty">{review?'暂无需要处理的借阅申请。':'暂无资料支持申请。'}</p>}
@@ -72,8 +75,8 @@ export function AccessRequestList({rows,review=false,onChanged,onAsk}:{rows:Acce
    </div>
   </article>)}
   {selected&&<DocumentModal open title="处理借阅申请" description="仅批准本次需要的文件；阅读授权不包含修改、发布或再次授权。" busy={busy} onClose={()=>{openSequence.current++;setSelected(null)}}><div className="access-form"><strong>{selected.question}</strong><p>{demoIdentityName(selected.owner)||selected.owner} · {selected.owner_department}</p><p>用途：{selected.purpose}</p>
-   <section className="access-recommendations" aria-label="相关资料推荐"><strong>相关资料推荐</strong><p>点击文件查看相关片段，核对后选择。仅展示你可授权的本部门资料，相关性不代表一定包含答案。</p>
-    {loading?<p role="status">正在检索相关资料…</p>:recommendationError?<p role="alert">{recommendationError}；可使用下方列表手动选择。</p>:<>{!recommendations?.items.length&&<p>{recommendations?.notice}</p>}{recommendations?.items.filter(item=>available.some(d=>d.id===item.id)).map(item=>{const {title,number}=documentTitleParts(item.name);const version=available.find(d=>d.id===item.id)?.version;return <article key={item.id} className={'access-recommendation'+(documentId===item.id?' is-selected':'')}><details name="access-recommendation-preview"><summary><FileText size={18} aria-hidden="true"/><span className="access-recommendation-title"><strong title={item.name}>{title.replace(/\s+[vV]\d+(?:\.\d+)*$/,'')}{version&&<span className="access-document-version">{version}</span>}</strong><small>{item.section||'相关片段'} · <span className="access-show-excerpt">查看片段</span><span className="access-hide-excerpt">收起片段</span></small></span><ChevronDown size={15} className="access-recommendation-chevron" aria-hidden="true"/></summary>{number&&<p className="access-document-number">文档编号：{number}</p>}<blockquote>{item.excerpt}</blockquote></details><button type="button" disabled={busy} aria-pressed={documentId===item.id} onClick={()=>setDocumentId(item.id)}>{documentId===item.id?'已选此文件':'选择此文件'}</button></article>})}</>}
+   <section className="access-recommendations" aria-label="相关资料推荐"><strong>相关资料推荐</strong><p>优先核对原文依据，再结合用途选择一份文件。仅展示你可授权的本部门资料。</p>
+    {loading?<p role="status">正在检索并核对原文依据…</p>:recommendationError?<p role="alert">{recommendationError}；可使用下方列表手动选择。</p>:<>{(!recommendations?.items.length||!recommendations.review_available)&&<p>{recommendations?.notice}</p>}{primary.map(renderRecommendation)}{more.length>0&&<details className="access-more"><summary>更多相关资料 · {more.length} 份{more.some(item=>item.id===documentId)?' · 含已选文件':''}<ChevronDown size={14}/></summary><div>{more.map(renderRecommendation)}</div></details>}</>}
    </section>
    <label>选择借阅文件<select disabled={loading||busy} value={documentId} onChange={e=>setDocumentId(e.target.value)}><option value="">{loading?'正在读取可授权资料…':'请选择一份已发布资料'}</option>{available.map(d=><option key={d.id} value={d.id}>{d.name} · {d.version}</option>)}</select></label>
    {!loading&&!available.length&&<p>该部门暂无你可授权的已发布且可检索资料。</p>}
