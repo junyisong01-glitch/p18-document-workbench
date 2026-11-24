@@ -72,3 +72,5 @@
 .qa-first-followup>.qa-first-chips{min-width:0;flex-wrap:wrap}
 .qa-first-followup>.qa-first-chips button{max-width:100%;white-space:normal;overflow-wrap:anywhere}
 .qa-first-followup .qa-answer-action{white-space:nowrap}
+
+.qa-first-empty>p{margin-bottom:6px;max-width:65ch}
