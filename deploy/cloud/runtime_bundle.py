@@ -24,7 +24,7 @@ CLEAR = {'library_sessions', 'library_login_attempts', 'account_invitations',
          'external_permissions', 'external_audit', 'business_role_audit',
          'qa_external_settings', 'qa_external_audit', 'knowledge_gaps',
          'knowledge_gap_reporters', 'knowledge_gap_events', 'qa_feedback',
-         'qa_feedback_events', 'index_runs'}
+         'qa_feedback_events', 'access_requests', 'access_request_events', 'index_runs'}
 
 
 def sha(path):

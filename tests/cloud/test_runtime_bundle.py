@@ -37,6 +37,8 @@ class HandoffTests(unittest.TestCase):
                     CREATE TABLE chunk_runs(document_id TEXT,body TEXT);
                     CREATE TABLE business_events(document_id TEXT,actor TEXT,action TEXT);
                     CREATE TABLE business_grants(document_id TEXT,username TEXT,expires REAL);
+                    CREATE TABLE access_requests(id TEXT,question TEXT);
+                    CREATE TABLE access_request_events(request_id TEXT,actor TEXT);
                 ''')
                 c.execute('INSERT INTO documents VALUES (?,?)', ('doc-one', json.dumps({'id': 'doc-one', 'state': 'ready'})))
                 c.execute('INSERT INTO documents VALUES (?,?)', ('deleted-one', json.dumps({'id': 'deleted-one', 'state': 'deleted'})))
@@ -44,6 +46,8 @@ class HandoffTests(unittest.TestCase):
                     c.execute('INSERT INTO library_accounts VALUES (?,?,?,?,?,?)', (user, 'old-salt', 'old-hash', 'identity', 0, 1))
                     c.execute('INSERT INTO business_profiles VALUES (?,?,?,?,?)', (user, 'employee', '研发部', '', 0))
                 c.execute("INSERT INTO library_sessions VALUES ('private-session')")
+                c.execute("INSERT INTO access_requests VALUES ('private-request','private-question')")
+                c.execute("INSERT INTO access_request_events VALUES ('private-request','private-user')")
                 c.execute("INSERT INTO account_invitations VALUES ('private-invite')")
                 c.execute('INSERT INTO qa_external_settings VALUES (1)')
                 c.execute('INSERT INTO index_runs VALUES (?,?)', ('doc-one', '{"status":"complete"}'))

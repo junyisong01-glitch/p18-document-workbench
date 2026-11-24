@@ -1,3 +1,4 @@
+import {RequestSupport,MyAccessRequests,useAccessRequests} from '@/components/AccessRequests'
 import {useSearchParams,Link} from 'react-router'
 import {RecordFeedback,type FeedbackTurn} from '@/components/QuestionFeedback'
 import {useCallback,useEffect,useRef,useState} from 'react'
@@ -32,8 +33,12 @@ type Turn = {
 type Conversation = { id:string; title:string; turns:Turn[] }
 
 export default function QaPage(){
- const {kbId,visibleDocs,searchableDocs,ready,user}=useSession()
+ const {kbId,visibleDocs,searchableDocs,ready,user,refresh}=useSession()
  const [params]=useSearchParams()
+ const requests=useAccessRequests(kbId==='business'&&!!user&&user.accessRole!=='guest')
+ const [requestQuestion,setRequestQuestion]=useState<string|null>(null)
+ const [requestSaved,setRequestSaved]=useState(false)
+ useEffect(()=>{if(!requestSaved)return;const timer=setTimeout(()=>setRequestSaved(false),5000);return()=>clearTimeout(timer)},[requestSaved])
  const [feedbackTurn,setFeedbackTurn]=useState<FeedbackTurn|null>(null),[feedbackSaved,setFeedbackSaved]=useState(false)
  const [feedbackContextId,setFeedbackContextId]=useState<string|undefined>()
  const [reported,setReported]=useState<string[]>([])
@@ -90,7 +95,7 @@ export default function QaPage(){
   setPending(null)
  }
 
- async function runQuestion(value:string){
+ async function runQuestion(value:string,fresh=false){
   const current=value.trim()
   if(!current||busy||!route)return
   archiveTurn()
@@ -103,7 +108,7 @@ export default function QaPage(){
   setBusy(true);setError('');setPending(null);setConsent(false);setAnswer(null);setDraft(null);setSelected([])
   if(questionOnly)setPhase('search')
   try{
-   const sessionId=questionOnly?backendSessions.current.get(id):undefined
+   const sessionId=questionOnly&&!fresh?backendSessions.current.get(id):undefined
    const next=await api.post<any>('/api/rag/drafts',{question:current,...(sessionId&&{session_id:sessionId})})
    if(questionOnly&&next.session_id)backendSessions.current.set(id,next.session_id)
    if(next.status!=='drafted'){
@@ -195,6 +200,7 @@ export default function QaPage(){
    documentIds.has(source.document_id)&&(source.members||[]).every(member=>documentIds.has(member.document_id)))
   const actions=(turn.answer||noEvidence)&&<QaAnswerActions provider={sourcesAvailable?turn.answer?.provider:undefined}>
    {kbId==='business'&&!guest&&turn.feedbackContextId&&(turn.answer||noEvidence)&&<button type="button" disabled={reported.includes(turn.feedbackContextId)||!sourcesAvailable} className="qa-answer-action" onClick={()=>{setFeedbackSaved(false);setFeedbackTurn({contextId:turn.feedbackContextId!,question:turn.question,answer:turn.answer?.answer||'没找到可靠依据',citations})}}>{reported.includes(turn.feedbackContextId)?<Check size={14}/>:<Flag size={14}/>}<span>{reported.includes(turn.feedbackContextId)?'已反馈':'反馈'}</span></button>}
+   {kbId==='business'&&!guest&&<button type="button" className="qa-answer-action" onClick={()=>{setRequestSaved(false);setRequestQuestion(turn.question)}}><Flag size={14}/><span>申请资料支持</span></button>}
    </QaAnswerActions>
   return <>
    {turn.error&&<p role="alert" className="qa-chat-error">{turn.error}{turn.error.includes('历史归档 → 查正文')&&
@@ -211,7 +217,7 @@ export default function QaPage(){
  }
 
  return <>
-  <QaWorkspace onWidthChange={syncQaWidth} guest={guest} library={kb.name} name={name} role={guest?'外部参观':user?.role.name??''} settings={kbId==='business'&&user?.accessRole!=='boss'?null:settings} tools={<><Link to="/documents">{guest?'公开资料':'我的资料'}</Link></>}
+  <QaWorkspace onWidthChange={syncQaWidth} guest={guest} library={kb.name} name={name} role={guest?'外部参观':user?.role.name??''} settings={kbId==='business'&&user?.accessRole!=='boss'?null:settings} tools={<>{kbId==='business'&&!guest&&<MyAccessRequests rows={requests.rows.filter(r=>r.owner===user?.username)} error={requests.error} loaded={requests.loaded} onRefresh={requests.load} onAsk={value=>{void refresh().then(()=>runQuestion(value,true))}}/>}<Link to="/documents">{guest?'公开资料':'我的资料'}</Link></>}
     previewDocked={dockPreview&&!!previewDoc} preview={preview&&activeSource&&previewDoc&&
       <DocPreviewDialog presentation={dockPreview?'panel':'drawer'} sourceRef={activeSource} sourceVisit={preview.visit}
         doc={previewDoc} open onClose={closePreview} navigation={preview.locations.length>1&&
@@ -245,6 +251,8 @@ export default function QaPage(){
     </QaChatTurn>}
     {routeError&&<p role="alert" className="qa-chat-error">问答服务暂不可用。 <button type="button" onClick={()=>setRouteAttempt(attempt=>attempt+1)}>重试</button></p>}
   </QaWorkspace>
+  {requestQuestion!==null&&<RequestSupport question={requestQuestion} onClose={()=>setRequestQuestion(null)} onSaved={()=>{setRequestQuestion(null);setRequestSaved(true);void requests.load()}}/>}
+  {requestSaved&&<div role="status" className="dm-feedback"><span>申请已提交至相关部门，可在“我的申请”查看结果。</span><button aria-label="关闭申请提示" onClick={()=>setRequestSaved(false)}>×</button></div>}
   {feedbackTurn&&<RecordFeedback turn={feedbackTurn} onClose={()=>setFeedbackTurn(null)} onSaved={()=>{setReported(ids=>[...ids,feedbackTurn.contextId]);setFeedbackTurn(null);setFeedbackSaved(true)}}/>}
   {feedbackSaved&&<div role="status" className="dm-feedback"><span>反馈已记录。</span><Link to="/knowledge-gaps" className="underline">查看反馈记录</Link><button aria-label="关闭反馈提示" onClick={()=>setFeedbackSaved(false)}>×</button></div>}
   {(kbId==='demo'||questionOnly)&&<ModelConfigDialog open={configOpen} onClose={closeConfig} onStatus={setModelConfig}
